@@ -1,0 +1,67 @@
+# ============================================================
+# Ghost Creator AI — .gitignore
+# ============================================================
+
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# ── Virtual Environments (Python — never commit) ────────────
+venv/
+.venv/
+Venv/
+ENV/
+env/
+virtualenv/
+
+# ── Secrets — NEVER COMMIT ───────────────────────────────────
+.env
+.env.local
+build.bat
+
+# ── Generated Media (large files — never commit) ─────────────
+output/
+temp/
+*.png
+*.jpg
+*.mp4
+*.mp3
+*.wav
+
+# ── Voice Reference (personal audio) ────────────────────────
+my_voice_reference.wav
+
+# ── Chatterbox TTS Server (separate git repo — clone independently) ──────────
+# https://github.com/mirbehnam/Chatterbox-TTS-Server-windows-easyInstallation
+Chatterbox-TTS-Server-windows-easyInstallation/
+
+# ── HuggingFace model cache ──────────────────────────────────
+.cache/
+
+# ── Chrome Profile (personal login session) ─────────────────
+ChromeProfiles/
+
+# ── Debug / temp files ──────────────────────────────────────
+output/debug_upload.png
+*.log
+_cb_health.txt
+
+# ── Build / release (large binaries — do not commit) ────────
+/GhostCreatorAI.exe
+installer_output/
+ffmpeg/
+
+# ── IDE ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+installer_v2.iss 
+# ── OS ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,60 @@
+{
+  "api_keys": {
+    "gemini": "",
+    "elevenlabs": "",
+    "google_tts": "",
+    "fal_ai": "",
+    "replicate": "",
+    "stable_horde": "",
+    "deepgram": ""
+  },
+  "tts": {
+    "backend": "chatterbox",
+    "chatterbox_url": "http://127.0.0.1:8004",
+    "chatterbox_reference_audio": "my_voice_reference.wav",
+    "edge_tts_voice": "hi-IN-MadhurNeural",
+    "elevenlabs_voice_id": "",
+    "google_tts_language": "hi-IN",
+    "kokoro_model_path": "",
+    "chatterbox_path": "",
+    "deepgram_model": "aura-2",
+    "deepgram_voice": "aura-asteria-en"
+  },
+  "image": {
+    "backend": "gemini_imagen",
+    "comfyui_url": "http://127.0.0.1:8188",
+    "gemini_image_model": "nano_banana",
+    "pollinations_model": "dreamshaper",
+    "fal_model": "fal-ai/fast-sdxl",
+    "replicate_model": "stability-ai/sdxl",
+    "image_count": 6,
+    "width": 1080,
+    "height": 1920
+  },
+  "pipeline": {
+    "language": "hi",
+    "upload_mode": "unlisted",
+    "output_folder": "output",
+    "gemini_model": "gemini-2.0-flash",
+    "chrome_profiles": [
+      {
+        "name": "tech hunter",
+        "path": "C:/ChromeProfiles/GhostCreator_tech_hunter",
+        "profile_name": "Default"
+      }
+    ],
+    "active_profile_index": 0,
+    "upload_enabled": true
+  },
+  "aspect_ratio": "9:16",
+  "target_duration": 60,
+  "cinematic_effects": {
+    "enabled": true,
+    "intro": true,
+    "transitions": true,
+    "transition_style": "cinematic_mix"
+  },
+  "image_source": "ai_generate",
+  "custom_image_paths": [],
+  "script_review_enabled": true
+}
