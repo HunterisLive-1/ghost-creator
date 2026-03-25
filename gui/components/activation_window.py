@@ -37,20 +37,18 @@ class ActivationWindow(ctk.CTkToplevel):
         self.focus_set()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # Centre over parent
-        self.after(10, self._centre)
-
         self._build_ui()
+
+        # Centre on screen after widgets are ready
+        self.after(50, self._centre)
 
     def _centre(self):
         self.update_idletasks()
-        pw = self.master.winfo_width()
-        ph = self.master.winfo_height()
-        px = self.master.winfo_x()
-        py = self.master.winfo_y()
         w, h = 480, 330
-        x = px + (pw - w) // 2
-        y = py + (ph - h) // 2
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        x = (sw - w) // 2
+        y = (sh - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
 
     def _build_ui(self):
