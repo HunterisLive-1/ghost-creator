@@ -32,7 +32,7 @@ ctk.set_appearance_mode("dark")
 class GhostCreatorApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Ghost Creator AI v2 — Neural Interface")
+        self.title("Ghost Creator AI v3 — Neural Interface")
         self.geometry("1100x800")
         self.minsize(800, 600)
         self.configure(fg_color=BG_MAIN)
@@ -72,7 +72,7 @@ class GhostCreatorApp(ctk.CTk):
         
         badge = ctk.CTkFrame(bar, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=ACCENT_PRI)
         badge.pack(side="left", padx=10)
-        ctk.CTkLabel(badge, text="v2.0 PRO", font=("Orbitron", 11, "bold"), text_color=ACCENT_PRI).pack(side="left", padx=(10, 2), pady=2)
+        ctk.CTkLabel(badge, text="v3.0 PRO", font=("Orbitron", 11, "bold"), text_color=ACCENT_PRI).pack(side="left", padx=(10, 2), pady=2)
         self.cursor_label = ctk.CTkLabel(badge, text="▋", font=("Courier New", 11, "bold"), text_color=ACCENT_PRI, width=10)
         self.cursor_label.pack(side="left", padx=(0, 5))
         
