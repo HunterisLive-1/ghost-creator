@@ -12,10 +12,25 @@ Usage:
 """
 
 import asyncio
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from config import get_logger, TEMP_DIR
 from core.config_manager import config
+
+# ── FFmpeg path (same logic as video_builder) ────────────────────────────────
+_BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+_LOCAL_FFMPEG = os.path.join(_BASE_DIR, "ffmpeg", "ffmpeg.exe")
+_FFMPEG = _LOCAL_FFMPEG if os.path.exists(_LOCAL_FFMPEG) else "ffmpeg"
+
+# Pace → atempo multiplier (FFmpeg atempo: 0.5–2.0)
+PACE_ATEMPO = {
+    "slow":   0.85,   # ~15% slower speech
+    "medium": 1.0,    # no change
+    "fast":   1.18,   # ~18% faster speech
+}
 
 log = get_logger("voicer")
 
@@ -122,8 +137,46 @@ def run_voiceover(
     # Run the async synthesize method
     result = asyncio.run(backend.synthesize(text, language, str(output_path)))
 
-    log.info(f"Voiceover saved → {result}")
-    return Path(result)
+    # ── Apply pace-based speed adjustment via FFmpeg atempo ─────────────────
+    result_path = _apply_pace_speed(Path(result))
+
+    log.info(f"Voiceover saved → {result_path}")
+    return result_path
+
+
+def _apply_pace_speed(audio_path: Path) -> Path:
+    """
+    Re-encode the audio with FFmpeg atempo filter to match the selected video_pace.
+    Pace mapping: slow=0.85x  medium=1.0x  fast=1.18x
+    Returns the same path (in-place replacement).
+    """
+    pace = config.get("video_pace", "medium")
+    atempo = PACE_ATEMPO.get(pace, 1.0)
+
+    if abs(atempo - 1.0) < 0.01:
+        log.debug("Pace=medium — skipping atempo (no speed change needed)")
+        return audio_path
+
+    log.info(f"Applying pace speed: {pace!r} → atempo={atempo}x on {audio_path.name}")
+
+    tmp_path = audio_path.with_name(audio_path.stem + "_paced" + audio_path.suffix)
+    cmd = [
+        _FFMPEG, "-y",
+        "-i", str(audio_path),
+        "-filter:a", f"atempo={atempo}",
+        "-vn",
+        "-c:a", "libmp3lame", "-q:a", "2",
+        str(tmp_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        log.warning(f"atempo filter failed (will use original): {result.stderr[-200:]}")
+        return audio_path
+
+    # Replace original with paced version
+    tmp_path.replace(audio_path)
+    log.info(f"Pace speed applied ({atempo}x) → {audio_path.name}")
+    return audio_path
 
 
 # ── Legacy compatibility ──────────────────────────────────────────────────────

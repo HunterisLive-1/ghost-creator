@@ -1,5 +1,5 @@
 """
-gui/app.py — Ghost Creator AI v2 Neural Interface
+gui/app.py — Ghost Creator AI v3 Neural Interface
 """
 import queue
 import sys

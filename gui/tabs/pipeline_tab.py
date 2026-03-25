@@ -45,6 +45,8 @@ class PipelineTab(ctk.CTkFrame):
         self._build_topic_row()
         self._build_duration_row()
         self._build_image_source_section()
+        self._build_video_features_toggle()
+        self._build_video_pace_row()
         self._build_control_row()
         self._build_progress_section()
         self._build_log_section()
@@ -234,8 +236,38 @@ class PipelineTab(ctk.CTkFrame):
         )
         self._empty_thumb_lbl.pack(pady=24)
 
+        # Convert to video toggle
+        conv_row = ctk.CTkFrame(self._image_panel, fg_color=BG_CARD, corner_radius=0,
+                                border_width=1, border_color=BORDER)
+        conv_row.pack(fill="x", padx=10, pady=(4, 0))
+        conv_inner = ctk.CTkFrame(conv_row, fg_color="transparent")
+        conv_inner.pack(fill="x", padx=10, pady=8)
+
+        self._img2video_var = ctk.BooleanVar(value=bool(config.get("img2video_enabled", False)))
+        self._img2video_chk = ctk.CTkCheckBox(
+            conv_inner,
+            text="🎬  Convert uploaded images → Video clips (img2video)",
+            variable=self._img2video_var,
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=ACCENT_SEC,
+            fg_color=BG_MAIN,
+            border_color=ACCENT_PRI,
+            hover_color=BG_CARD,
+            checkmark_color=ACCENT_PRI,
+            corner_radius=0,
+            command=self._on_img2video_toggle,
+        )
+        self._img2video_chk.pack(side="left")
+
+        ctk.CTkLabel(
+            conv_inner,
+            text="  ↳  ON = AI generates motion clips from your images  |  OFF = static slideshow",
+            font=("Share Tech Mono", 10),
+            text_color=TEXT_SEC,
+        ).pack(side="left", padx=8)
+
         bot = ctk.CTkFrame(self._image_panel, fg_color="transparent")
-        bot.pack(fill="x", padx=10, pady=(0, 10))
+        bot.pack(fill="x", padx=10, pady=(4, 10))
 
         ctk.CTkButton(
             bot,
@@ -268,6 +300,10 @@ class PipelineTab(ctk.CTkFrame):
         if isinstance(saved_paths, list) and saved_paths:
             self.custom_image_paths = [str(x) for x in saved_paths]
             self._refresh_thumbnails()
+
+    def _on_img2video_toggle(self):
+        enabled = self._img2video_var.get()
+        config.set("img2video_enabled", enabled)
 
     def _on_image_source_segment(self, value: str):
         if "My Own" in value:
@@ -346,6 +382,120 @@ class PipelineTab(ctk.CTkFrame):
     def _remove_image(self, path: str):
         self.custom_image_paths = [p for p in self.custom_image_paths if p != path]
         self._refresh_thumbnails()
+
+    # ── Video Features Toggle ─────────────────────────────────────────────
+    def _build_video_features_toggle(self):
+        frame = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
+        frame.pack(fill="x", padx=20, pady=(0, 10))
+
+        inner = ctk.CTkFrame(frame, fg_color="transparent")
+        inner.pack(fill="x", padx=15, pady=10)
+
+        ctk.CTkLabel(
+            inner,
+            text="VIDEO ASSEMBLY:",
+            font=("Share Tech Mono", 14, "bold"),
+            text_color=ACCENT_PRI,
+        ).pack(side="left")
+
+        is_on = bool(config.get("video_features_enabled", True))
+        self.video_features_switch = ctk.CTkSwitch(
+            inner,
+            text="Video Effects ON" if is_on else "Video Effects OFF",
+            font=("Share Tech Mono", 12),
+            text_color=TEXT_PRI,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_video_toggle,
+        )
+        if is_on:
+            self.video_features_switch.select()
+        else:
+            self.video_features_switch.deselect()
+        self.video_features_switch.pack(side="right")
+
+    def _on_video_toggle(self):
+        is_on = bool(self.video_features_switch.get())
+        config.set("video_features_enabled", is_on)
+        self.video_features_switch.configure(
+            text="Video Effects ON" if is_on else "Video Effects OFF"
+        )
+
+    # ── Video Pace Selector ───────────────────────────────────────────────
+    def _build_video_pace_row(self):
+        frame = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
+        frame.pack(fill="x", padx=20, pady=(0, 10))
+
+        inner = ctk.CTkFrame(frame, fg_color="transparent")
+        inner.pack(fill="x", padx=15, pady=10)
+
+        ctk.CTkLabel(
+            inner,
+            text="VIDEO PACE:",
+            font=("Share Tech Mono", 14, "bold"),
+            text_color=ACCENT_PRI,
+        ).pack(side="left")
+
+        self._pace_btns: dict[str, ctk.CTkButton] = {}
+        pace_options = [
+            ("slow",   "🐢 SLOW PACE"),
+            ("medium", "⚡ MEDIUM PACE"),
+            ("fast",   "🚀 FAST PACE"),
+        ]
+        btn_frame = ctk.CTkFrame(inner, fg_color="transparent")
+        btn_frame.pack(side="left", padx=15)
+
+        cur_pace = config.get("video_pace", "medium")
+        for val, label in pace_options:
+            is_sel = (val == cur_pace)
+            btn = ctk.CTkButton(
+                btn_frame,
+                text=label,
+                width=140,
+                font=("Share Tech Mono", 12, "bold"),
+                fg_color=ACCENT_PRI if is_sel else "transparent",
+                text_color=BG_MAIN if is_sel else TEXT_SEC,
+                border_color=ACCENT_PRI if is_sel else BORDER,
+                border_width=1,
+                corner_radius=0,
+                command=lambda v=val: self._select_pace(v),
+            )
+            btn.pack(side="left", padx=4)
+            btn.bind("<Enter>", lambda e, b=btn, v=val: (
+                b.configure(border_color=ACCENT_PRI)
+                if b.cget("fg_color") == "transparent" else None
+            ))
+            btn.bind("<Leave>", lambda e, b=btn, v=val: (
+                b.configure(border_color=BORDER)
+                if b.cget("fg_color") == "transparent" else None
+            ))
+            self._pace_btns[val] = btn
+
+        pace_hints = {
+            "slow":   "Longer per-scene, slow zoom — relaxed documentary feel",
+            "medium": "Balanced — default for most content",
+            "fast":   "Quick cuts, rapid zoom — high energy Shorts style",
+        }
+        self._pace_hint_lbl = ctk.CTkLabel(
+            inner,
+            text=f"  ↳  {pace_hints.get(cur_pace, '')}",
+            font=("Share Tech Mono", 11),
+            text_color=TEXT_SEC,
+        )
+        self._pace_hint_lbl.pack(side="left", padx=8)
+        self._pace_hints = pace_hints
+
+    def _select_pace(self, val: str):
+        config.set("video_pace", val)
+        for v, btn in self._pace_btns.items():
+            if v == val:
+                btn.configure(fg_color=ACCENT_PRI, text_color=BG_MAIN, border_color=ACCENT_PRI)
+            else:
+                btn.configure(fg_color="transparent", text_color=TEXT_SEC, border_color=BORDER)
+        if hasattr(self, "_pace_hint_lbl"):
+            self._pace_hint_lbl.configure(
+                text=f"  ↳  {self._pace_hints.get(val, '')}"
+            )
 
     # ── Run/Stop Controls ─────────────────────────────────────────────────
     def _build_control_row(self):
@@ -640,6 +790,7 @@ class PipelineTab(ctk.CTkFrame):
         self._stop_btn.configure(state="normal")
 
         self.after(500, self._check_for_review_needed)
+        self.after(500, self._check_for_image_review)
 
     def _check_for_review_needed(self):
         if not self.pipeline_running:
@@ -672,6 +823,43 @@ class PipelineTab(ctk.CTkFrame):
             self._on_pipeline_stopped()
 
         ScriptReviewWindow(self.winfo_toplevel(), script_data, on_approve, on_regenerate, on_cancel)
+
+    def _check_for_image_review(self):
+        if not self.pipeline_running:
+            return
+        if self.runner and getattr(self.runner, "waiting_for_image_review", False):
+            self._show_image_review_window()
+            return
+        self.after(500, self._check_for_image_review)
+
+    def _show_image_review_window(self):
+        from gui.components.image_review import ImageReviewWindow
+
+        image_paths = self.runner.pending_image_paths
+        scene_prompts = self.runner.pending_scene_prompts or []
+        if not image_paths:
+            self.runner.skip_image_review()
+            self.after(500, self._check_for_image_review)
+            return
+
+        def on_continue(selections):
+            self.runner.continue_from_image_review(selections)
+            self._append_log("[OK] Image review done — processing video clips...", "SUCCESS")
+            self.after(500, self._check_for_image_review)
+
+        def on_skip():
+            self.runner.skip_image_review()
+            self._append_log("[INFO] Skipped video conversion — using static images", "INFO")
+            self.after(500, self._check_for_image_review)
+
+        ImageReviewWindow(
+            self.winfo_toplevel(),
+            image_paths=image_paths,
+            scene_prompts=scene_prompts,
+            config=config.data,
+            on_continue=on_continue,
+            on_skip=on_skip,
+        )
 
     def _on_pipeline_stopped(self):
         self.pipeline_running = False

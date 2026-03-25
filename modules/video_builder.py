@@ -73,6 +73,14 @@ XFADE_ALIASES = {
 
 TRANSITION_DURATION = 0.5
 
+# ── Video Pace Settings ────────────────────────────────────────────────────────
+# Controls Ken Burns zoom speed multiplier and transition duration per pace preset
+PACE_SETTINGS = {
+    "slow":   {"zoom_speed_mult": 1.6, "transition_sec": 0.8},
+    "medium": {"zoom_speed_mult": 1.0, "transition_sec": 0.5},
+    "fast":   {"zoom_speed_mult": 0.55, "transition_sec": 0.25},
+}
+
 # ── Subtitle styling ──────────────────────────────────────────────────────────
 WORDS_PER_CHUNK = 4
 ASS_FONT_NAME = "Arial"
@@ -127,8 +135,12 @@ def _zoompan_chain(
     d_frames: int,
     width: int,
     height: int,
+    zoom_speed_mult: float = 1.0,
 ) -> str:
-    inner = MOTION_EFFECTS[motion_key](d_frames)
+    """Build a zoompan filter chain. zoom_speed_mult > 1 = slower/smoother, < 1 = faster/tighter."""
+    # Scale effective d_frames for zoom math — more frames → slower zoom
+    effective_d = max(1, int(d_frames * zoom_speed_mult))
+    inner = MOTION_EFFECTS[motion_key](effective_d)
     return (
         f"scale={width * 2}:{height * 2},"
         f"zoompan={inner}:d={d_frames}:s={width}x{height}:fps={MOTION_FPS}"
@@ -257,23 +269,101 @@ def _build_concat_filter_complex(n: int) -> str:
     return f"{ins}concat=n={n}:v=1:a=0[vout]"
 
 
-def build_video(
-    image_paths: list[Path],
+def _build_simple_video(
+    scene_data: list[dict],
     audio_path: Path,
-    voiceover_text: str,
-    title: str,
+    output_path: Path,
+    width: int,
+    height: int,
+    audio_duration: float,
+    log_fn=None,
+) -> None:
+    """
+    Simple mode: no Ken Burns, no transitions, no cinematic effects.
+    Each scene held for equal duration, then concat + audio mux.
+    """
+    _log = log_fn or log.info
+    _log("[INFO] Simple mode — rendering without effects")
+
+    temp_dir = TEMP_DIR / "ffmpeg_simple"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    n = len(scene_data)
+    clip_dur = audio_duration / n
+    scene_clips: list[Path] = []
+
+    try:
+        for idx, scene in enumerate(scene_data):
+            src = scene["path"]
+            clip_out = temp_dir / f"sclip_{idx}.mp4"
+            if scene["type"] == "video_clip":
+                cmd = [
+                    FFMPEG, "-y", "-i", str(src),
+                    "-vf", f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setpts=PTS-STARTPTS,format=yuv420p",
+                    "-t", str(clip_dur), "-r", "25",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    str(clip_out),
+                ]
+            else:
+                cmd = [
+                    FFMPEG, "-y", "-loop", "1", "-i", str(src),
+                    "-vf", f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},format=yuv420p",
+                    "-t", str(clip_dur), "-r", "25",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    str(clip_out),
+                ]
+            _run_ffmpeg(cmd, f"simple_clip_{idx}")
+            scene_clips.append(clip_out)
+
+        fc = _build_concat_filter_complex(n)
+        joined = temp_dir / "simple_joined.mp4"
+        cmd = [FFMPEG, "-y"]
+        for p in scene_clips:
+            cmd.extend(["-i", str(p)])
+        cmd.extend(["-filter_complex", fc, "-map", "[vout]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(joined)])
+        _run_ffmpeg(cmd, "simple_concat")
+
+        cmd = [
+            FFMPEG, "-y", "-i", str(joined), "-i", str(audio_path),
+            "-c:v", "copy", "-c:a", "aac", "-shortest", str(output_path),
+        ]
+        _run_ffmpeg(cmd, "simple_audio")
+
+    finally:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def build_video(
+    image_paths: list[Path] | list[dict] | None = None,
+    audio_path: Path = None,
+    voiceover_text: str = "",
+    title: str = "",
     output_filename: str = "final_short.mp4",
     english_subtitle_text: str = "",
     aspect_ratio: str | None = None,
     cinematic_effects: dict | None = None,
     target_duration: int | None = None,
+    scene_data: list[dict] | None = None,
 ) -> Path:
     """
-    Assemble final MP4 from images + audio + subtitles (FFmpeg only).
+    Assemble final MP4 from images/video-clips + audio + subtitles (FFmpeg only).
+
+    Accepts either ``scene_data`` (list of dicts with type+path) or the legacy
+    ``image_paths`` (list of Path/str). When both are given, ``scene_data`` wins.
 
     When ``aspect_ratio``, ``cinematic_effects``, or ``target_duration`` are
     omitted, values are read from ``config``.
     """
+    # ── Resolve scene_data from legacy image_paths ─────────────────────────
+    if scene_data is None:
+        if image_paths is not None and len(image_paths) > 0:
+            if isinstance(image_paths[0], dict):
+                scene_data = image_paths  # type: ignore[assignment]
+            else:
+                scene_data = [{"type": "image", "path": str(p)} for p in image_paths]
+        else:
+            scene_data = []
+
     if aspect_ratio is None:
         aspect_ratio = config.get("aspect_ratio", "9:16")
     if target_duration is None:
@@ -286,10 +376,23 @@ def build_video(
     enable_transitions = cinematic.get("transitions", True)
     transition_style = cinematic.get("transition_style", "cinematic_mix")
 
+    # ── Pace settings ───────────────────────────────────────────────────────
+    pace = config.get("video_pace", "medium")
+    pace_cfg = PACE_SETTINGS.get(pace, PACE_SETTINGS["medium"])
+    zoom_speed_mult = pace_cfg["zoom_speed_mult"]
+    t_trans_override = pace_cfg["transition_sec"]
+
     width, height = (1920, 1080) if aspect_ratio == "16:9" else (1080, 1920)
 
     out_path = OUTPUT_DIR / output_filename
     log.info(f"Building video: {title!r} ({width}×{height}, aspect {aspect_ratio})")
+
+    # ── Master video features toggle ───────────────────────────────────────
+    if not config.get("video_features_enabled", True):
+        log.info("video_features_enabled=False — using simple (no-effects) render")
+        total_dur = get_audio_duration(str(audio_path))
+        _build_simple_video(scene_data, audio_path, out_path, width, height, total_dur)
+        return out_path
 
     sub_text = english_subtitle_text or voiceover_text
     temp_dir = TEMP_DIR / "ffmpeg_build"
@@ -304,14 +407,15 @@ def build_video(
         if abs(total_duration - target_duration) > 15:
             log.debug("Audio length differs notably from target_duration — using actual audio length.")
 
-        n = len(image_paths)
+        n = len(scene_data)
         num_images = n
         if n == 0:
-            raise ValueError("No images provided for video build.")
+            raise ValueError("No images/clips provided for video build.")
 
         log.info(f"Dynamic image count: {num_images} clip(s); per-clip duration from full audio.")
 
-        t_trans = TRANSITION_DURATION
+        t_trans = t_trans_override
+        log.info(f"Video pace: {pace!r} — zoom_speed_mult={zoom_speed_mult}, transition_sec={t_trans}")
         if enable_transitions and n > 1:
             scene_duration = (total_duration + (n - 1) * t_trans) / n
         else:
@@ -325,48 +429,61 @@ def build_video(
 
         d_frames = max(1, int(scene_duration * MOTION_FPS))
 
-        log.info("Encoding per-image motion clips …")
-        for idx, img_path in enumerate(image_paths):
+        log.info("Encoding per-scene clips …")
+        for idx, scene in enumerate(scene_data):
             scene_path = temp_dir / f"clip_{idx}.mp4"
+            src_path = scene["path"]
+            scene_type = scene.get("type", "image")
 
-            if idx == 0 and enable_intro:
-                motion_key = "zoom_in"
-                base = _zoompan_chain(motion_key, d_frames, width, height)
-                lb = _letterbox_filters(aspect_ratio)
-                vf = (
-                    f"{base},fade=t=in:st=0.3:d=0.8:c=black,{lb},format=yuv420p"
-                )
-                step = f"clip_{idx}_intro"
+            if scene_type == "video_clip":
+                log.info(f"  Clip {idx + 1}/{n} → {scene_path.name} — video_clip (no zoompan)")
+                cmd = [
+                    FFMPEG, "-y", "-i", str(src_path),
+                    "-vf", f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setpts=PTS-STARTPTS,format=yuv420p",
+                    "-t", str(scene_duration), "-r", "25",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    str(scene_path),
+                ]
+                _run_ffmpeg(cmd, f"clip_{idx}_video")
             else:
-                motion_key = MOTION_KEYS[idx % len(MOTION_KEYS)]
-                vf = f"{_zoompan_chain(motion_key, d_frames, width, height)},format=yuv420p"
-                step = f"clip_{idx}_{motion_key}"
+                if idx == 0 and enable_intro:
+                    motion_key = "zoom_in"
+                    base = _zoompan_chain(motion_key, d_frames, width, height, zoom_speed_mult)
+                    lb = _letterbox_filters(aspect_ratio)
+                    vf = (
+                        f"{base},fade=t=in:st=0.3:d=0.8:c=black,{lb},format=yuv420p"
+                    )
+                    step = f"clip_{idx}_intro"
+                else:
+                    motion_key = MOTION_KEYS[idx % len(MOTION_KEYS)]
+                    vf = f"{_zoompan_chain(motion_key, d_frames, width, height, zoom_speed_mult)},format=yuv420p"
+                    step = f"clip_{idx}_{motion_key}"
 
-            log.info(
-                f"  Clip {idx + 1}/{n} → {scene_path.name} — {motion_key}"
-                + (" + intro" if idx == 0 and enable_intro else "")
-            )
+                log.info(
+                    f"  Clip {idx + 1}/{n} → {scene_path.name} — {motion_key}"
+                    + (" + intro" if idx == 0 and enable_intro else "")
+                )
 
-            cmd = [
-                FFMPEG,
-                "-y",
-                "-loop",
-                "1",
-                "-i",
-                str(img_path),
-                "-vf",
-                vf,
-                "-t",
-                str(scene_duration),
-                "-c:v",
-                "libx264",
-                "-preset",
-                "ultrafast",
-                "-pix_fmt",
-                "yuv420p",
-                str(scene_path),
-            ]
-            _run_ffmpeg(cmd, step)
+                cmd = [
+                    FFMPEG,
+                    "-y",
+                    "-loop",
+                    "1",
+                    "-i",
+                    str(src_path),
+                    "-vf",
+                    vf,
+                    "-t",
+                    str(scene_duration),
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "ultrafast",
+                    "-pix_fmt",
+                    "yuv420p",
+                    str(scene_path),
+                ]
+                _run_ffmpeg(cmd, step)
             scene_clips.append(scene_path)
 
         # ── Join scenes (xfade or concat filter) ──────────────────────────

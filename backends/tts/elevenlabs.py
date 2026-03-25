@@ -34,8 +34,14 @@ class ElevenLabsTTS(TTSBackend):
         Synthesize text using ElevenLabs API.
 
         Uses eleven_multilingual_v2 model for Hindi support.
+        Voice settings tuned for maximum realism:
+        - stability: low (0.25–0.40) → more expressive, natural variation
+        - similarity_boost: high (0.85) → stays true to the voice character
+        - style: 0.45 → moderate emotional style exaggeration
+        - use_speaker_boost: True → higher clarity and presence
         """
         from elevenlabs import ElevenLabs as ElevenLabsClient
+        from elevenlabs.types import VoiceSettings
 
         api_key = config.get("api_keys.elevenlabs", "")
         voice_id = config.get("tts.elevenlabs_voice_id", "")
@@ -45,7 +51,15 @@ class ElevenLabsTTS(TTSBackend):
         if not voice_id:
             raise RuntimeError("ElevenLabs voice ID not configured")
 
-        logger.info(f"ElevenLabs TTS: voice_id={voice_id}, text={len(text)} chars")
+        # Read tunable settings from config (with realistic defaults)
+        stability         = float(config.get("tts.elevenlabs_stability", 0.30))
+        similarity_boost  = float(config.get("tts.elevenlabs_similarity_boost", 0.85))
+        style_exaggeration = float(config.get("tts.elevenlabs_style", 0.45))
+
+        logger.info(
+            f"ElevenLabs TTS: voice_id={voice_id}, text={len(text)} chars  "
+            f"stability={stability} similarity={similarity_boost} style={style_exaggeration}"
+        )
 
         try:
             client = ElevenLabsClient(api_key=api_key)
@@ -53,9 +67,14 @@ class ElevenLabsTTS(TTSBackend):
                 voice_id=voice_id,
                 text=text,
                 model_id="eleven_multilingual_v2",
+                voice_settings=VoiceSettings(
+                    stability=stability,
+                    similarity_boost=similarity_boost,
+                    style=style_exaggeration,
+                    use_speaker_boost=True,
+                ),
             )
 
-            # Write audio bytes to file
             with open(output_path, "wb") as f:
                 for chunk in audio_generator:
                     f.write(chunk)

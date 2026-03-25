@@ -37,6 +37,7 @@ def _get_backend_map() -> dict[str, type]:
     from backends.image.fal_ai import FalAIBackend
     from backends.image.stable_horde import StableHordeBackend
     from backends.image.replicate import ReplicateBackend
+    from backends.image.grok_image import GrokImageBackend
 
     BACKEND_MAP = {
         "comfyui": ComfyUIBackend,
@@ -45,6 +46,7 @@ def _get_backend_map() -> dict[str, type]:
         "fal_ai": FalAIBackend,
         "stable_horde": StableHordeBackend,
         "replicate": ReplicateBackend,
+        "grok_imagine": GrokImageBackend,
     }
     return BACKEND_MAP
 

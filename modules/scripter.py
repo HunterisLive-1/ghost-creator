@@ -1,7 +1,8 @@
 """
-modules/scripter.py — Gemini AI Script Generator
-=================================================
-Sends a structured prompt to Gemini and parses its JSON response into:
+modules/scripter.py — AI Script Generator (Gemini / OpenAI / Ollama)
+=====================================================================
+Sends a structured prompt to the configured AI provider and parses its
+JSON response into:
   {
     "voiceover_text": str,
     "image_prompts": [str x5-6],
@@ -15,6 +16,9 @@ Sends a structured prompt to Gemini and parses its JSON response into:
 
 import json
 import re
+import shutil
+
+import requests
 
 from google import genai
 from google.genai import types
@@ -66,7 +70,16 @@ def _build_prompt(
         if target_duration <= 90
         else "Create an engaging in-depth explainer."
     )
-    return f"""You are a viral YouTube Shorts scriptwriter for AI and Technology content.
+    return f"""You are a viral YouTube Shorts scriptwriter.
+
+════════════════════════════════════════════════════════
+TOPIC (MANDATORY — DO NOT DEVIATE):  "{topic}"
+════════════════════════════════════════════════════════
+CRITICAL RULE: Every single sentence in voiceover_text, every image prompt, the title, description,
+and all tags MUST directly and specifically be about this exact topic: "{topic}".
+Do NOT talk about generic AI, technology, or unrelated subjects.
+Stay 100% on topic throughout the entire script.
+════════════════════════════════════════════════════════
 
 IMPORTANT LANGUAGE RULES:
 - "voiceover_text" MUST be written in {lang_display}. {script_rule}
@@ -86,29 +99,32 @@ Video requirements:
 
 JSON schema:
 {{
-  "voiceover_text": "<{lang_display} narration — match the target duration and target word count>",
+  "voiceover_text": "<{lang_display} narration specifically about '{topic}' — natural speech rhythm with pauses (use commas and full stops for breathing), match the target duration>",
   "english_subtitle_text": "<exact English translation of voiceover_text — plain text only, no emojis, no symbols>",
   "image_prompts": [
-    "<English Stable Diffusion prompt, scene 1 — cinematic, photorealistic, 8K>",
-    "<scene 2>",
+    "<English Stable Diffusion prompt about '{topic}', scene 1 — cinematic, photorealistic, 8K>",
+    "<scene 2 — still about '{topic}'>",
     "<scene 3>",
     "<scene 4>",
     "<scene 5>",
     "<scene {num_scenes}>"
   ],
   "metadata": {{
-    "title": "<viral {lang_display} {video_type} title, max 70 chars>",
-    "description": "<compelling English description with SEO keywords, ~200 words>",
+    "title": "<viral {lang_display} title about '{topic}', max 70 chars>",
+    "description": "<compelling English description specifically about '{topic}', ~200 words, with SEO keywords>",
     "tags": ["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]
   }}
 }}
 
 Rules for voiceover_text:
-- First sentence: shocking hook question/statement
-- Short punchy sentences throughout
-- Build to a mind-blowing fact or tip
-- End: short YouTube-style CTA in {lang_display} (subscribe / bell / follow) — match how local Shorts creators close
+- MUST be specifically about: "{topic}" — do not drift to other subjects
+- First sentence: shocking hook question/statement DIRECTLY related to the topic
+- Natural conversational speech — use commas and full stops for pacing and breathing
+- Short punchy sentences with natural pauses
+- Build to a mind-blowing fact or tip about the topic
+- End: short YouTube-style CTA in {lang_display} (subscribe / bell / follow)
 - Target: approximately {target_words} words
+- Write as if a real {lang_display}-speaking creator is talking — natural rhythm, not robotic
 
 Rules for english_subtitle_text:
 - Direct English translation of voiceover_text
@@ -116,12 +132,10 @@ Rules for english_subtitle_text:
 - Same energy and structure as the voiceover
 
 Rules for image_prompts:
-- One cinematic scene per prompt, English only
+- One cinematic scene per prompt, English only, DIRECTLY visualizing the topic "{topic}"
 - Always include: "ultra-realistic, 8K, cinematic lighting, DreamshaperXL style"
 - Each image prompt should be optimized for {composition_hint} composition
 - No text, UI, or watermarks in prompts
-
-Topic: "{topic}"
 
 Generate the JSON now:"""
 
@@ -146,32 +160,202 @@ def _extract_json(raw: str) -> dict:
     return obj  # type: ignore[return-value]
 
 
+def _validate_script(script: dict, num_scenes: int) -> dict:
+    """Validate required keys and fill in defaults."""
+    required = {"voiceover_text", "image_prompts", "metadata"}
+    missing = required - script.keys()
+    if missing:
+        raise KeyError(f"Missing keys in script JSON: {missing}")
+    if len(script["image_prompts"]) < num_scenes:
+        raise ValueError(
+            f"Expected at least {num_scenes} image_prompts, got {len(script['image_prompts'])}."
+        )
+    if "english_subtitle_text" not in script:
+        log.warning("english_subtitle_text missing — falling back to voiceover_text")
+        script["english_subtitle_text"] = script["voiceover_text"]
+    script["num_scenes"] = num_scenes
+    return script
+
+
+def _generate_with_gemini(prompt: str, num_scenes: int, script_config: dict) -> dict:
+    """Generate script using Gemini API."""
+    api_key = script_config.get("api_keys.gemini") or config.get("api_keys.gemini", "")
+    if isinstance(api_key, str):
+        api_key = api_key.strip()
+    if not api_key:
+        raise ValueError("No Gemini API key was provided. Please add it in Settings.")
+
+    gemini_model = script_config.get("gemini_model") or config.get("gemini_model", GEMINI_MODEL)
+
+    client = genai.Client(api_key=api_key)
+
+    for attempt in range(1, 3):
+        log.debug(f"Gemini API call (attempt {attempt}, model={gemini_model!r}) …")
+        try:
+            max_out = 4096 if num_scenes > 12 else 2048
+            response = client.models.generate_content(
+                model=gemini_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.7,
+                    max_output_tokens=max_out,
+                ),
+            )
+            raw_text = response.text
+            log.debug(f"Raw Gemini response (first 200 chars): {raw_text[:200]}")
+            script = _extract_json(raw_text)
+            return _validate_script(script, num_scenes)
+
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            log.warning(f"Attempt {attempt} failed to parse Gemini script: {exc}")
+            if attempt == 2:
+                raise RuntimeError(
+                    f"Gemini returned unparseable JSON after 2 attempts: {exc}"
+                ) from exc
+
+    raise RuntimeError("_generate_with_gemini: unexpected exit")
+
+
+# ── Ollama helpers ────────────────────────────────────────────────────────────
+
+def check_ollama_status() -> tuple[bool, bool, list[str]]:
+    """
+    Probe Ollama and return (is_installed, is_running, available_models).
+
+    * is_installed → True when the `ollama` binary is on PATH
+    * is_running   → True when the local HTTP server responds at configured URL
+    * available_models → list of model name strings pulled in Ollama
+    """
+    ollama_url = config.get("ollama_url", "http://localhost:11434")
+    is_installed = shutil.which("ollama") is not None
+    is_running = False
+    models: list[str] = []
+    try:
+        r = requests.get(f"{ollama_url.rstrip('/')}/api/tags", timeout=3)
+        if r.status_code == 200:
+            is_running = True
+            models = [m["name"] for m in r.json().get("models", [])]
+    except Exception:
+        pass
+    return is_installed, is_running, models
+
+
+def _generate_with_ollama(prompt: str, num_scenes: int, script_config: dict) -> dict:
+    """Generate script using a locally running Ollama LLM."""
+    url = (script_config.get("ollama_url") or config.get("ollama_url", "http://localhost:11434")).rstrip("/")
+    model = script_config.get("ollama_model") or config.get("ollama_model", "llama3")
+
+    # Verify server is up before attempting
+    try:
+        requests.get(f"{url}/api/tags", timeout=5)
+    except Exception:
+        raise RuntimeError(
+            f"Ollama server is not reachable at {url}. "
+            "Make sure Ollama is installed and running (`ollama serve`)."
+        )
+
+    system_msg = (
+        "You are a YouTube script writer. Always respond with valid JSON only. "
+        "No markdown fences, no extra explanation. Just the raw JSON object."
+    )
+
+    api_url = f"{url}/v1/chat/completions"
+
+    for attempt in range(1, 3):
+        log.debug(f"Ollama API call (attempt {attempt}, model={model!r}) …")
+        try:
+            resp = requests.post(
+                api_url,
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_msg},
+                        {"role": "user",   "content": prompt},
+                    ],
+                    "temperature": 0.7,
+                    "stream": False,
+                },
+                timeout=300,
+            )
+            resp.raise_for_status()
+            raw_text = resp.json()["choices"][0]["message"]["content"]
+            log.debug(f"Raw Ollama response (first 200 chars): {raw_text[:200]}")
+            script = _extract_json(raw_text)
+            return _validate_script(script, num_scenes)
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            log.warning(f"Attempt {attempt} failed to parse Ollama script: {exc}")
+            if attempt == 2:
+                raise RuntimeError(
+                    f"Ollama returned unparseable JSON after 2 attempts: {exc}"
+                ) from exc
+
+    raise RuntimeError("_generate_with_ollama: unexpected exit")
+
+
+def _generate_with_openai(prompt: str, num_scenes: int, script_config: dict) -> dict:
+    """Generate script using OpenAI API."""
+    from openai import OpenAI
+
+    api_key = script_config.get("openai_api_key") or config.get("openai_api_key", "")
+    if isinstance(api_key, str):
+        api_key = api_key.strip()
+    if not api_key:
+        raise ValueError("OpenAI API key is not set. Please add it in Settings.")
+
+    model = script_config.get("openai_model") or config.get("openai_model", "gpt-4o")
+
+    system = (
+        "You are a YouTube script writer. Always respond with valid JSON only. "
+        "No markdown, no explanation. Just the JSON object."
+    )
+
+    client = OpenAI(api_key=api_key)
+    log.debug(f"OpenAI API call (model={model!r}) …")
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.8,
+    )
+    raw_text = response.choices[0].message.content
+    log.debug(f"Raw OpenAI response (first 200 chars): {raw_text[:200]}")
+    script = json.loads(raw_text)
+    return _validate_script(script, num_scenes)
+
+
 def generate_script(
     topic: str,
     lang: str | None = None,
     target_duration: int = 60,
     aspect_ratio: str = "9:16",
     image_count: int | None = None,
+    script_config: dict | None = None,
 ) -> dict:
     """
-    Call Gemini with the given topic and return the parsed script dict.
-    lang: voiceover language (defaults to VOICEOVER_LANG from config).
-    Image prompts are always generated in English.
-    ``image_count`` overrides ``config image.image_count`` when set (clamped 4–40).
+    Generate script using configured AI provider (Gemini or OpenAI).
+
+    Parameters:
+        topic: video topic
+        lang: voiceover language (defaults to VOICEOVER_LANG from config)
+        target_duration: target video length in seconds
+        aspect_ratio: "9:16" or "16:9"
+        image_count: overrides config image.image_count when set
+        script_config: flat config dict slice (from pipeline_runner); falls back to config manager
     """
+    cfg = script_config or {}
     language = (lang or VOICEOVER_LANG).lower()
     ic = image_count if image_count is not None else int(config.get("image.image_count", 6))
     num_scenes = max(4, min(ic, 40))
     target_words = int((target_duration / 60) * 130)
     video_type = "YouTube Short" if target_duration <= 90 else "YouTube video"
     composition_hint = "vertical portrait" if aspect_ratio == "9:16" else "wide cinematic landscape"
-    log.info(f"Generating script: topic={topic!r}  lang={language!r}")
-    
-    api_key = config.get("api_keys.gemini", "").strip()
-    if not api_key:
-        raise ValueError("No Gemini API key was provided. Please add it in Settings.")
-        
-    client = genai.Client(api_key=api_key)
+
+    provider = cfg.get("script_provider") or config.get("script_provider", "gemini")
+    log.info(f"Generating script: topic={topic!r}  lang={language!r}  provider={provider!r}")
+
     prompt = _build_prompt(
         topic,
         language,
@@ -182,53 +366,15 @@ def generate_script(
         composition_hint=composition_hint,
     )
 
-    for attempt in range(1, 3):
-        log.debug(f"Gemini API call (attempt {attempt}) …")
-        try:
-            max_out = 4096 if num_scenes > 12 else 2048
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.9,
-                    max_output_tokens=max_out,
-                ),
-            )
-            raw_text = response.text
-            log.debug(f"Raw Gemini response (first 200 chars): {raw_text[:200]}")
+    if provider == "openai":
+        script = _generate_with_openai(prompt, num_scenes, cfg)
+    elif provider == "ollama":
+        script = _generate_with_ollama(prompt, num_scenes, cfg)
+    else:
+        script = _generate_with_gemini(prompt, num_scenes, cfg)
 
-            script = _extract_json(raw_text)
-
-            # ── Validate required keys ─────────────────────────────────────
-            required = {"voiceover_text", "image_prompts", "metadata"}
-            missing = required - script.keys()
-            if missing:
-                raise KeyError(f"Missing keys in script JSON: {missing}")
-
-            if len(script["image_prompts"]) < num_scenes:
-                raise ValueError(
-                    f"Expected at least {num_scenes} image_prompts, got {len(script['image_prompts'])}."
-                )
-
-            # Fallback: if Gemini didn't return english_subtitle_text, use voiceover_text
-            if "english_subtitle_text" not in script:
-                log.warning("english_subtitle_text missing from Gemini response — falling back to voiceover_text")
-                script["english_subtitle_text"] = script["voiceover_text"]
-
-            script["num_scenes"] = num_scenes
-
-            log.info(f"Script generated → title: {script['metadata']['title']!r}")
-            return script
-
-        except (json.JSONDecodeError, KeyError, ValueError) as exc:
-            log.warning(f"Attempt {attempt} failed to parse script: {exc}")
-            if attempt == 2:
-                raise RuntimeError(
-                    f"Gemini returned unparseable JSON after 2 attempts: {exc}"
-                ) from exc
-
-    # Should never reach here
-    raise RuntimeError("generate_script: unexpected exit")
+    log.info(f"Script generated → title: {script['metadata']['title']!r}")
+    return script
 
 
 if __name__ == "__main__":

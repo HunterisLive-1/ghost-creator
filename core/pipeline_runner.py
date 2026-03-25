@@ -38,6 +38,12 @@ class PipelineRunner:
         self.pending_script_data: dict | None = None
         self.waiting_for_script_review = False
 
+        self._image_review_event = threading.Event()
+        self._image_review_selections: dict | None = None
+        self.pending_image_paths: list | None = None
+        self.pending_scene_prompts: list | None = None
+        self.waiting_for_image_review = False
+
     def start(self, topic: str | None = None) -> None:
         """Start the pipeline in a background thread."""
         if self.thread and self.thread.is_alive():
@@ -47,6 +53,11 @@ class PipelineRunner:
         self._approved_script = None
         self.pending_script_data = None
         self.waiting_for_script_review = False
+
+        self._image_review_selections = None
+        self.pending_image_paths = None
+        self.pending_scene_prompts = None
+        self.waiting_for_image_review = False
 
         self.running = True
         self.thread = threading.Thread(
@@ -61,6 +72,7 @@ class PipelineRunner:
         """Request the pipeline to stop after the current step."""
         self.running = False
         self._script_review_event.set()
+        self._image_review_event.set()
         self._emit(0, "Pipeline stopped by user", "WARNING")
         log.info("Pipeline stop requested by user")
 
@@ -74,6 +86,25 @@ class PipelineRunner:
         self.waiting_for_script_review = False
         self._approved_script = None
         self.stop()
+
+    def continue_from_image_review(self, selections: dict) -> None:
+        """Called by GUI when user clicks Continue in image review window."""
+        self._image_review_selections = selections
+        self._image_review_event.set()
+
+    def skip_image_review(self) -> None:
+        """Called by GUI when user clicks Skip in image review window."""
+        if self.pending_image_paths:
+            self._image_review_selections = {p: False for p in self.pending_image_paths}
+        else:
+            self._image_review_selections = {}
+        self._image_review_event.set()
+
+    def cancel_from_image_review(self) -> None:
+        """Called when user closes image review window."""
+        self._image_review_selections = {}
+        self.stop()
+        self._image_review_event.set()
 
     def _run(self, topic: str | None) -> None:
         """Main pipeline execution — runs in background thread."""
@@ -94,16 +125,27 @@ class PipelineRunner:
             # ── Step 2: Script ────────────────────────────────────────────
             if not self.running:
                 return
-            self._emit(2, "📝 Generating script via Gemini …", "INFO")
             from modules.scripter import generate_script
             language = config.get("pipeline.language", "hi")
             target_duration = config.get("target_duration", 60)
             aspect_ratio = config.get("aspect_ratio", "9:16")
+            script_cfg = {
+                "script_provider": config.get("script_provider", "gemini"),
+                "gemini_model": config.get("gemini_model", "gemini-2.0-flash"),
+                "openai_model": config.get("openai_model", "gpt-4o"),
+                "openai_api_key": config.get("openai_api_key", ""),
+                "api_keys.gemini": config.get("api_keys.gemini", ""),
+                "ollama_url": config.get("ollama_url", "http://localhost:11434"),
+                "ollama_model": config.get("ollama_model", "llama3"),
+            }
+            _provider_label = script_cfg["script_provider"].capitalize()
+            self._emit(2, f"📝 Generating script via {_provider_label} …", "INFO")
             script = generate_script(
                 topic,
                 lang=language,
                 target_duration=target_duration,
                 aspect_ratio=aspect_ratio,
+                script_config=script_cfg,
             )
             title = script["metadata"]["title"]
             self._emit(2, f"Script ready: {title!r}", "SUCCESS")
@@ -242,6 +284,67 @@ class PipelineRunner:
                 image_paths = generate_images(image_prompts, aspect_ratio=aspect_ratio)
                 self._emit(4, f"{len(image_paths)} images generated", "SUCCESS")
 
+            # ── Image review pause ────────────────────────────────────────
+            self._emit(4, f"[OK] {len(image_paths)} images ready", "SUCCESS")
+            self.pending_image_paths = [str(p) for p in image_paths]
+            self.pending_scene_prompts = list(script.get("image_prompts", []))
+
+            # Auto-convert all images to video if img2video_enabled is True for custom images
+            img2video_auto = (
+                image_source == "custom_images"
+                and bool(config.get("img2video_enabled", False))
+            )
+            if img2video_auto:
+                self._emit(4, "[INFO] Auto-converting all uploaded images to video clips...", "INFO")
+                self._image_review_selections = {str(p): True for p in image_paths}
+                self.waiting_for_image_review = False
+            else:
+                self.waiting_for_image_review = True
+                self._image_review_event.clear()
+                self._emit(4, "[INFO] Waiting for image review...", "INFO")
+                self._image_review_event.wait()
+
+            if not img2video_auto:
+                if not self.running:
+                    self.progress_queue.put({
+                        "step": 0,
+                        "message": "Pipeline cancelled",
+                        "level": "WARNING",
+                        "timestamp": datetime.now().isoformat(),
+                        "done": True,
+                        "output_path": "",
+                        "run_id": self._run_id,
+                    })
+                    return
+                self.waiting_for_image_review = False
+
+            selections = self._image_review_selections
+
+            if selections and any(v for v in selections.values()):
+                self._emit(4, "[INFO] Converting selected images to video clips...", "INFO")
+                from modules.img2video import process_selected_images
+
+                def _i2v_log(msg: str) -> None:
+                    lvl = "ERROR" if "[ERROR]" in msg else "SUCCESS" if "[OK]" in msg else "WARNING" if "[WARN]" in msg else "INFO"
+                    self._emit(4, msg, lvl)
+
+                img_prompts_map = {
+                    str(image_paths[i]): (self.pending_scene_prompts[i] if i < len(self.pending_scene_prompts) else "")
+                    for i in range(len(image_paths))
+                }
+                cfg_with_prompts = dict(config.data)
+                cfg_with_prompts["_scene_prompts"] = img_prompts_map
+
+                scene_data_map = process_selected_images(
+                    selections=selections,
+                    config=cfg_with_prompts,
+                    temp_dir=str(TEMP_DIR),
+                    log_fn=_i2v_log,
+                )
+                scene_data = [scene_data_map.get(str(p), {"type": "image", "path": str(p)}) for p in image_paths]
+            else:
+                scene_data = [{"type": "image", "path": str(p)} for p in image_paths]
+
             # ── Step 5: Video ─────────────────────────────────────────────
             if not self.running:
                 return
@@ -249,20 +352,28 @@ class PipelineRunner:
             from modules.video_builder import build_video
             cinematic_effects = config.get("cinematic_effects", {})
             log.info(
-                "Video step: %s image path(s), aspect_ratio=%s, target_duration=%ss",
-                len(image_paths),
+                "Video step: %s scene(s), aspect_ratio=%s, target_duration=%ss",
+                len(scene_data),
                 aspect_ratio,
                 target_duration,
             )
+            import re as _re
+            _raw_title = script["metadata"]["title"]
+            _safe = _re.sub(r'[^\w\u0900-\u097F\u0A00-\u0A7F\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0980-\u09FF -]', '', _raw_title)
+            _safe = _re.sub(r'\s+', '_', _safe.strip()).strip('_') or "video"
+            _safe = _safe[:60]
+            _timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            _output_filename = f"{_safe}_{_timestamp}.mp4"
             video_path = build_video(
-                image_paths=image_paths,
+                scene_data=scene_data,
                 audio_path=audio_path,
                 voiceover_text=script["voiceover_text"],
                 english_subtitle_text=script.get("english_subtitle_text", script["voiceover_text"]),
-                title=script["metadata"]["title"],
+                title=_raw_title,
                 aspect_ratio=aspect_ratio,
                 cinematic_effects=cinematic_effects,
                 target_duration=target_duration,
+                output_filename=_output_filename,
             )
             self._emit(5, f"Video rendered: {video_path}", "SUCCESS")
 
@@ -309,6 +420,7 @@ class PipelineRunner:
         finally:
             self.running = False
             self.waiting_for_script_review = False
+            self.waiting_for_image_review = False
 
     def _emit(self, step: int, message: str, level: str = "INFO") -> None:
         """Emit a progress event to the queue."""

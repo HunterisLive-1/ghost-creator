@@ -41,19 +41,23 @@
 
 ---
 
-## 🆕 What's New in v2
+## 🆕 What's New in v2 / v3
 
-| Feature | v1 | v2 |
-|---------|----|----|
-| Interface | Terminal only | **Full GUI (Dark mode)** |
-| TTS options | Chatterbox only | **5 backends** (Chatterbox, Edge TTS, ElevenLabs, Google, Kokoro) |
-| Image options | ComfyUI only | **6 backends** (ComfyUI, Pollinations, Gemini Imagen-3, Fal.ai, Stable Horde, Replicate) |
-| Video render | MoviePy (3–5 min) | **FFmpeg direct (25–45 sec) ⚡** |
-| Config | `.env` file | **GUI Settings tab → `config.json`** |
-| YouTube Upload | Single Profile | **Multi-Profile Chrome Manager** |
-| No-GPU option | ❌ | **✅ Cloud backends available** |
-| API key mgmt | Manual `.env` edit | **GUI with show/hide toggle** |
-| Progress tracking | Terminal logs | **Live progress bar + color log** |
+| Feature | v1 | v2 | v3.3 |
+|---------|----|----|------|
+| Interface | Terminal only | **Full GUI (Dark mode)** | ← same |
+| TTS options | Chatterbox only | **5 backends** | ← same |
+| Image options | ComfyUI only | **6 backends** | **7 backends (+Grok Imagine ⭐)** |
+| Video render | MoviePy (3–5 min) | **FFmpeg direct (25–45 sec) ⚡** | ← same |
+| Script provider | Gemini only | Gemini only | **Gemini + OpenAI** |
+| Image review | None | None | **Visual image review + approval step** |
+| Image-to-video | None | None | **Fal.ai + xAI Grok Video clips** |
+| Video effects | Always on | Always on | **Master ON/OFF toggle** |
+| Config | `.env` file | **GUI Settings → `config.json`** | ← same |
+| YouTube Upload | Single Profile | **Multi-Profile Chrome Manager** | ← same |
+| xAI Grok support | ❌ | ❌ | **✅ Grok images + Grok video** |
+
+> **v3.3 note:** xAI Grok Imagine — $0.02/image standard, one key works for both images and video clips.
 
 ---
 
@@ -365,6 +369,39 @@ Choose your image backend from the **Settings tab**. Default is ComfyUI.
 - **Quality:** High (SDXL)
 - **Requires:** Replicate API key
 - **Speed:** ~10s per image
+
+### Grok Imagine — Recommended Alternative ⭐
+- **Cost:** $0.02/image (standard) or $0.07/image (pro)
+- **Quality:** Very good, consistent, fast
+- **Requires:** xAI API key from [console.x.ai](https://console.x.ai)
+- **Speed:** ~5–10s per image
+- **Why use it:** Gemini Imagen free tier is often exhausted/unreliable. Grok Imagine is affordable, reliable, and **one key works for both images AND video clips (img2video)**.
+
+---
+
+## 🔑 API Keys — By Backend
+
+| Backend | Key needed | Cost | Get it |
+|---------|-----------|------|--------|
+| Gemini Script | Gemini API Key | Free tier | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
+| Gemini Imagen-3 | Gemini API Key | Free tier | Same key |
+| ElevenLabs TTS | ElevenLabs API Key | Paid | [elevenlabs.io](https://elevenlabs.io) |
+| Fal.ai Images | Fal.ai API Key | ~$0.003/img | [fal.ai/dashboard](https://fal.ai/dashboard/keys) |
+| Fal.ai Img2Video | Fal.ai API Key | $0.005–$0.28/clip | Same key |
+| Replicate | Replicate API Key | ~$0.004/img | [replicate.com](https://replicate.com/account/api-tokens) |
+| OpenAI Script | OpenAI API Key | ~$0.001–$0.01/script | [platform.openai.com](https://platform.openai.com/api-keys) |
+| **Grok Imagine (image)** | **xAI API Key** | **$0.02–$0.07/img** | [console.x.ai](https://console.x.ai) |
+| **Grok Video (img2video)** | **xAI API Key** | **$0.25–$0.50/clip** | Same key |
+
+## 💰 Cost Reference Card
+
+| Use case | Backend combo | Cost per video |
+|----------|--------------|---------------|
+| Free (unreliable) | Gemini Imagen + no img2video | $0 |
+| Budget | Grok Standard images + no img2video | ~$0.12 (6 imgs) |
+| Recommended | Grok Standard images + Grok Video (2 clips) | ~$0.62 |
+| Premium | Grok Pro images + Grok Video 10s (3 clips) | ~$1.92 |
+| Best quality | Kling Pro (3 clips) + Grok images | ~$1.26 |
 
 ---
 

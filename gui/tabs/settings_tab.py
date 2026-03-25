@@ -2,6 +2,8 @@
 gui/tabs/settings_tab.py — Settings Tab Cyberpunk
 """
 
+import threading
+
 import customtkinter as ctk
 from pathlib import Path
 from tkinter import filedialog
@@ -59,6 +61,13 @@ TTS_DESCRIPTIONS = {
         "   • Model ka folder path neeche daalo (ya empty chodo auto ke liye)\n"
         "   ✔️  Free  |  No internet needed  |  Offline use possible"
     ),
+    "deepgram": (
+        "🔊  DEEPGRAM  —  Fast cloud TTS (Aura voices)\n"
+        "   • console.deepgram.com pe account banao → API key lo\n"
+        "   • API Key neeche API Keys section mein daalo\n"
+        "   • Voice: aura-asteria-en (female) / aura-zeus-en (male) / aura-luna-en\n"
+        "   💰  Pay-per-character (very cheap)  |  Fast  |  Clear English voices"
+    ),
 }
 
 IMG_DESCRIPTIONS = {
@@ -105,6 +114,13 @@ IMG_DESCRIPTIONS = {
         "   • SDXL, Flux, custom LoRA models sab yahan milte hain\n"
         "   💰  Pay-per-use  |  Most variety  |  No local GPU"
     ),
+    "grok_imagine": (
+        "⭐  GROK IMAGINE  —  xAI's image generation (Recommended alternative)\n"
+        "   • console.x.ai pe account banao → API key lo → Settings mein daalo\n"
+        "   • Standard: $0.02/image  |  Pro: $0.07/image\n"
+        "   • Same xAI key se Grok Video clips bhi generate kar sakte ho\n"
+        "   💰  Pay-per-use  |  Fast (~5-10s)  |  Reliable quality  |  No GPU"
+    ),
 }
 
 # ── API key helper info ────────────────────────────────────────────────────────
@@ -121,10 +137,12 @@ _TRANSITION_CONFIG_TO_STYLE = {v: k for k, v in _TRANSITION_STYLE_TO_CONFIG.item
 API_KEY_INFO = {
     "api_keys.gemini":      ("REQUIRED", ACCENT_GRN,  "Script + Image generation  •  Free at: aistudio.google.com/app/apikey"),
     "api_keys.elevenlabs":  ("OPTIONAL", TEXT_HINT,   "Sirf ElevenLabs TTS use karne par chahiye  •  elevenlabs.io"),
+    "api_keys.deepgram":    ("OPTIONAL", TEXT_HINT,   "Sirf Deepgram TTS use karne par chahiye  •  console.deepgram.com"),
     "api_keys.google_tts":  ("OPTIONAL", TEXT_HINT,   "Google Cloud TTS ka service-account JSON file ka PATH daalo"),
     "api_keys.fal_ai":      ("OPTIONAL", TEXT_HINT,   "Sirf Fal.ai image backend use karne par chahiye  •  fal.ai/dashboard"),
     "api_keys.replicate":   ("OPTIONAL", TEXT_HINT,   "Sirf Replicate image backend use karne par chahiye  •  replicate.com"),
     "api_keys.stable_horde":("OPTIONAL", TEXT_HINT,   "Free use ke liye '0000000000' daalo  •  stablehorde.net"),
+    "xai_api_key":          ("OPTIONAL", TEXT_HINT,   "Grok Imagine images + Grok Video clips ke liye  •  console.x.ai"),
 }
 
 
@@ -148,6 +166,7 @@ class SettingsTab(ctk.CTkFrame):
         self._build_tts_section(scroll)
         self._build_image_section(scroll)
         self._build_video_format_section(scroll)
+        self._build_script_generation_section(scroll)
         self._build_pipeline_section(scroll)
 
         # Save button
@@ -241,10 +260,12 @@ class SettingsTab(ctk.CTkFrame):
         keys = [
             ("Gemini API Key",              "api_keys.gemini"),
             ("ElevenLabs API Key",          "api_keys.elevenlabs"),
+            ("Deepgram API Key",            "api_keys.deepgram"),
             ("Google Cloud TTS (JSON path)","api_keys.google_tts"),
             ("Fal.ai API Key",              "api_keys.fal_ai"),
             ("Replicate API Key",           "api_keys.replicate"),
             ("Stable Horde API Key",        "api_keys.stable_horde"),
+            ("xAI API Key",                 "xai_api_key"),
         ]
 
         for label_text, key_path in keys:
@@ -313,6 +334,7 @@ class SettingsTab(ctk.CTkFrame):
             ("chatterbox", "CHATTERBOX"),
             ("edge_tts",   "EDGE TTS ✅"),
             ("elevenlabs", "ELEVENLABS"),
+            ("deepgram",   "DEEPGRAM 🔊"),
             ("google_tts", "GOOGLE CLOUD"),
             ("kokoro",     "KOKORO TTS"),
         ]
@@ -419,6 +441,82 @@ class SettingsTab(ctk.CTkFrame):
         self._eleven_voice.bind("<FocusOut>", lambda e: self._eleven_voice.configure(border_width=1, border_color=BORDER))
         self._hint(tts_config, "ElevenLabs.io → Voice Lab → apni voice pe click karo → Voice ID copy karo")
 
+        # ElevenLabs realism knobs
+        eleven_knobs_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        eleven_knobs_row.pack(fill="x", pady=(4, 0))
+        ctk.CTkLabel(eleven_knobs_row, text="ELEVENLABS VOICE SETTINGS (Realism Tuning):",
+                     font=("Share Tech Mono", 11, "bold"), text_color=TEXT_SEC,
+                     anchor="w").pack(anchor="w", padx=10, pady=(6, 2))
+
+        knob_inner = ctk.CTkFrame(tts_config, fg_color=BG_CARD, corner_radius=0,
+                                  border_width=1, border_color=BORDER)
+        knob_inner.pack(fill="x", padx=10, pady=(0, 4))
+
+        def _knob_row(parent, label, key, default, hint_text):
+            r = ctk.CTkFrame(parent, fg_color="transparent")
+            r.pack(fill="x", padx=10, pady=3)
+            ctk.CTkLabel(r, text=label, width=200, anchor="w",
+                         font=("Share Tech Mono", 11, "bold"), text_color=TEXT_SEC).pack(side="left")
+            e = ctk.CTkEntry(r, width=90, font=("Share Tech Mono", 12),
+                             fg_color=BG_MAIN, border_color=BORDER,
+                             text_color=TEXT_PRI, corner_radius=0)
+            e.insert(0, str(config.get(key, default)))
+            e.pack(side="left", padx=6)
+            e.bind("<FocusIn>",  lambda ev, w=e: w.configure(border_width=2, border_color=ACCENT_PRI))
+            e.bind("<FocusOut>", lambda ev, w=e: w.configure(border_width=1, border_color=BORDER))
+            ctk.CTkLabel(r, text=hint_text, font=("Share Tech Mono", 10),
+                         text_color=TEXT_HINT, anchor="w").pack(side="left", padx=6)
+            return e
+
+        self._eleven_stability = _knob_row(
+            knob_inner, "Stability (0.0–1.0):", "tts.elevenlabs_stability", 0.30,
+            "Lower = more expressive  |  Recommended: 0.25–0.40"
+        )
+        self._eleven_similarity = _knob_row(
+            knob_inner, "Similarity Boost:", "tts.elevenlabs_similarity_boost", 0.85,
+            "Higher = truer to voice  |  Recommended: 0.80–0.90"
+        )
+        self._eleven_style = _knob_row(
+            knob_inner, "Style Exaggeration:", "tts.elevenlabs_style", 0.45,
+            "Higher = more dramatic  |  Recommended: 0.35–0.55"
+        )
+        self._hint(tts_config, "Speaker Boost is always ON — gives cleaner, more present voice output")
+
+        # Deepgram TTS settings
+        ctk.CTkLabel(tts_config, text="DEEPGRAM VOICE:",
+                     font=("Share Tech Mono", 12, "bold"),
+                     text_color=TEXT_SEC).pack(anchor="w", padx=10, pady=(12, 0))
+        self._deepgram_voice = ctk.CTkOptionMenu(
+            tts_config,
+            values=[
+                "aura-asteria-en", "aura-zeus-en", "aura-luna-en",
+                "aura-orion-en",   "aura-arcas-en", "aura-orpheus-en",
+                "aura-stella-en",  "aura-hera-en",
+            ],
+            font=("Share Tech Mono", 13), text_color=TEXT_PRI,
+            fg_color=BG_SEC, button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI, corner_radius=0,
+            width=240,
+        )
+        self._deepgram_voice.set(config.get("tts.deepgram_voice", "aura-asteria-en"))
+        self._deepgram_voice.pack(anchor="w", padx=10, pady=(2, 2))
+        self._hint(tts_config, "asteria/luna/stella/hera = female  |  zeus/orpheus/angus = male  |  English voices")
+
+        ctk.CTkLabel(tts_config, text="DEEPGRAM MODEL:",
+                     font=("Share Tech Mono", 12, "bold"),
+                     text_color=TEXT_SEC).pack(anchor="w", padx=10, pady=(6, 0))
+        self._deepgram_model = ctk.CTkOptionMenu(
+            tts_config,
+            values=["aura-2", "aura-2-en", "aura"],
+            font=("Share Tech Mono", 13), text_color=TEXT_PRI,
+            fg_color=BG_SEC, button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI, corner_radius=0,
+            width=160,
+        )
+        self._deepgram_model.set(config.get("tts.deepgram_model", "aura-2"))
+        self._deepgram_model.pack(anchor="w", padx=10, pady=(2, 8))
+        self._hint(tts_config, "aura-2 = latest model  |  Get API key: console.deepgram.com → API Keys")
+
     def _select_tts(self, val):
         self._tts_val = val
         for v, btn in self._tts_btns.items():
@@ -444,6 +542,7 @@ class SettingsTab(ctk.CTkFrame):
             ("fal_ai",        "FAL.AI"),
             ("stable_horde",  "STABLE HORDE"),
             ("replicate",     "REPLICATE"),
+            ("grok_imagine",  "GROK IMAGINE ⭐"),
         ]
 
         btn_frame1 = ctk.CTkFrame(section, fg_color="transparent")
@@ -453,7 +552,7 @@ class SettingsTab(ctk.CTkFrame):
 
         self._img_btns = {}
         for i, (val, label) in enumerate(options):
-            b_frame = btn_frame1 if i < 3 else btn_frame2
+            b_frame = btn_frame1 if i < 4 else btn_frame2
             btn = ctk.CTkButton(
                 b_frame, text=label, font=("Share Tech Mono", 12, "bold"),
                 fg_color="transparent", text_color=TEXT_SEC,
@@ -478,6 +577,34 @@ class SettingsTab(ctk.CTkFrame):
             corner_radius=0,
         )
         self._img_desc.pack(fill="x", padx=0, pady=(0, 10), ipadx=12, ipady=10)
+
+        # Grok model sub-panel (shown only when Grok Imagine is selected)
+        GROK_MODEL_OPTIONS = {
+            "Standard · $0.02/img": "grok-2-image-1212",
+            "Pro · $0.07/img": "grok-2-image",
+        }
+        GROK_MODEL_REV = {v: k for k, v in GROK_MODEL_OPTIONS.items()}
+        self._grok_model_options = GROK_MODEL_OPTIONS
+
+        self._grok_panel = ctk.CTkFrame(section, fg_color=BG_CARD, corner_radius=0,
+                                        border_color=BORDER, border_width=1)
+        grok_inner = ctk.CTkFrame(self._grok_panel, fg_color="transparent")
+        grok_inner.pack(fill="x", padx=10, pady=8)
+        ctk.CTkLabel(grok_inner, text="GROK MODEL:",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left")
+        cur_grok_model = config.get("grok_image_model", "grok-2-image-1212")
+        self._grok_model_var = ctk.StringVar(value=GROK_MODEL_REV.get(cur_grok_model, "Standard · $0.02/img"))
+        ctk.CTkOptionMenu(
+            grok_inner,
+            values=list(GROK_MODEL_OPTIONS.keys()),
+            variable=self._grok_model_var,
+            font=("Share Tech Mono", 13),
+            text_color=TEXT_PRI, fg_color=BG_SEC,
+            button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
+            corner_radius=0, width=220,
+        ).pack(side="left", padx=10)
+        self._hint(self._grok_panel, "Requires xAI API key (set in API Keys section above)")
 
         self._select_img(self._img_val)
 
@@ -507,6 +634,11 @@ class SettingsTab(ctk.CTkFrame):
                 btn.configure(fg_color="transparent", text_color=TEXT_SEC, border_color=BORDER)
         if hasattr(self, "_img_desc"):
             self._img_desc.configure(text=IMG_DESCRIPTIONS.get(val, ""))
+        if hasattr(self, "_grok_panel"):
+            if val == "grok_imagine":
+                self._grok_panel.pack(fill="x", pady=(0, 8))
+            else:
+                self._grok_panel.pack_forget()
 
     # ── Section: Video Format & Effects ───────────────────────────────────
     def _build_video_format_section(self, parent):
@@ -661,6 +793,406 @@ class SettingsTab(ctk.CTkFrame):
             self._upload.configure(state="normal")
         else:
             self._upload.configure(state="disabled")
+
+    # ── Section: Script Generation ────────────────────────────────────────
+    def _build_script_generation_section(self, parent):
+        GEMINI_MODELS = [
+            "gemini-2.0-flash (Fast · Free)",
+            "gemini-2.5-flash (Smarter · Free)",
+            "gemini-2.5-pro (Best · Paid)",
+        ]
+        GEMINI_MODEL_MAP = {
+            "gemini-2.0-flash (Fast · Free)": "gemini-2.0-flash",
+            "gemini-2.5-flash (Smarter · Free)": "gemini-2.5-flash-preview-05-20",
+            "gemini-2.5-pro (Best · Paid)": "gemini-2.5-pro-preview-05-06",
+        }
+        GEMINI_MODEL_REV = {v: k for k, v in GEMINI_MODEL_MAP.items()}
+
+        OPENAI_MODELS = [
+            "gpt-4o (Best · ~$0.01/script)",
+            "gpt-4o-mini (Cheap · ~$0.001/script)",
+        ]
+        OPENAI_MODEL_MAP = {
+            "gpt-4o (Best · ~$0.01/script)": "gpt-4o",
+            "gpt-4o-mini (Cheap · ~$0.001/script)": "gpt-4o-mini",
+        }
+        OPENAI_MODEL_REV = {v: k for k, v in OPENAI_MODEL_MAP.items()}
+
+        IMG2VIDEO_OPTIONS = {
+            "AnimateDiff · $0.005/clip (Fal)": "animatediff",
+            "Stable Video · $0.05/clip (Fal)": "stable_video",
+            "Kling Standard · $0.14/clip (Fal)": "kling_standard",
+            "Kling Pro · $0.28/clip (Fal)": "kling_pro",
+            "Grok Video 5s · $0.25/clip (xAI)": "grok_video_5s",
+            "Grok Video 10s · $0.50/clip (xAI)": "grok_video_10s",
+        }
+        IMG2VIDEO_REV = {v: k for k, v in IMG2VIDEO_OPTIONS.items()}
+
+        self._gemini_model_map = GEMINI_MODEL_MAP
+        self._openai_model_map = OPENAI_MODEL_MAP
+        self._img2video_map = IMG2VIDEO_OPTIONS
+
+        section = self._section(
+            parent, ">> [ SCRIPT GENERATION ]",
+            "AI provider aur model choose karo — Gemini free hai, OpenAI paid, Ollama local/free"
+        )
+
+        # ── AI Provider toggle ──────────────────────────────────────────────
+        prov_row = ctk.CTkFrame(section, fg_color="transparent")
+        prov_row.pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(
+            prov_row, text="AI PROVIDER:",
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=260, anchor="w"
+        ).pack(side="left", padx=5)
+
+        current_provider = config.get("script_provider", "gemini")
+        _prov_display = {"gemini": "Gemini", "openai": "OpenAI", "ollama": "Ollama"}
+        self._provider_var = ctk.StringVar(value=_prov_display.get(current_provider, "Gemini"))
+        self._provider_seg = ctk.CTkSegmentedButton(
+            prov_row,
+            values=["Gemini", "OpenAI", "Ollama"],
+            variable=self._provider_var,
+            font=("Share Tech Mono", 13, "bold"),
+            text_color=TEXT_PRI,
+            fg_color=BG_MAIN,
+            selected_color=ACCENT_PRI,
+            selected_hover_color=ACCENT_SEC,
+            unselected_color=BG_CARD,
+            unselected_hover_color=BORDER,
+            corner_radius=0,
+            command=self._on_provider_switch,
+        )
+        self._provider_seg.pack(side="left", padx=10)
+
+        # ── Ollama status badge (shown inline next to segment) ──────────────
+        self._ollama_status_lbl = ctk.CTkLabel(
+            prov_row, text="⬤ checking…",
+            font=("Share Tech Mono", 11), text_color=TEXT_HINT,
+        )
+        self._ollama_status_lbl.pack(side="left", padx=(6, 0))
+        threading.Thread(target=self._probe_ollama_async, daemon=True).start()
+
+        # ── Gemini frame ────────────────────────────────────────────────────
+        self._gemini_frame = ctk.CTkFrame(section, fg_color="transparent")
+
+        gem_row = ctk.CTkFrame(self._gemini_frame, fg_color="transparent")
+        gem_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(
+            gem_row, text="GEMINI MODEL:",
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=260, anchor="w"
+        ).pack(side="left", padx=5)
+
+        cur_gem = config.get("gemini_model", "gemini-2.0-flash")
+        cur_gem_display = GEMINI_MODEL_REV.get(cur_gem, GEMINI_MODELS[0])
+        self._gemini_model_var = ctk.StringVar(value=cur_gem_display)
+        self._gemini_model_dropdown = ctk.CTkOptionMenu(
+            gem_row,
+            values=GEMINI_MODELS,
+            variable=self._gemini_model_var,
+            font=("Share Tech Mono", 13),
+            text_color=TEXT_PRI, fg_color=BG_SEC,
+            button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
+            corner_radius=0, width=280,
+        )
+        self._gemini_model_dropdown.pack(side="left", padx=10)
+
+        # ── OpenAI frame ────────────────────────────────────────────────────
+        self._openai_frame = ctk.CTkFrame(section, fg_color="transparent")
+
+        oai_row = ctk.CTkFrame(self._openai_frame, fg_color="transparent")
+        oai_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(
+            oai_row, text="OPENAI MODEL:",
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=260, anchor="w"
+        ).pack(side="left", padx=5)
+
+        cur_oai = config.get("openai_model", "gpt-4o")
+        cur_oai_display = OPENAI_MODEL_REV.get(cur_oai, OPENAI_MODELS[0])
+        self._openai_model_var = ctk.StringVar(value=cur_oai_display)
+        self._openai_model_dropdown = ctk.CTkOptionMenu(
+            oai_row,
+            values=OPENAI_MODELS,
+            variable=self._openai_model_var,
+            font=("Share Tech Mono", 13),
+            text_color=TEXT_PRI, fg_color=BG_SEC,
+            button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
+            corner_radius=0, width=280,
+        )
+        self._openai_model_dropdown.pack(side="left", padx=10)
+
+        key_row = ctk.CTkFrame(self._openai_frame, fg_color="transparent")
+        key_row.pack(fill="x", pady=4)
+        lbl_k = ctk.CTkFrame(key_row, fg_color="transparent", width=260)
+        lbl_k.pack(side="left")
+        lbl_k.pack_propagate(False)
+        ctk.CTkLabel(lbl_k, text="OPENAI API KEY:", anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(anchor="w", padx=5)
+        ctk.CTkLabel(lbl_k, text="platform.openai.com/api-keys", anchor="w",
+                     font=("Share Tech Mono", 10), text_color=TEXT_HINT).pack(anchor="w", padx=5)
+        self._openai_key_entry = ctk.CTkEntry(
+            key_row, width=340, show="•",
+            font=("Share Tech Mono", 13),
+            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT_PRI, corner_radius=0,
+        )
+        self._openai_key_entry.insert(0, config.get("openai_api_key", ""))
+        self._openai_key_entry.pack(side="left", padx=10)
+        self._openai_key_entry.bind("<FocusIn>",  lambda e: self._openai_key_entry.configure(border_width=2, border_color=ACCENT_PRI))
+        self._openai_key_entry.bind("<FocusOut>", lambda e: self._openai_key_entry.configure(border_width=1, border_color=BORDER))
+
+        ctk.CTkButton(
+            key_row, text="👁", width=36,
+            font=("Share Tech Mono", 13),
+            text_color=TEXT_SEC, fg_color="transparent",
+            hover_color=BG_CARD, border_color=BORDER, border_width=1, corner_radius=0,
+            command=self._toggle_openai_key_visibility,
+        ).pack(side="left")
+
+        # ── Ollama frame ─────────────────────────────────────────────────────
+        self._ollama_frame = ctk.CTkFrame(section, fg_color="transparent")
+
+        # Ollama status info card
+        ollama_info_card = ctk.CTkFrame(
+            self._ollama_frame, fg_color=BG_CARD, corner_radius=0,
+            border_width=1, border_color=BORDER,
+        )
+        ollama_info_card.pack(fill="x", padx=5, pady=(4, 6))
+        ctk.CTkLabel(
+            ollama_info_card,
+            text="🦙  OLLAMA  —  Free local LLM (llama3, mistral, phi3, gemma2 …)",
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_PRI, anchor="w",
+        ).pack(anchor="w", padx=10, pady=(8, 2))
+        ctk.CTkLabel(
+            ollama_info_card,
+            text=(
+                "   • ollama.com se download karo → install karo → `ollama serve` chalao\n"
+                "   • Model download: `ollama pull llama3`  (ya neeche PULL button se)\n"
+                "   • No internet needed after install  |  Free  |  Runs on CPU/GPU"
+            ),
+            font=("Share Tech Mono", 11), text_color=TEXT_SEC, anchor="w", justify="left",
+        ).pack(anchor="w", padx=10, pady=(0, 8))
+
+        self._ollama_detail_lbl = ctk.CTkLabel(
+            ollama_info_card, text="Status: checking…",
+            font=("Share Tech Mono", 11, "bold"), text_color=TEXT_HINT, anchor="w",
+        )
+        self._ollama_detail_lbl.pack(anchor="w", padx=10, pady=(0, 8))
+
+        # URL row
+        url_row = ctk.CTkFrame(self._ollama_frame, fg_color="transparent")
+        url_row.pack(fill="x", pady=4)
+        lbl_url = ctk.CTkFrame(url_row, fg_color="transparent", width=260)
+        lbl_url.pack(side="left")
+        lbl_url.pack_propagate(False)
+        ctk.CTkLabel(lbl_url, text="OLLAMA URL:", anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(anchor="w", padx=5)
+        ctk.CTkLabel(lbl_url, text="default: http://localhost:11434", anchor="w",
+                     font=("Share Tech Mono", 10), text_color=TEXT_HINT).pack(anchor="w", padx=5)
+        self._ollama_url_entry = ctk.CTkEntry(
+            url_row, width=300, font=("Share Tech Mono", 13),
+            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT_PRI, corner_radius=0,
+        )
+        self._ollama_url_entry.insert(0, config.get("ollama_url", "http://localhost:11434"))
+        self._ollama_url_entry.pack(side="left", padx=10)
+        self._ollama_url_entry.bind("<FocusIn>",  lambda e: self._ollama_url_entry.configure(border_width=2, border_color=ACCENT_PRI))
+        self._ollama_url_entry.bind("<FocusOut>", lambda e: self._ollama_url_entry.configure(border_width=1, border_color=BORDER))
+
+        ctk.CTkButton(
+            url_row, text="TEST", width=60,
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=ACCENT_GRN, fg_color="transparent",
+            hover_color=BG_CARD, border_color=ACCENT_GRN, border_width=1, corner_radius=0,
+            command=self._test_ollama_connection,
+        ).pack(side="left", padx=4)
+
+        # Model row
+        model_row = ctk.CTkFrame(self._ollama_frame, fg_color="transparent")
+        model_row.pack(fill="x", pady=4)
+        lbl_mod = ctk.CTkFrame(model_row, fg_color="transparent", width=260)
+        lbl_mod.pack(side="left")
+        lbl_mod.pack_propagate(False)
+        ctk.CTkLabel(lbl_mod, text="OLLAMA MODEL:", anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(anchor="w", padx=5)
+        ctk.CTkLabel(lbl_mod, text="e.g. llama3, mistral, phi3, gemma2", anchor="w",
+                     font=("Share Tech Mono", 10), text_color=TEXT_HINT).pack(anchor="w", padx=5)
+        self._ollama_model_entry = ctk.CTkEntry(
+            model_row, width=220, font=("Share Tech Mono", 13),
+            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT_PRI, corner_radius=0,
+        )
+        self._ollama_model_entry.insert(0, config.get("ollama_model", "llama3"))
+        self._ollama_model_entry.pack(side="left", padx=10)
+        self._ollama_model_entry.bind("<FocusIn>",  lambda e: self._ollama_model_entry.configure(border_width=2, border_color=ACCENT_PRI))
+        self._ollama_model_entry.bind("<FocusOut>", lambda e: self._ollama_model_entry.configure(border_width=1, border_color=BORDER))
+
+        ctk.CTkButton(
+            model_row, text="↻ DETECT MODELS", width=140,
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=ACCENT_PRI, fg_color="transparent",
+            hover_color=BG_CARD, border_color=ACCENT_PRI, border_width=1, corner_radius=0,
+            command=self._refresh_ollama_models,
+        ).pack(side="left", padx=4)
+
+        self._ollama_model_hint = ctk.CTkLabel(
+            self._ollama_frame,
+            text="   ↳  Detected models will appear above — type model name manually if not listed",
+            font=("Share Tech Mono", 11), text_color=TEXT_HINT, anchor="w",
+        )
+        self._ollama_model_hint.pack(anchor="w", padx=10, pady=(0, 4))
+
+        # ── Image-to-Video Backend ──────────────────────────────────────────
+        ctk.CTkFrame(section, fg_color=BORDER, height=1).pack(fill="x", pady=(16, 6), padx=5)
+        ctk.CTkLabel(
+            section, text=">> [ IMAGE-TO-VIDEO BACKEND ]",
+            font=("Orbitron", 13, "bold"), text_color=TEXT_SEC,
+        ).pack(anchor="w", padx=10, pady=(0, 4))
+
+        i2v_row = ctk.CTkFrame(section, fg_color="transparent")
+        i2v_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(
+            i2v_row, text="IMG2VIDEO BACKEND:",
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=260, anchor="w"
+        ).pack(side="left", padx=5)
+        cur_i2v = config.get("img2video_backend", "kling_standard")
+        cur_i2v_display = IMG2VIDEO_REV.get(cur_i2v, list(IMG2VIDEO_OPTIONS.keys())[2])
+        self._img2video_var = ctk.StringVar(value=cur_i2v_display)
+        ctk.CTkOptionMenu(
+            i2v_row,
+            values=list(IMG2VIDEO_OPTIONS.keys()),
+            variable=self._img2video_var,
+            font=("Share Tech Mono", 13),
+            text_color=TEXT_PRI, fg_color=BG_SEC,
+            button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
+            corner_radius=0, width=280,
+        ).pack(side="left", padx=10)
+
+        dur_row = ctk.CTkFrame(section, fg_color="transparent")
+        dur_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(
+            dur_row, text="CLIP DURATION:",
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=260, anchor="w"
+        ).pack(side="left", padx=5)
+        cur_dur = config.get("img2video_duration", "5") + "s"
+        self._clip_duration_var = ctk.StringVar(value=cur_dur)
+        ctk.CTkOptionMenu(
+            dur_row,
+            values=["5s", "10s"],
+            variable=self._clip_duration_var,
+            font=("Share Tech Mono", 13),
+            text_color=TEXT_PRI, fg_color=BG_SEC,
+            button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
+            corner_radius=0, width=120,
+        ).pack(side="left", padx=10)
+        self._hint(section, "Fal.ai backends → Fal API key  •  Grok backends → xAI API key  |  Used in Image Review step when 'Make Video' is toggled ON")
+
+        # Show correct frame on init
+        self._on_provider_switch(self._provider_var.get())
+
+    def _on_provider_switch(self, value: str):
+        self._gemini_frame.pack_forget()
+        self._openai_frame.pack_forget()
+        self._ollama_frame.pack_forget()
+        if value == "OpenAI":
+            self._openai_frame.pack(fill="x")
+        elif value == "Ollama":
+            self._ollama_frame.pack(fill="x")
+        else:
+            self._gemini_frame.pack(fill="x")
+
+    def _toggle_openai_key_visibility(self):
+        current = self._openai_key_entry.cget("show")
+        self._openai_key_entry.configure(show="" if current == "•" else "•")
+
+    # ── Ollama helpers ────────────────────────────────────────────────────
+    def _probe_ollama_async(self):
+        """Background thread: probe Ollama and update status labels."""
+        try:
+            from modules.scripter import check_ollama_status
+            installed, running, models = check_ollama_status()
+        except Exception:
+            installed, running, models = False, False, []
+
+        def _update():
+            if running:
+                badge = f"⬤ Running  ({len(models)} model{'s' if len(models) != 1 else ''} installed)"
+                color = ACCENT_GRN
+                detail = (
+                    f"✅ Ollama is running at {config.get('ollama_url', 'http://localhost:11434')}\n"
+                    f"   Installed models: {', '.join(models) if models else '(none pulled yet)'}"
+                )
+                detail_color = ACCENT_GRN
+            elif installed:
+                badge = "⬤ Installed (not running)"
+                color = ACCENT_WARN
+                detail = (
+                    "⚠️  Ollama is installed but server is not running.\n"
+                    "   Run: `ollama serve`  in a terminal to start it."
+                )
+                detail_color = ACCENT_WARN
+            else:
+                badge = "⬤ Not found"
+                color = ACCENT_RED
+                detail = (
+                    "❌  Ollama not found.\n"
+                    "   Download from: https://ollama.com  then run `ollama serve`."
+                )
+                detail_color = ACCENT_RED
+
+            try:
+                self._ollama_status_lbl.configure(text=badge, text_color=color)
+                if hasattr(self, "_ollama_detail_lbl"):
+                    self._ollama_detail_lbl.configure(text=detail, text_color=detail_color)
+                if running and models and hasattr(self, "_ollama_model_entry"):
+                    current_val = self._ollama_model_entry.get().strip()
+                    if not current_val or current_val == "llama3":
+                        self._ollama_model_entry.delete(0, "end")
+                        self._ollama_model_entry.insert(0, models[0])
+                if running and models and hasattr(self, "_ollama_model_hint"):
+                    self._ollama_model_hint.configure(
+                        text=f"   ↳  Detected: {' | '.join(models[:6])}{'…' if len(models) > 6 else ''}"
+                    )
+            except Exception:
+                pass
+
+        try:
+            self.after(0, _update)
+        except Exception:
+            pass
+
+    def _test_ollama_connection(self):
+        """Test the currently entered Ollama URL."""
+        url = self._ollama_url_entry.get().strip()
+        if not url:
+            return
+        import requests as _req
+        try:
+            r = _req.get(f"{url.rstrip('/')}/api/tags", timeout=5)
+            if r.status_code == 200:
+                models = [m["name"] for m in r.json().get("models", [])]
+                msg = f"✅ Connected!  {len(models)} model(s): {', '.join(models[:4]) or '(none pulled)'}"
+                self._ollama_detail_lbl.configure(text=msg, text_color=ACCENT_GRN)
+                self._ollama_status_lbl.configure(
+                    text=f"⬤ Running ({len(models)} models)", text_color=ACCENT_GRN
+                )
+                if models and hasattr(self, "_ollama_model_hint"):
+                    self._ollama_model_hint.configure(
+                        text=f"   ↳  Detected: {' | '.join(models[:6])}{'…' if len(models) > 6 else ''}"
+                    )
+            else:
+                self._ollama_detail_lbl.configure(
+                    text=f"❌ Server returned HTTP {r.status_code}", text_color=ACCENT_RED
+                )
+        except Exception as exc:
+            self._ollama_detail_lbl.configure(
+                text=f"❌ Cannot connect: {exc}", text_color=ACCENT_RED
+            )
+
+    def _refresh_ollama_models(self):
+        """Re-probe Ollama in background and refresh model list."""
+        self._ollama_detail_lbl.configure(text="⟳ Refreshing…", text_color=TEXT_HINT)
+        threading.Thread(target=self._probe_ollama_async, daemon=True).start()
 
     # ── Section 4: Pipeline Settings ──────────────────────────────────────
     def _build_pipeline_section(self, parent):
@@ -964,8 +1496,27 @@ class SettingsTab(ctk.CTkFrame):
         config.set("tts.edge_tts_voice",             self._edge_voice.get())
         config.set("tts.elevenlabs_voice_id",        self._eleven_voice.get().strip())
 
+        # ElevenLabs realism tuning (entry-based)
+        def _safe_float(entry, default):
+            try:
+                return max(0.0, min(1.0, float(entry.get().strip())))
+            except (ValueError, AttributeError):
+                return default
+        if hasattr(self, "_eleven_stability"):
+            config.set("tts.elevenlabs_stability",        _safe_float(self._eleven_stability, 0.30))
+            config.set("tts.elevenlabs_similarity_boost", _safe_float(self._eleven_similarity, 0.85))
+            config.set("tts.elevenlabs_style",            _safe_float(self._eleven_style, 0.45))
+
+        # Deepgram
+        if hasattr(self, "_deepgram_voice"):
+            config.set("tts.deepgram_voice", self._deepgram_voice.get())
+        if hasattr(self, "_deepgram_model"):
+            config.set("tts.deepgram_model", self._deepgram_model.get())
+
         config.set("image.backend",                  self._img_val)
         config.set("image.comfyui_url",              self._comfyui_url.get().strip())
+        if hasattr(self, "_grok_model_var") and hasattr(self, "_grok_model_options"):
+            config.set("grok_image_model", self._grok_model_options.get(self._grok_model_var.get(), "grok-2-image-1212"))
         try:
             ic = int(self._img_count.get())
         except ValueError:
@@ -991,6 +1542,20 @@ class SettingsTab(ctk.CTkFrame):
 
         if hasattr(self, "_script_review_var"):
             config.set("script_review_enabled", bool(self._script_review_var.get()))
+
+        if hasattr(self, "_provider_var"):
+            _prov_map = {"Gemini": "gemini", "OpenAI": "openai", "Ollama": "ollama"}
+            provider = _prov_map.get(self._provider_var.get(), "gemini")
+            config.set("script_provider", provider)
+            config.set("gemini_model", self._gemini_model_map.get(self._gemini_model_var.get(), "gemini-2.0-flash"))
+            config.set("openai_model", self._openai_model_map.get(self._openai_model_var.get(), "gpt-4o"))
+            config.set("openai_api_key", self._openai_key_entry.get().strip())
+            config.set("img2video_backend", self._img2video_map.get(self._img2video_var.get(), "kling_standard"))
+            config.set("img2video_duration", self._clip_duration_var.get().replace("s", ""))
+            if hasattr(self, "_ollama_url_entry"):
+                config.set("ollama_url", self._ollama_url_entry.get().strip() or "http://localhost:11434")
+            if hasattr(self, "_ollama_model_entry"):
+                config.set("ollama_model", self._ollama_model_entry.get().strip() or "llama3")
 
         config.set("pipeline.language",              self._lang.get())
         config.set("pipeline.upload_enabled",       bool(self._upload_enabled_var.get()))
