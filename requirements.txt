@@ -46,6 +46,9 @@ numpy>=1.26.0
 # --- YouTube uploader ---
 playwright>=1.43.0
 
+# --- License ---
+cryptography>=42.0.0
+
 # --- Utilities ---
 tqdm>=4.66.0
 colorlog>=6.8.2

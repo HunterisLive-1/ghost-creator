@@ -383,7 +383,16 @@ class PipelineRunner:
             if config.get("pipeline.upload_enabled", True):
                 self._emit(6, "📤 Uploading to YouTube Studio …", "INFO")
                 from modules.uploader import upload_to_youtube
-                upload_to_youtube(video_path=video_path, metadata=script["metadata"])
+
+                def _upload_progress(msg: str) -> None:
+                    self._emit(6, msg, "INFO")
+
+                upload_to_youtube(
+                    video_path=video_path,
+                    metadata=script["metadata"],
+                    progress_callback=_upload_progress,
+                    retries=1,
+                )
                 self._emit(6, "Upload complete! 🚀", "SUCCESS")
                 done_msg = f"Pipeline complete! Video: {video_path}"
             else:

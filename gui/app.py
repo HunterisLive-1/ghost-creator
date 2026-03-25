@@ -36,30 +36,48 @@ class GhostCreatorApp(ctk.CTk):
         self.geometry("1100x800")
         self.minsize(800, 600)
         self.configure(fg_color=BG_MAIN)
-        
+
         if getattr(sys, 'frozen', False):
             base_path = Path(getattr(sys, '_MEIPASS', _project_root))
         else:
             base_path = _project_root
-            
+
         icon_path = base_path / "icon.ico"
         if icon_path.exists():
             self.iconbitmap(str(icon_path))
         else:
-            # Fallback to old path just in case
             fallback_path = base_path / "assets" / "ghost_icon.ico"
             if fallback_path.exists():
                 self.iconbitmap(str(fallback_path))
-            
+
+        self._check_license_on_start()
+
+    # ── License gate ─────────────────────────────────────────────────────────
+    def _check_license_on_start(self):
+        from core.license import is_licensed
+        valid, _message = is_licensed()
+        if valid:
+            self._init_main_ui()
+        else:
+            # Hide main window until license is provided
+            self.withdraw()
+            from gui.components.activation_window import ActivationWindow
+            ActivationWindow(self, on_activated=self._on_license_activated)
+
+    def _on_license_activated(self):
+        self.deiconify()
+        self._init_main_ui()
+
+    # ── Main UI (built only after license is confirmed) ───────────────────────
+    def _init_main_ui(self):
         self.progress_queue = queue.Queue()
-        
-        # Top background
+
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True)
-        
+
         self._build_top_bar()
-        self._build_tabs()
         self._build_bottom_bar()
+        self._build_tabs()
 
     # --- UI Layout ---
     def _build_top_bar(self):

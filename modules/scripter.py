@@ -254,9 +254,17 @@ def _generate_with_ollama(prompt: str, num_scenes: int, script_config: dict) -> 
             "Make sure Ollama is installed and running (`ollama serve`)."
         )
 
+    # Note: most Ollama models are English-only. We still pass the language
+    # instruction but warn the user via the GUI. Multilingual models like
+    # qwen2.5 or aya-expanse will honour the language; English-only models
+    # (llama3, mistral, phi3 …) will output English regardless.
     system_msg = (
-        "You are a YouTube script writer. Always respond with valid JSON only. "
-        "No markdown fences, no extra explanation. Just the raw JSON object."
+        "You are a YouTube script writer. IMPORTANT: Always respond with valid JSON only. "
+        "No markdown fences, no code blocks, no extra explanation. "
+        "Output ONLY the raw JSON object — nothing before or after it. "
+        "You MUST follow the language instructions in the user message exactly. "
+        "If the user asks for Hindi/Devanagari, write voiceover_text in Hindi script. "
+        "If the user asks for English, write in English. Respect the language always."
     )
 
     api_url = f"{url}/v1/chat/completions"
@@ -369,6 +377,12 @@ def generate_script(
     if provider == "openai":
         script = _generate_with_openai(prompt, num_scenes, cfg)
     elif provider == "ollama":
+        if language != "en":
+            log.warning(
+                f"Ollama provider selected with language='{language}'. "
+                "Most Ollama models are English-only and may ignore the language instruction. "
+                "Use qwen2.5 or aya-expanse for multilingual output, or switch to Gemini/OpenAI."
+            )
         script = _generate_with_ollama(prompt, num_scenes, cfg)
     else:
         script = _generate_with_gemini(prompt, num_scenes, cfg)

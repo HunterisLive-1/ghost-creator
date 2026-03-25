@@ -168,6 +168,7 @@ class SettingsTab(ctk.CTkFrame):
         self._build_video_format_section(scroll)
         self._build_script_generation_section(scroll)
         self._build_pipeline_section(scroll)
+        self._build_license_section(scroll)
 
         # Save button
         save_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -1040,6 +1041,44 @@ class SettingsTab(ctk.CTkFrame):
         )
         self._ollama_model_hint.pack(anchor="w", padx=10, pady=(0, 4))
 
+        # ── Language Warning Card ─────────────────────────────────────────────
+        lang_warn_card = ctk.CTkFrame(
+            self._ollama_frame, fg_color="#1A0A00", corner_radius=0,
+            border_width=2, border_color=ACCENT_WARN,
+        )
+        lang_warn_card.pack(fill="x", padx=5, pady=(6, 4))
+
+        ctk.CTkLabel(
+            lang_warn_card,
+            text="⚠️  LANGUAGE SUPPORT WARNING",
+            font=("Share Tech Mono", 12, "bold"), text_color=ACCENT_WARN, anchor="w",
+        ).pack(anchor="w", padx=12, pady=(10, 2))
+
+        ctk.CTkLabel(
+            lang_warn_card,
+            text=(
+                "Zyaadatar Ollama models sirf ENGLISH mein output dete hain.\n"
+                "Hindi (Devanagari), Marathi, Bengali, Gujarati, Tamil script\n"
+                "produce nahi kar sakte — script English mein hi aayegi."
+            ),
+            font=("Share Tech Mono", 12), text_color="#FFCC66",
+            anchor="w", justify="left",
+        ).pack(anchor="w", padx=12, pady=(0, 4))
+
+        ctk.CTkLabel(
+            lang_warn_card,
+            text=(
+                "✅  Multilingual models jo thoda better kaam karte hain:\n"
+                "     • qwen2.5   →  `ollama pull qwen2.5`   (best non-English)\n"
+                "     • aya-expanse  →  `ollama pull aya-expanse`  (101 languages)\n"
+                "     • llama3.1   →  `ollama pull llama3.1`  (partial support)\n"
+                "\n"
+                "💡  Sahi Hindi/regional script ke liye Gemini ya OpenAI use karo."
+            ),
+            font=("Share Tech Mono", 11), text_color=TEXT_SEC,
+            anchor="w", justify="left",
+        ).pack(anchor="w", padx=12, pady=(0, 10))
+
         # ── Image-to-Video Backend ──────────────────────────────────────────
         ctk.CTkFrame(section, fg_color=BORDER, height=1).pack(fill="x", pady=(16, 6), padx=5)
         ctk.CTkLabel(
@@ -1571,6 +1610,103 @@ class SettingsTab(ctk.CTkFrame):
 
     def _open_env_local(self):
         config.open_env_local()
+
+    # ── Section: License ──────────────────────────────────────────────────
+    def _build_license_section(self, parent):
+        section = self._section(
+            parent, ">> [ LICENSE ]",
+            "Ghost Creator AI activation status for this device."
+        )
+
+        # Status card
+        self._lic_card = ctk.CTkFrame(
+            section, fg_color=BG_CARD, corner_radius=0,
+            border_width=1, border_color=BORDER,
+        )
+        self._lic_card.pack(fill="x", pady=(4, 10))
+
+        row1 = ctk.CTkFrame(self._lic_card, fg_color="transparent")
+        row1.pack(fill="x", padx=14, pady=(10, 4))
+
+        ctk.CTkLabel(
+            row1, text="STATUS:",
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=80, anchor="w",
+        ).pack(side="left")
+        self._lic_status_lbl = ctk.CTkLabel(
+            row1, text="⟳  checking…",
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_HINT, anchor="w",
+        )
+        self._lic_status_lbl.pack(side="left", padx=6)
+
+        row2 = ctk.CTkFrame(self._lic_card, fg_color="transparent")
+        row2.pack(fill="x", padx=14, pady=(0, 10))
+        ctk.CTkLabel(
+            row2, text="DEVICE:",
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=80, anchor="w",
+        ).pack(side="left")
+        import platform as _platform
+        ctk.CTkLabel(
+            row2, text=_platform.node() or "This PC",
+            font=("Share Tech Mono", 12), text_color=TEXT_SEC, anchor="w",
+        ).pack(side="left", padx=6)
+
+        # Buttons row
+        btn_row = ctk.CTkFrame(section, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(0, 10))
+
+        ctk.CTkButton(
+            btn_row,
+            text="🔄  Re-check License",
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=ACCENT_PRI, fg_color="transparent",
+            hover_color=BG_CARD, border_color=ACCENT_PRI, border_width=1, corner_radius=0,
+            command=self._recheck_license,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row,
+            text="❌  Deactivate",
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=ACCENT_RED, fg_color="transparent",
+            hover_color=BG_CARD, border_color=ACCENT_RED, border_width=1, corner_radius=0,
+            command=self._deactivate_license,
+        ).pack(side="left")
+
+        # Load status immediately
+        self._recheck_license()
+
+    def _recheck_license(self):
+        self._lic_status_lbl.configure(text="⟳  checking…", text_color=TEXT_HINT)
+        threading.Thread(target=self._do_recheck, daemon=True).start()
+
+    def _do_recheck(self):
+        try:
+            from core.license import is_licensed
+            valid, message = is_licensed()
+        except Exception as exc:
+            valid, message = False, str(exc)
+        self.after(0, self._update_lic_status, valid, message)
+
+    def _update_lic_status(self, valid: bool, message: str):
+        if valid:
+            self._lic_status_lbl.configure(text=f"✅  Activated  ({message})", text_color=ACCENT_GRN)
+        else:
+            self._lic_status_lbl.configure(text=f"❌  {message}", text_color=ACCENT_RED)
+
+    def _deactivate_license(self):
+        dialog = ctk.CTkInputDialog(
+            text=(
+                "Are you sure you want to deactivate Ghost Creator on this device?\n\n"
+                "Type  DEACTIVATE  to confirm:"
+            ),
+            title="Deactivate License",
+        )
+        answer = dialog.get_input()
+        if answer and answer.strip().upper() == "DEACTIVATE":
+            from core.license import _revoke_local_license
+            _revoke_local_license()
+            import sys as _sys
+            _sys.exit(0)
 
     # ── Widget helpers ────────────────────────────────────────────────────
     def _hint(self, parent, text: str):
