@@ -30,7 +30,24 @@ log = get_logger("scripter")
 
 # ISO 639-1 code → (Gemini display name, script instruction for voiceover/title)
 VOICEOVER_LANG_META: dict[str, tuple[str, str]] = {
-    "hi": ("Hindi", "Use Devanagari script for Hindi."),
+    "hi": (
+        "Hinglish",
+        (
+            "Write in Hinglish — Hindi spoken naturally but typed entirely in Roman/Latin script. "
+            "Example: 'Kya aap jaante hain ke yeh ek kamaal ki cheez hai?' "
+            "NEVER use Devanagari or any other non-Latin script. "
+            "All words must be readable by someone who knows only the English alphabet."
+        ),
+    ),
+    "hinglish": (
+        "Hinglish",
+        (
+            "Write in Hinglish — Hindi spoken naturally but typed entirely in Roman/Latin script. "
+            "Example: 'Kya aap jaante hain ke yeh ek kamaal ki cheez hai?' "
+            "NEVER use Devanagari or any other non-Latin script. "
+            "All words must be readable by someone who knows only the English alphabet."
+        ),
+    ),
     "en": ("English", "Use Latin script (English) only."),
     "mr": ("Marathi", "Use Devanagari script for Marathi."),
     "bn": ("Bengali", "Use Bengali script."),
@@ -189,15 +206,17 @@ def _generate_with_gemini(prompt: str, num_scenes: int, script_config: dict) -> 
 
     client = genai.Client(api_key=api_key)
 
-    for attempt in range(1, 3):
+    for attempt in range(1, 4):
         log.debug(f"Gemini API call (attempt {attempt}, model={gemini_model!r}) …")
+        # On retry, use a higher token limit and lower temperature
+        max_out = 8192
+        temperature = 0.7 if attempt == 1 else 0.4
         try:
-            max_out = 4096 if num_scenes > 12 else 2048
             response = client.models.generate_content(
                 model=gemini_model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    temperature=0.7,
+                    temperature=temperature,
                     max_output_tokens=max_out,
                 ),
             )
@@ -208,9 +227,9 @@ def _generate_with_gemini(prompt: str, num_scenes: int, script_config: dict) -> 
 
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
             log.warning(f"Attempt {attempt} failed to parse Gemini script: {exc}")
-            if attempt == 2:
+            if attempt == 3:
                 raise RuntimeError(
-                    f"Gemini returned unparseable JSON after 2 attempts: {exc}"
+                    f"Gemini returned unparseable JSON after 3 attempts: {exc}"
                 ) from exc
 
     raise RuntimeError("_generate_with_gemini: unexpected exit")
