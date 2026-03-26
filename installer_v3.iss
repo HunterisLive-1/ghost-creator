@@ -5,7 +5,7 @@
 #define MyAppExeName "GhostCreatorAI.exe"
 
 [Setup]
-AppId={{GhostCreatorAI-2026-HunterIsLive-V3-UUID}
+AppId={{GhostCreatorAI-2025-HunterIsLive-UUID}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} v{#MyAppVersion}
