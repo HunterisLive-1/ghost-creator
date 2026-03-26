@@ -797,15 +797,23 @@ class SettingsTab(ctk.CTkFrame):
 
     # ── Section: Script Generation ────────────────────────────────────────
     def _build_script_generation_section(self, parent):
+        # Model IDs verified from Google AI Studio Rate Limit page (Mar 2026)
+        # Format: "Display · RPM/RPD · Cost"
         GEMINI_MODELS = [
-            "gemini-2.0-flash (Fast · Free)",
-            "gemini-2.5-flash (Smarter · Free)",
-            "gemini-2.5-pro (Best · Paid)",
+            "gemini-2.5-flash       · 5rpm/20rpd  · Free ✅",
+            "gemini-2.5-flash-lite  · 10rpm/20rpd · Free ✅",
+            "gemini-3-flash         · 5rpm/20rpd  · Free ✅",
+            "gemini-3.1-flash-lite  · 15rpm/500rpd· Free ✅ BEST",
+            "gemini-2.5-pro         · Paid 💰 · Best Quality",
+            "gemini-3.1-pro         · Paid 💰 · Pro Quality",
         ]
         GEMINI_MODEL_MAP = {
-            "gemini-2.0-flash (Fast · Free)": "gemini-2.0-flash",
-            "gemini-2.5-flash (Smarter · Free)": "gemini-2.5-flash-preview-05-20",
-            "gemini-2.5-pro (Best · Paid)": "gemini-2.5-pro-preview-05-06",
+            "gemini-2.5-flash       · 5rpm/20rpd  · Free ✅":       "gemini-2.5-flash",
+            "gemini-2.5-flash-lite  · 10rpm/20rpd · Free ✅":        "gemini-2.5-flash-lite",
+            "gemini-3-flash         · 5rpm/20rpd  · Free ✅":        "gemini-3-flash",
+            "gemini-3.1-flash-lite  · 15rpm/500rpd· Free ✅ BEST":   "gemini-3.1-flash-lite",
+            "gemini-2.5-pro         · Paid 💰 · Best Quality":       "gemini-2.5-pro",
+            "gemini-3.1-pro         · Paid 💰 · Pro Quality":        "gemini-3.1-pro",
         }
         GEMINI_MODEL_REV = {v: k for k, v in GEMINI_MODEL_MAP.items()}
 
@@ -883,7 +891,7 @@ class SettingsTab(ctk.CTkFrame):
             font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=260, anchor="w"
         ).pack(side="left", padx=5)
 
-        cur_gem = config.get("gemini_model", "gemini-2.0-flash")
+        cur_gem = config.get("gemini_model", "gemini-2.5-flash")
         cur_gem_display = GEMINI_MODEL_REV.get(cur_gem, GEMINI_MODELS[0])
         self._gemini_model_var = ctk.StringVar(value=cur_gem_display)
         self._gemini_model_dropdown = ctk.CTkOptionMenu(
@@ -1336,6 +1344,28 @@ class SettingsTab(ctk.CTkFrame):
         )
         self._upload.set(config.get("pipeline.upload_mode", "unlisted"))
         self._hint(section, "unlisted = sirf link wale dekh sakte (testing ke liye)  |  public = sabko dikhega  |  draft = save only")
+
+        # Thumbnail toggle
+        self._thumbnail_enabled_var = ctk.BooleanVar(value=bool(config.get("pipeline.thumbnail_enabled", True)))
+        thumb_flag_row = ctk.CTkFrame(section, fg_color="transparent")
+        thumb_flag_row.pack(fill="x", pady=(6, 2), padx=5)
+        ctk.CTkCheckBox(
+            thumb_flag_row,
+            text="Auto-generate clickbait thumbnail before upload",
+            variable=self._thumbnail_enabled_var,
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=TEXT_SEC,
+            fg_color=BG_MAIN,
+            border_color=BORDER,
+            hover_color=BG_CARD,
+            checkmark_color=ACCENT_PRI,
+            corner_radius=0,
+        ).pack(anchor="w", padx=5)
+        self._hint(
+            section,
+            "AI se 1280×720 thumbnail banega — title text + clickbait overlay — output/thumbnails/ mein save hoga",
+        )
+
         self._sync_upload_controls()
 
         # Output folder
@@ -1599,6 +1629,7 @@ class SettingsTab(ctk.CTkFrame):
         config.set("pipeline.language",              self._lang.get())
         config.set("pipeline.upload_enabled",       bool(self._upload_enabled_var.get()))
         config.set("pipeline.upload_mode",           self._upload.get())
+        config.set("pipeline.thumbnail_enabled",    bool(self._thumbnail_enabled_var.get()))
         config.set("pipeline.output_folder",         self._output_dir.get().strip())
 
         config.save()

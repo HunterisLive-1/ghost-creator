@@ -16,6 +16,7 @@ Usage:
 import queue
 import threading
 from datetime import datetime
+from pathlib import Path
 from config import get_logger, TEMP_DIR, OUTPUT_DIR
 
 log = get_logger("pipeline")
@@ -376,6 +377,31 @@ class PipelineRunner:
                 output_filename=_output_filename,
             )
             self._emit(5, f"Video rendered: {video_path}", "SUCCESS")
+
+            # ── Step 5.5: Thumbnail (optional, only when upload is enabled) ──
+            thumbnail_path: str = ""
+            if config.get("pipeline.upload_enabled", True) and config.get("pipeline.thumbnail_enabled", True):
+                if not self.running:
+                    return
+                self._emit(5, "🖼️ Generating clickbait thumbnail …", "INFO")
+                try:
+                    from modules.thumbnail_maker import generate_thumbnail
+
+                    def _thumb_progress(msg: str) -> None:
+                        self._emit(5, msg, "INFO")
+
+                    thumbnail_path = generate_thumbnail(
+                        title=script["metadata"]["title"],
+                        topic=topic,
+                        aspect_ratio=aspect_ratio,
+                        image_prompts=script.get("image_prompts", []),
+                        progress_callback=_thumb_progress,
+                    )
+                    self._emit(5, f"Thumbnail saved: {Path(thumbnail_path).name}", "SUCCESS")
+                    script["metadata"]["thumbnail_path"] = thumbnail_path
+                except Exception as thumb_exc:
+                    log.warning(f"Thumbnail generation failed (non-fatal): {thumb_exc}")
+                    self._emit(5, f"⚠️ Thumbnail skipped: {thumb_exc}", "WARNING")
 
             # ── Step 6: Upload (optional) ───────────────────────────────────
             if not self.running:

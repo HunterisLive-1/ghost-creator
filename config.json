@@ -30,12 +30,12 @@
     "pollinations_model": "dreamshaper",
     "fal_model": "fal-ai/fast-sdxl",
     "replicate_model": "stability-ai/sdxl",
-    "image_count": 4,
+    "image_count": 6,
     "width": 1080,
     "height": 1920
   },
   "pipeline": {
-    "language": "mr",
+    "language": "hi",
     "upload_mode": "unlisted",
     "output_folder": "output",
     "gemini_model": "gemini-2.0-flash",
@@ -47,7 +47,8 @@
       }
     ],
     "active_profile_index": 0,
-    "upload_enabled": false
+    "upload_enabled": true,
+    "thumbnail_enabled": true
   },
   "aspect_ratio": "9:16",
   "target_duration": 60,
@@ -63,7 +64,7 @@
   "xai_api_key": "",
   "grok_image_model": "grok-2-image-1212",
   "script_provider": "gemini",
-  "gemini_model": "gemini-2.0-flash",
+  "gemini_model": "gemini-2.5-flash",
   "openai_model": "gpt-4o",
   "openai_api_key": "",
   "video_features_enabled": true,

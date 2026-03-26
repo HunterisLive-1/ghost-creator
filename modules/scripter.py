@@ -85,9 +85,14 @@ def _build_prompt(
     duration_guidance = (
         "Keep it short, concise, and high-energy."
         if target_duration <= 90
-        else "Create an engaging in-depth explainer."
+        else "Create a detailed, engaging in-depth explainer — do NOT cut short."
     )
-    return f"""You are a viral YouTube Shorts scriptwriter.
+    # Compute human-readable time label (e.g. "10 minutes")
+    _min = target_duration // 60
+    _sec = target_duration % 60
+    duration_label = f"{_min} minute{'s' if _min != 1 else ''}" + (f" {_sec}s" if _sec else "")
+
+    return f"""You are a professional YouTube scriptwriter.
 
 ════════════════════════════════════════════════════════
 TOPIC (MANDATORY — DO NOT DEVIATE):  "{topic}"
@@ -107,16 +112,29 @@ IMPORTANT LANGUAGE RULES:
 
 Output ONLY a valid JSON object. No markdown fences, no extra text.
 
+════════════════════════════════════════════════════════
+⚠️  WORD COUNT IS MANDATORY — THIS IS THE MOST IMPORTANT RULE ⚠️
+════════════════════════════════════════════════════════
+- Target video duration  : {target_duration} seconds  ({duration_label})
+- REQUIRED word count    : EXACTLY {target_words} words in voiceover_text
+- Speaking rate          : ~130 words per minute in natural {lang_display} speech
+- DO NOT stop early. Write ALL {target_words} words.
+- A short script will make the video too short. The viewer paid for {duration_label}.
+- If you reach a natural ending before {target_words} words, ADD more depth:
+    examples, stories, statistics, tips, history, comparisons, viewer advice.
+- Count your words. Aim for {target_words} ± 50 words. Nothing less.
+════════════════════════════════════════════════════════
+
 Video requirements:
-- Target duration: {target_duration} seconds
+- Target duration: {target_duration} seconds  ({duration_label})
 - Video type: {video_type}
-- Voiceover length: approximately {target_words} words
+- Voiceover word count: {target_words} words  (MANDATORY — see above)
 - Generate exactly {num_scenes} scenes/image prompts
 - {duration_guidance}
 
 JSON schema:
 {{
-  "voiceover_text": "<{lang_display} narration specifically about '{topic}' — natural speech rhythm with pauses (use commas and full stops for breathing), match the target duration>",
+  "voiceover_text": "<{lang_display} narration — MUST be {target_words} words, natural speech rhythm with pauses (use commas and full stops), about '{topic}'>",
   "english_subtitle_text": "<exact English translation of voiceover_text — plain text only, no emojis, no symbols>",
   "image_prompts": [
     "<English Stable Diffusion prompt about '{topic}', scene 1 — cinematic, photorealistic, 8K>",
@@ -135,6 +153,7 @@ JSON schema:
 
 Rules for voiceover_text:
 - MUST be specifically about: "{topic}" — do not drift to other subjects
+- MUST contain {target_words} words (±50) — this is non-negotiable
 - First sentence: shocking hook question/statement DIRECTLY related to the topic
 - Natural conversational speech — use commas and full stops for pacing and breathing
 - Short punchy sentences with natural pauses
@@ -194,8 +213,35 @@ def _validate_script(script: dict, num_scenes: int) -> dict:
     return script
 
 
+# Ordered fallback chain — tried in sequence when a model returns 404
+_GEMINI_FALLBACK_CHAIN = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+]
+_GEMINI_FINAL_FALLBACK = "gemini-2.0-flash"   # always-available stable model
+
+# All non-1.x Gemini models require v1alpha for generateContent
+_V1BETA_PREFIXES = ("gemini-1.",)   # only 1.x models use v1beta
+
+
+def _gemini_client(api_key: str, model: str) -> "genai.Client":
+    """
+    Return a Gemini client.
+    • gemini-1.x  → v1beta (stable, default)
+    • everything else (2.x, 2.5, 3.x, …) → v1alpha (required for newer models)
+    """
+    use_beta = any(model.startswith(p) for p in _V1BETA_PREFIXES)
+    if use_beta:
+        return genai.Client(api_key=api_key)
+    return genai.Client(
+        api_key=api_key,
+        http_options={"api_version": "v1alpha"},
+    )
+
+
 def _generate_with_gemini(prompt: str, num_scenes: int, script_config: dict) -> dict:
-    """Generate script using Gemini API."""
+    """Generate script using Gemini API, with automatic 404 fallback."""
     api_key = script_config.get("api_keys.gemini") or config.get("api_keys.gemini", "")
     if isinstance(api_key, str):
         api_key = api_key.strip()
@@ -204,15 +250,12 @@ def _generate_with_gemini(prompt: str, num_scenes: int, script_config: dict) -> 
 
     gemini_model = script_config.get("gemini_model") or config.get("gemini_model", GEMINI_MODEL)
 
-    client = genai.Client(api_key=api_key)
-
     for attempt in range(1, 4):
         log.debug(f"Gemini API call (attempt {attempt}, model={gemini_model!r}) …")
-        # On retry, use a higher token limit and lower temperature
-            # Scale tokens with video length: shorts ~8k, long videos up to 24k
-            max_out = 24576
-            temperature = 0.7 if attempt == 1 else 0.4
+        max_out     = 24576
+        temperature = 0.7 if attempt == 1 else 0.4
         try:
+            client = _gemini_client(api_key, gemini_model)
             response = client.models.generate_content(
                 model=gemini_model,
                 contents=prompt,
@@ -226,12 +269,42 @@ def _generate_with_gemini(prompt: str, num_scenes: int, script_config: dict) -> 
             script = _extract_json(raw_text)
             return _validate_script(script, num_scenes)
 
-        except (json.JSONDecodeError, KeyError, ValueError) as exc:
-            log.warning(f"Attempt {attempt} failed to parse Gemini script: {exc}")
+        except (json.JSONDecodeError, KeyError, ValueError) as parse_exc:
+            # JSON parse / validation failure — retry with lower temperature
+            log.warning(f"Attempt {attempt} failed to parse Gemini script: {parse_exc}")
             if attempt == 3:
                 raise RuntimeError(
-                    f"Gemini returned unparseable JSON after 3 attempts: {exc}"
-                ) from exc
+                    f"Gemini returned unparseable JSON after 3 attempts: {parse_exc}"
+                ) from parse_exc
+
+        except Exception as api_exc:
+            err_str = str(api_exc)
+            # 404 NOT_FOUND = model name wrong or needs a different API version
+            if "404" in err_str or "NOT_FOUND" in err_str:
+                # Walk the fallback chain to find the next available model
+                next_model = None
+                try:
+                    idx = _GEMINI_FALLBACK_CHAIN.index(gemini_model)
+                    if idx + 1 < len(_GEMINI_FALLBACK_CHAIN):
+                        next_model = _GEMINI_FALLBACK_CHAIN[idx + 1]
+                except ValueError:
+                    # Current model not in chain → jump straight to final fallback
+                    if gemini_model != _GEMINI_FINAL_FALLBACK:
+                        next_model = _GEMINI_FINAL_FALLBACK
+
+                if next_model:
+                    log.warning(
+                        f"Model {gemini_model!r} not available (404). "
+                        f"Auto-switching to: {next_model!r}."
+                    )
+                    gemini_model = next_model
+                    continue   # retry immediately with next model
+                raise RuntimeError(
+                    f"All Gemini fallback models returned 404. "
+                    f"Last tried: {gemini_model!r}. Check your API key."
+                ) from api_exc
+            # Other API errors (rate limit, auth, network) — fail immediately
+            raise RuntimeError(f"Gemini API error: {api_exc}") from api_exc
 
     raise RuntimeError("_generate_with_gemini: unexpected exit")
 
