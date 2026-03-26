@@ -209,8 +209,9 @@ def _generate_with_gemini(prompt: str, num_scenes: int, script_config: dict) -> 
     for attempt in range(1, 4):
         log.debug(f"Gemini API call (attempt {attempt}, model={gemini_model!r}) …")
         # On retry, use a higher token limit and lower temperature
-        max_out = 8192
-        temperature = 0.7 if attempt == 1 else 0.4
+            # Scale tokens with video length: shorts ~8k, long videos up to 24k
+            max_out = 24576
+            temperature = 0.7 if attempt == 1 else 0.4
         try:
             response = client.models.generate_content(
                 model=gemini_model,
@@ -300,9 +301,10 @@ def _generate_with_ollama(prompt: str, num_scenes: int, script_config: dict) -> 
                         {"role": "user",   "content": prompt},
                     ],
                     "temperature": 0.7,
+                    "max_tokens": 24576,
                     "stream": False,
                 },
-                timeout=300,
+                timeout=600,
             )
             resp.raise_for_status()
             raw_text = resp.json()["choices"][0]["message"]["content"]
@@ -346,6 +348,7 @@ def _generate_with_openai(prompt: str, num_scenes: int, script_config: dict) -> 
         ],
         response_format={"type": "json_object"},
         temperature=0.8,
+        max_tokens=24576,
     )
     raw_text = response.choices[0].message.content
     log.debug(f"Raw OpenAI response (first 200 chars): {raw_text[:200]}")
