@@ -17,7 +17,10 @@ import logging
 import re
 import shutil
 import subprocess
+import sys
 import time
+
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 from pathlib import Path
 
 import requests
@@ -97,6 +100,7 @@ class ChatterboxTTS(TTSBackend):
             ["cmd", "/c", "start", "Chatterbox TTS", "/min", str(win_run)],
             cwd=str(cb_dir),
             shell=False,
+            creationflags=_NO_WINDOW,
         )
 
         logger.info("Waiting for server to come online (can take 30–60 seconds) …")
@@ -118,6 +122,7 @@ class ChatterboxTTS(TTSBackend):
             result = subprocess.run(
                 ["netstat", "-ano", "-p", "TCP"],
                 capture_output=True, text=True, timeout=10,
+                creationflags=_NO_WINDOW,
             )
             for line in result.stdout.splitlines():
                 if ":8004" in line and "LISTENING" in line:
@@ -125,6 +130,7 @@ class ChatterboxTTS(TTSBackend):
                     subprocess.run(
                         ["taskkill", "/PID", pid, "/F", "/T"],
                         capture_output=True, timeout=10,
+                        creationflags=_NO_WINDOW,
                     )
                     _multilingual_loaded = False
                     logger.info(f"Chatterbox server killed (PID {pid}) — ALL GPU VRAM freed.")

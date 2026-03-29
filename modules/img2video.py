@@ -6,6 +6,7 @@ Supports: AnimateDiff, Stable Video Diffusion, Kling AI (via Fal.ai),
 
 import base64
 import hashlib
+import os
 import requests
 import time
 from pathlib import Path
@@ -183,6 +184,14 @@ def generate_video_clip(
 
     # ── Fal.ai backends ───────────────────────────────────────────────────
     try:
+        # Inject FAL_KEY from config into env so fal_client can authenticate
+        fal_key = (cfg.get("api_keys") or {}).get("fal_ai", "").strip()
+        if fal_key:
+            os.environ["FAL_KEY"] = fal_key
+        elif not os.environ.get("FAL_KEY"):
+            _log("[ERROR] Fal.ai API key not set. Add it in Settings → API Keys → Fal.ai.")
+            return None
+
         import fal_client
 
         endpoint = FAL_ENDPOINTS.get(backend)
@@ -264,8 +273,14 @@ def process_selected_images(
     aspect_ratio = config.get("aspect_ratio", "9:16")
 
     results = {}
-    for image_path, should_convert in selections.items():
-        if should_convert:
+    for image_path, action in selections.items():
+        if isinstance(action, str) and action:
+            # User browsed a local clip — use it directly, no API call
+            _log(f"[INFO] Using local clip for {Path(image_path).name}: {Path(action).name}")
+            results[image_path] = {"type": "video_clip", "path": action}
+
+        elif action:
+            # True → convert via fal.ai / grok
             _log(f"[INFO] Converting to video clip: {Path(image_path).name}...")
             prompt = config.get("_scene_prompts", {}).get(image_path, "cinematic scene")
             clip_path = generate_video_clip(
@@ -283,7 +298,9 @@ def process_selected_images(
             else:
                 _log(f"[WARN] Img2video failed for {Path(image_path).name} — using static image")
                 results[image_path] = {"type": "image", "path": image_path}
+
         else:
+            # False → keep as static image
             results[image_path] = {"type": "image", "path": image_path}
 
     return results

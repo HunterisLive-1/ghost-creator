@@ -25,6 +25,9 @@ _BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 _LOCAL_FFMPEG = os.path.join(_BASE_DIR, "ffmpeg", "ffmpeg.exe")
 _FFMPEG = _LOCAL_FFMPEG if os.path.exists(_LOCAL_FFMPEG) else "ffmpeg"
 
+# Suppress CMD window flash on Windows for all subprocess calls
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 # Pace → atempo multiplier (FFmpeg atempo: 0.5–2.0)
 PACE_ATEMPO = {
     "slow":   0.85,   # ~15% slower speech
@@ -49,11 +52,17 @@ def _get_backend_map() -> dict[str, type]:
     from backends.tts.chatterbox import ChatterboxTTS
     from backends.tts.elevenlabs import ElevenLabsTTS
     from backends.tts.deepgram import DeepgramTTS
+    from backends.tts.edge_tts import EdgeTTS
+    from backends.tts.google_tts import GoogleTTS
+    from backends.tts.kokoro_tts import KokoroTTS
 
     BACKEND_MAP = {
-        "chatterbox": ChatterboxTTS,
-        "elevenlabs": ElevenLabsTTS,
-        "deepgram": DeepgramTTS,
+        "chatterbox":  ChatterboxTTS,
+        "elevenlabs":  ElevenLabsTTS,
+        "deepgram":    DeepgramTTS,
+        "edge_tts":    EdgeTTS,
+        "google_tts":  GoogleTTS,
+        "kokoro_tts":  KokoroTTS,
     }
     return BACKEND_MAP
 
@@ -168,7 +177,7 @@ def _apply_pace_speed(audio_path: Path) -> Path:
         "-c:a", "libmp3lame", "-q:a", "2",
         str(tmp_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, creationflags=_NO_WINDOW)
     if result.returncode != 0:
         log.warning(f"atempo filter failed (will use original): {result.stderr[-200:]}")
         return audio_path

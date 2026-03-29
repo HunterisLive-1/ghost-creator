@@ -5,8 +5,11 @@ Handles resizing, cropping, and format conversion via FFmpeg + Pillow.
 
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
+
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 from PIL import Image
 
@@ -138,6 +141,7 @@ def prepare_custom_images(
                         str(dest),
                     ],
                     check=True,
+                    creationflags=_NO_WINDOW,
                 )
 
             prepared.append(str(dest))

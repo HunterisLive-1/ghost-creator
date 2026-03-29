@@ -1,10 +1,12 @@
 """
 gui/components/image_review.py — Image Review & Video Selection Modal
 ======================================================================
-Shown after image generation. User sees all images in a grid and toggles
-which ones should be converted to video clips via Fal.ai img2video.
+Shown after image generation. User sees all images in a grid and can:
+  1. Toggle images for fal.ai img2video conversion (API cost applies)
+  2. Browse a LOCAL .mp4 clip to use for that scene directly (free, no API)
 """
 
+import os
 import customtkinter as ctk
 from PIL import Image
 
@@ -27,7 +29,7 @@ COLS = 4
 class ImageReviewWindow(ctk.CTkToplevel):
     """
     Modal window for reviewing generated images and selecting which to
-    convert to short video clips.
+    convert to short video clips (via fal.ai OR from a local file).
     """
 
     def __init__(
@@ -47,13 +49,19 @@ class ImageReviewWindow(ctk.CTkToplevel):
         self.on_continue = on_continue
         self.on_skip = on_skip
 
+        # {image_path: BooleanVar}  — True = send to fal.ai
         self.toggles: dict = {}
         self.toggle_buttons: dict = {}
+
+        # {image_path: str}  — local .mp4 path chosen by user (bypasses fal.ai)
+        self.local_clips: dict = {}
+        self.local_clip_labels: dict = {}
+
         self._photo_refs: list = []
 
         self.title("🖼️ Image Review & Video Selection")
-        self.geometry("950x700")
-        self.minsize(900, 650)
+        self.geometry("950x760")
+        self.minsize(900, 700)
         self.resizable(True, True)
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -90,7 +98,7 @@ class ImageReviewWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             self,
-            text="Toggle images you want converted to short video clips",
+            text="Toggle images for fal.ai conversion  ·  OR  ·  📁 browse a local clip to use directly (free)",
             font=ctk.CTkFont(size=12),
             text_color="gray60",
         ).grid(row=0, column=0, sticky="ew", padx=16, pady=(0, 0))
@@ -126,6 +134,7 @@ class ImageReviewWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11),
         ).pack()
 
+        # ── fal.ai toggle ──────────────────────────────────────────────────
         toggle_var = ctk.BooleanVar(value=False)
         self.toggles[image_path] = toggle_var
 
@@ -137,8 +146,30 @@ class ImageReviewWindow(ctk.CTkToplevel):
             width=170,
         )
         btn.configure(command=lambda p=image_path, v=toggle_var, b=btn: self._toggle_image(p, v, b))
-        btn.pack(pady=(4, 10), padx=8, fill="x")
+        btn.pack(pady=(4, 4), padx=8, fill="x")
         self.toggle_buttons[image_path] = btn
+
+        # ── local clip browse ──────────────────────────────────────────────
+        browse_btn = ctk.CTkButton(
+            card,
+            text="📁 Browse Local Clip",
+            fg_color="gray25",
+            hover_color="gray35",
+            width=170,
+            font=ctk.CTkFont(size=11),
+        )
+        browse_btn.configure(command=lambda p=image_path: self._browse_local_clip(p))
+        browse_btn.pack(pady=(0, 4), padx=8, fill="x")
+
+        clip_label = ctk.CTkLabel(
+            card,
+            text="",
+            font=ctk.CTkFont(size=9),
+            text_color="#4CAF50",
+            wraplength=175,
+        )
+        clip_label.pack(pady=(0, 8))
+        self.local_clip_labels[image_path] = clip_label
 
         return card
 
@@ -150,7 +181,7 @@ class ImageReviewWindow(ctk.CTkToplevel):
         controls = ctk.CTkFrame(footer, fg_color="transparent")
         controls.grid(row=0, column=0, columnspan=3, sticky="ew")
 
-        ctk.CTkLabel(controls, text="Backend:").pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(controls, text="fal.ai Backend:").pack(side="left", padx=(0, 6))
 
         default_backend = self.config.get("img2video_backend", "kling_standard")
         default_display = BACKEND_DISPLAY.get(default_backend, list(BACKEND_OPTIONS.keys())[2])
@@ -178,7 +209,7 @@ class ImageReviewWindow(ctk.CTkToplevel):
 
         self.cost_label = ctk.CTkLabel(
             footer,
-            text="📹 0 images selected  |  💰 Est. cost: ~$0.00",
+            text="📹 0 selected for fal.ai  |  📁 0 local clips  |  💰 Est. cost: ~$0.00",
             font=ctk.CTkFont(size=12),
         )
         self.cost_label.grid(row=1, column=0, columnspan=3, sticky="w", pady=(8, 4))
@@ -209,8 +240,44 @@ class ImageReviewWindow(ctk.CTkToplevel):
         var.set(new_val)
         if new_val:
             btn.configure(text="📹 Make Video: ON", fg_color=("#1f6aa5", "#1f6aa5"))
+            # Clear local clip if fal.ai is toggled ON (mutually exclusive)
+            if path in self.local_clips:
+                del self.local_clips[path]
+            lbl = self.local_clip_labels.get(path)
+            if lbl:
+                lbl.configure(text="")
         else:
             btn.configure(text="📹 Make Video: OFF", fg_color="gray30")
+        self._update_cost_label()
+
+    def _browse_local_clip(self, image_path: str):
+        """Open file dialog to pick a local video clip for this scene."""
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title=f"Select video clip for Scene {self.image_paths.index(image_path) + 1}",
+            filetypes=[
+                ("Video files", "*.mp4 *.mov *.avi *.mkv *.webm"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+
+        self.local_clips[image_path] = path
+
+        # Show filename on card
+        lbl = self.local_clip_labels.get(image_path)
+        if lbl:
+            lbl.configure(text=f"✓ {os.path.basename(path)}")
+
+        # Turn OFF fal.ai toggle (mutually exclusive)
+        var = self.toggles.get(image_path)
+        if var:
+            var.set(False)
+        btn = self.toggle_buttons.get(image_path)
+        if btn:
+            btn.configure(text="📹 Make Video: OFF", fg_color="gray30")
+
         self._update_cost_label()
 
     def _on_backend_change(self, _):
@@ -220,16 +287,31 @@ class ImageReviewWindow(ctk.CTkToplevel):
         from modules.img2video import COST_PER_CLIP
         backend_display = self.backend_dropdown.get()
         backend_key = BACKEND_OPTIONS.get(backend_display, "kling_standard")
-        selected = sum(1 for v in self.toggles.values() if v.get())
-        cost = selected * COST_PER_CLIP.get(backend_key, 0.14)
+        fal_count = sum(1 for p, v in self.toggles.items()
+                        if v.get() and p not in self.local_clips)
+        local_count = len(self.local_clips)
+        cost = fal_count * COST_PER_CLIP.get(backend_key, 0.14)
         self.cost_label.configure(
-            text=f"📹 {selected} images selected  |  💰 Est. cost: ~${cost:.2f}"
+            text=f"📹 {fal_count} selected for fal.ai  |  📁 {local_count} local clips  |  💰 Est. cost: ~${cost:.2f}"
         )
 
     def _on_continue(self):
-        selections = {path: var.get() for path, var in self.toggles.items()}
-        backend_display = self.backend_dropdown.get()
-        self.config["img2video_backend"] = BACKEND_OPTIONS.get(backend_display, "kling_standard")
+        # selections:
+        #   str path  → use this local clip directly (no fal.ai)
+        #   True      → convert via fal.ai
+        #   False     → keep as static image
+        selections = {}
+        for path, var in self.toggles.items():
+            if path in self.local_clips and self.local_clips[path]:
+                selections[path] = self.local_clips[path]   # local clip path (str)
+            elif var.get():
+                selections[path] = True                      # fal.ai conversion
+            else:
+                selections[path] = False                     # static image
+
+        self.config["img2video_backend"] = BACKEND_OPTIONS.get(
+            self.backend_dropdown.get(), "kling_standard"
+        )
         self.config["img2video_duration"] = self.duration_var.get().replace("s", "")
         self.on_continue(selections)
         self.destroy()

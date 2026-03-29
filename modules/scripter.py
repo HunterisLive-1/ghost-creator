@@ -262,9 +262,46 @@ def _generate_with_gemini(prompt: str, num_scenes: int, script_config: dict) -> 
                 config=types.GenerateContentConfig(
                     temperature=temperature,
                     max_output_tokens=max_out,
+                    safety_settings=[
+                        types.SafetySetting(
+                            category="HARM_CATEGORY_HARASSMENT",
+                            threshold="BLOCK_ONLY_HIGH",
+                        ),
+                        types.SafetySetting(
+                            category="HARM_CATEGORY_HATE_SPEECH",
+                            threshold="BLOCK_ONLY_HIGH",
+                        ),
+                        types.SafetySetting(
+                            category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                            threshold="BLOCK_ONLY_HIGH",
+                        ),
+                        types.SafetySetting(
+                            category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                            threshold="BLOCK_ONLY_HIGH",
+                        ),
+                    ],
                 ),
             )
             raw_text = response.text
+            if raw_text is None:
+                # Safety filter blocked the response — collect reason if available
+                block_reason = "unknown"
+                try:
+                    fb = response.prompt_feedback
+                    if fb and hasattr(fb, "block_reason"):
+                        block_reason = str(fb.block_reason)
+                except Exception:
+                    pass
+                try:
+                    if response.candidates:
+                        finish = response.candidates[0].finish_reason
+                        block_reason = f"{block_reason} / finish_reason={finish}"
+                except Exception:
+                    pass
+                raise ValueError(
+                    f"Gemini returned no text (likely blocked by safety filters). "
+                    f"Reason: {block_reason}. Try rephrasing the topic to be less graphic."
+                )
             log.debug(f"Raw Gemini response (first 200 chars): {raw_text[:200]}")
             script = _extract_json(raw_text)
             return _validate_script(script, num_scenes)

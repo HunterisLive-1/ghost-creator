@@ -26,6 +26,9 @@ from config import (
     TEMP_DIR,
 )
 
+# Suppress CMD window flash on Windows for all subprocess calls
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 from core.config_manager import config
 
 log = get_logger("video_builder")
@@ -117,7 +120,7 @@ def get_audio_duration(audio_path: str | Path) -> float:
         "default=noprint_wrappers=1:nokey=1",
         str(audio_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=_NO_WINDOW)
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed: {result.stderr}")
     return float(result.stdout.strip())
@@ -248,6 +251,7 @@ def _run_ffmpeg(cmd: list[str], step_name: str) -> None:
         capture_output=True,
         text=True,
         timeout=600,
+        creationflags=_NO_WINDOW,
     )
     if result.returncode != 0:
         log.error(f"FFmpeg [{step_name}] stderr: {result.stderr[-500:]}")
@@ -266,11 +270,8 @@ def _transition_for_index(i: int, n: int, style: str) -> str:
 
 def _build_xfade_filter_complex(n: int, scene_duration: float, transition_sec: float, style: str) -> tuple[str, str]:
     """
-    Chain n-1 xfade filters.
-
-    Offset for transition i (0-based): T_i = (i+1)*D - (i+1)*T = (i+1)*(D - T),
-    i.e. cumulative length of first (i+1) clips minus (i+1) half-overlaps — same as
-    sum of first (i+1) clip durations minus 0.5*(i+1) when each clip is D and T=0.5.
+    Chain n-1 xfade filters with equal per-scene duration.
+    Offset for transition i: cumulative sum of (scene_duration - transition_sec).
     """
     parts: list[str] = []
     label_in = "0:v"
@@ -284,6 +285,93 @@ def _build_xfade_filter_complex(n: int, scene_duration: float, transition_sec: f
         )
         label_in = label_out
     return ";".join(parts), "vout"
+
+
+def _build_xfade_filter_complex_variable(
+    scene_durations: list[float], transition_sec: float, style: str
+) -> tuple[str, str]:
+    """
+    Chain n-1 xfade filters with variable per-scene durations.
+    Offsets are computed cumulatively so clips of different lengths transition correctly.
+    """
+    n = len(scene_durations)
+    parts: list[str] = []
+    label_in = "0:v"
+    cumulative = 0.0
+    for i in range(n - 1):
+        cumulative += scene_durations[i] - transition_sec
+        t_user = _transition_for_index(i, n, style)
+        t_ff = _xfade_transition_name(t_user)
+        label_out = f"v{i}" if i < n - 2 else "vout"
+        parts.append(
+            f"[{label_in}][{i + 1}:v]xfade=transition={t_ff}:duration={transition_sec}:offset={cumulative:.6f}[{label_out}]"
+        )
+        label_in = label_out
+    return ";".join(parts), "vout"
+
+
+def _calc_scene_durations(
+    scene_data: list[dict],
+    total_duration: float,
+    transition_sec: float,
+    enable_transitions: bool,
+) -> list[float]:
+    """
+    Smart per-scene duration calculation:
+    - video_clips: use their natural duration (probed via ffprobe), capped at max
+    - images: share remaining time equally
+    - If clips consume more than available time: proportionally shrink all clips
+    - If no clips (all images) or no images (all clips): equal share for everyone
+
+    Returns a list of floats (seconds), one per scene.
+    """
+    n = len(scene_data)
+    t = transition_sec if enable_transitions and n > 1 else 0.0
+    # Total "timeline slots" including overlap budget
+    total_with_overlap = total_duration + (n - 1) * t
+    equal_share = total_with_overlap / n
+
+    clip_indices: list[int] = []
+    image_indices: list[int] = []
+    clip_natural: dict[int, float] = {}
+
+    for i, scene in enumerate(scene_data):
+        if scene.get("type") == "video_clip":
+            clip_indices.append(i)
+            try:
+                d = get_audio_duration(scene["path"])
+                clip_natural[i] = max(0.5, d)
+            except Exception:
+                clip_natural[i] = 5.0  # safe fallback
+        else:
+            image_indices.append(i)
+
+    # No clips or no images → equal share for all
+    if not clip_indices or not image_indices:
+        return [equal_share] * n
+
+    # Mixed: clips take natural time, images fill the rest
+    total_clip_natural = sum(clip_natural.values())
+    max_clip_budget = total_with_overlap - len(image_indices) * max(1.5, equal_share * 0.3)
+
+    if total_clip_natural > max_clip_budget:
+        # Clips collectively too long → shrink proportionally
+        scale = max_clip_budget / total_clip_natural
+        for i in clip_indices:
+            clip_natural[i] *= scale
+        total_clip_natural = max_clip_budget
+
+    remaining = total_with_overlap - total_clip_natural
+    image_share = remaining / len(image_indices)
+
+    durations: list[float] = []
+    for i in range(n):
+        if i in clip_indices:
+            durations.append(clip_natural[i])
+        else:
+            durations.append(max(1.0, image_share))
+
+    return durations
 
 
 def _build_concat_filter_complex(n: int) -> str:
@@ -320,7 +408,7 @@ def _build_simple_video(
             clip_out = temp_dir / f"sclip_{idx}.mp4"
             if scene["type"] == "video_clip":
                 cmd = [
-                    FFMPEG, "-y", "-i", str(src),
+                    FFMPEG, "-y", "-stream_loop", "-1", "-i", str(src),
                     "-vf", f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setpts=PTS-STARTPTS,format=yuv420p",
                     "-t", str(clip_dur), "-r", "25",
                     "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
@@ -367,6 +455,7 @@ def build_video(
     cinematic_effects: dict | None = None,
     target_duration: int | None = None,
     scene_data: list[dict] | None = None,
+    output_dir: "Path | str | None" = None,
 ) -> Path:
     """
     Assemble final MP4 from images/video-clips + audio + subtitles (FFmpeg only).
@@ -407,8 +496,27 @@ def build_video(
 
     width, height = (1920, 1080) if aspect_ratio == "16:9" else (1080, 1920)
 
-    out_path = OUTPUT_DIR / output_filename
-    log.info(f"Building video: {title!r} ({width}×{height}, aspect {aspect_ratio})")
+    # Resolve output directory:
+    # 1. output_dir param (from pipeline run_dir) takes highest priority
+    # 2. user-configured pipeline.output_folder
+    # 3. fallback to OUTPUT_DIR
+    if output_dir is not None:
+        _out_dir = Path(output_dir)
+    else:
+        _configured_folder = config.get("pipeline.output_folder", "").strip()
+        if _configured_folder:
+            _out_dir = Path(_configured_folder)
+            if not _out_dir.is_absolute():
+                _out_dir = OUTPUT_DIR.parent / _out_dir
+        else:
+            _out_dir = OUTPUT_DIR
+    try:
+        _out_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        _out_dir = OUTPUT_DIR
+        _out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = _out_dir / output_filename
+    log.info(f"Building video: {title!r} ({width}×{height}, aspect {aspect_ratio}) → {_out_dir}")
 
     # ── Master video features toggle ───────────────────────────────────────
     if not config.get("video_features_enabled", True):
@@ -444,29 +552,68 @@ def build_video(
         else:
             scene_duration = total_duration / num_images
 
+        # ── Smart per-scene durations ──────────────────────────────────────
+        scene_durations = _calc_scene_durations(
+            scene_data, total_duration, t_trans, enable_transitions
+        )
+        has_variable_durations = len(set(round(d, 3) for d in scene_durations)) > 1
+
         log.info(
-            f"Each clip: {scene_duration:.2f}s (total {total_duration:.2f}s / {num_images} images"
+            f"Each clip: {scene_duration:.2f}s base (total {total_duration:.2f}s / {num_images} scenes"
             + (f", overlap {t_trans}s" if enable_transitions and n > 1 else "")
             + f"); motion @ {MOTION_FPS}fps; transitions={enable_transitions}"
         )
-
-        d_frames = max(1, int(scene_duration * MOTION_FPS))
+        if has_variable_durations:
+            log.info(
+                "Variable scene durations (clips+images mixed): "
+                + ", ".join(f"s{i+1}={d:.2f}s" for i, d in enumerate(scene_durations))
+            )
 
         log.info("Encoding per-scene clips …")
         for idx, scene in enumerate(scene_data):
             scene_path = temp_dir / f"clip_{idx}.mp4"
             src_path = scene["path"]
             scene_type = scene.get("type", "image")
+            this_duration = scene_durations[idx]
+            d_frames = max(1, int(this_duration * MOTION_FPS))
 
             if scene_type == "video_clip":
-                log.info(f"  Clip {idx + 1}/{n} → {scene_path.name} — video_clip (no zoompan)")
-                cmd = [
-                    FFMPEG, "-y", "-i", str(src_path),
-                    "-vf", f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setpts=PTS-STARTPTS,format=yuv420p",
-                    "-t", str(scene_duration), "-r", "25",
-                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-                    str(scene_path),
-                ]
+                log.info(f"  Clip {idx + 1}/{n} → {scene_path.name} — video_clip (target={this_duration:.2f}s)")
+                # Probe actual clip duration to decide loop vs speed-adjust
+                try:
+                    actual_dur = get_audio_duration(str(src_path))
+                except Exception:
+                    actual_dur = this_duration
+
+                base_vf = (
+                    f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                    f"crop={width}:{height},format=yuv420p"
+                )
+
+                if actual_dur > this_duration * 1.05:
+                    # Clip is longer than needed → speed it up with setpts
+                    speed_factor = actual_dur / this_duration
+                    log.info(f"    Speeding up {actual_dur:.2f}s clip → {this_duration:.2f}s (×{speed_factor:.2f})")
+                    vf = (
+                        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                        f"crop={width}:{height},setpts=PTS/{speed_factor:.6f},fps={MOTION_FPS},format=yuv420p"
+                    )
+                    cmd = [
+                        FFMPEG, "-y", "-i", str(src_path),
+                        "-vf", vf,
+                        "-t", str(this_duration), "-r", str(MOTION_FPS),
+                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                        str(scene_path),
+                    ]
+                else:
+                    # Clip is shorter or equal → loop it to fill this_duration
+                    cmd = [
+                        FFMPEG, "-y", "-stream_loop", "-1", "-i", str(src_path),
+                        "-vf", f"{base_vf.replace(',format=yuv420p', ',setpts=PTS-STARTPTS,format=yuv420p')}",
+                        "-t", str(this_duration), "-r", str(MOTION_FPS),
+                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                        str(scene_path),
+                    ]
                 _run_ffmpeg(cmd, f"clip_{idx}_video")
             else:
                 if idx == 0 and enable_intro:
@@ -483,27 +630,15 @@ def build_video(
                     step = f"clip_{idx}_{motion_key}"
 
                 log.info(
-                    f"  Clip {idx + 1}/{n} → {scene_path.name} — {motion_key}"
+                    f"  Clip {idx + 1}/{n} → {scene_path.name} — {motion_key} (target={this_duration:.2f}s)"
                     + (" + intro" if idx == 0 and enable_intro else "")
                 )
 
                 cmd = [
-                    FFMPEG,
-                    "-y",
-                    "-loop",
-                    "1",
-                    "-i",
-                    str(src_path),
-                    "-vf",
-                    vf,
-                    "-t",
-                    str(scene_duration),
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "ultrafast",
-                    "-pix_fmt",
-                    "yuv420p",
+                    FFMPEG, "-y", "-loop", "1", "-i", str(src_path),
+                    "-vf", vf,
+                    "-t", str(this_duration),
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
                     str(scene_path),
                 ]
                 _run_ffmpeg(cmd, step)
@@ -512,7 +647,10 @@ def build_video(
         # ── Join scenes (xfade or concat filter) ──────────────────────────
         if enable_transitions and n > 1:
             log.info("Joining clips with xfade (filter_complex) …")
-            fc, vlabel = _build_xfade_filter_complex(n, scene_duration, t_trans, transition_style)
+            if has_variable_durations:
+                fc, vlabel = _build_xfade_filter_complex_variable(scene_durations, t_trans, transition_style)
+            else:
+                fc, vlabel = _build_xfade_filter_complex(n, scene_duration, t_trans, transition_style)
             joined_path = temp_dir / "scenes_joined.mp4"
             cmd = [FFMPEG, "-y"]
             for p in scene_clips:

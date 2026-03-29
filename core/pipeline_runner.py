@@ -14,12 +14,51 @@ Usage:
 """
 
 import queue
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
 from config import get_logger, TEMP_DIR, OUTPUT_DIR
 
 log = get_logger("pipeline")
+
+
+def _make_run_dir(title: str, config, fallback: Path) -> Path:
+    """
+    Create a per-run subfolder inside the configured output folder.
+
+    Folder name: <safe_title>_<YYYYMMDD_HHMMSS>
+    e.g.  Street_Light_Sapne_20260327_163808/
+
+    Falls back to ``fallback`` (OUTPUT_DIR) if the subfolder cannot be created
+    (permission error, invalid path, etc.).
+    """
+    _safe = re.sub(
+        r'[^\w\u0900-\u097F\u0A00-\u0A7F\u0B00-\u0B7F\u0B80-\u0BFF'
+        r'\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0980-\u09FF -]',
+        '', title,
+    )
+    _safe = re.sub(r'\s+', '_', _safe.strip()).strip('_')[:40] or "run"
+    _stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    folder_name = f"{_safe}_{_stamp}"
+
+    # Resolve configured base output folder
+    _base_str = config.get("pipeline.output_folder", "").strip()
+    if _base_str:
+        base = Path(_base_str)
+        if not base.is_absolute():
+            base = fallback.parent / _base_str
+    else:
+        base = fallback
+
+    try:
+        run_dir = base / folder_name
+        run_dir.mkdir(parents=True, exist_ok=True)
+        return run_dir
+    except Exception as exc:
+        log.warning(f"Could not create run subfolder ({exc}) — using fallback: {fallback}")
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
 
 
 class PipelineRunner:
@@ -207,13 +246,30 @@ class PipelineRunner:
             else:
                 self._emit(2, "Script ready — review disabled, continuing...", "SUCCESS")
 
-            # Save metadata (after optional review edits)
+            # ── Per-run output subfolder ──────────────────────────────────
+            # Title is final now (post-review). Create a dated subfolder so
+            # images + video for this run are never overwritten by the next run.
             import json
-            metadata_path = OUTPUT_DIR / "last_metadata.json"
-            metadata_path.write_text(
-                json.dumps(script["metadata"], ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            run_dir = _make_run_dir(script["metadata"]["title"], config, OUTPUT_DIR)
+            self._emit(2, f"[INFO] Run folder: {run_dir}", "INFO")
+            log.info(f"Run output folder: {run_dir}")
+
+            # Save metadata (after optional review edits)
+            try:
+                (run_dir / "metadata.json").write_text(
+                    json.dumps(script["metadata"], ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+            # Also keep a "last run" reference at the top-level output dir
+            try:
+                (OUTPUT_DIR / "last_metadata.json").write_text(
+                    json.dumps(script["metadata"], ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
 
             # ── Step 3: Voice ─────────────────────────────────────────────
             if not self.running:
@@ -281,8 +337,12 @@ class PipelineRunner:
                 )
                 self._emit(4, f"{len(image_paths)} images ready for video", "SUCCESS")
             else:
-                from modules.image_gen import generate_images
-                image_paths = generate_images(image_prompts, aspect_ratio=aspect_ratio)
+                from modules.image_gen import run_image_generation
+                image_paths = run_image_generation(
+                    image_prompts,
+                    output_dir=run_dir,
+                    aspect_ratio=aspect_ratio,
+                )
                 self._emit(4, f"{len(image_paths)} images generated", "SUCCESS")
 
             # ── Image review pause ────────────────────────────────────────
@@ -358,13 +418,8 @@ class PipelineRunner:
                 aspect_ratio,
                 target_duration,
             )
-            import re as _re
             _raw_title = script["metadata"]["title"]
-            _safe = _re.sub(r'[^\w\u0900-\u097F\u0A00-\u0A7F\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0980-\u09FF -]', '', _raw_title)
-            _safe = _re.sub(r'\s+', '_', _safe.strip()).strip('_') or "video"
-            _safe = _safe[:60]
-            _timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            _output_filename = f"{_safe}_{_timestamp}.mp4"
+            _output_filename = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
             video_path = build_video(
                 scene_data=scene_data,
                 audio_path=audio_path,
@@ -375,6 +430,7 @@ class PipelineRunner:
                 cinematic_effects=cinematic_effects,
                 target_duration=target_duration,
                 output_filename=_output_filename,
+                output_dir=run_dir,
             )
             self._emit(5, f"Video rendered: {video_path}", "SUCCESS")
 

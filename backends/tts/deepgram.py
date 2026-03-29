@@ -36,23 +36,24 @@ class DeepgramTTS(TTSBackend):
         if not api_key:
             raise RuntimeError("Deepgram API key not configured")
 
-        model = config.get("tts.deepgram_model", "aura-2")
-        voice = config.get("tts.deepgram_voice", "aura-asteria-en")
+        # Deepgram API: model IS the voice — single query param, no separate "voice" param.
+        # Valid examples: "aura-asteria-en", "aura-2-asteria-en", "aura-2-zeus-en"
+        model = config.get("tts.deepgram_voice", "aura-asteria-en").strip()
 
-        url = f"https://api.deepgram.com/v1/speak?model={model}&voice={voice}"
+        url = "https://api.deepgram.com/v1/speak"
         headers = {
             "Authorization": f"Token {api_key}",
             "Content-Type": "application/json",
-            "Accept": "audio/mpeg",
         }
+        params = {"model": model}
         payload = {"text": text}
 
         logger.info(
-            f"Deepgram TTS: model={model}, voice={voice}, text={len(text)} chars → {output_path}"
+            f"Deepgram TTS: model={model}, text={len(text)} chars → {output_path}"
         )
 
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=120)
+            resp = requests.post(url, headers=headers, json=payload, params=params, timeout=120)
             if resp.status_code >= 400:
                 raise RuntimeError(f"Deepgram TTS HTTP {resp.status_code}: {resp.text}")
 
@@ -71,12 +72,8 @@ class DeepgramTTS(TTSBackend):
         if not api_key:
             return (False, "Deepgram API key is required. Get one at console.deepgram.com")
 
-        model = config.get("tts.deepgram_model", "")
-        if not str(model).strip():
-            return (False, "Deepgram model is required (e.g. aura-2).")
-
-        voice = config.get("tts.deepgram_voice", "")
-        if not str(voice).strip():
-            return (False, "Deepgram voice is required (e.g. aura-asteria-en).")
+        voice = config.get("tts.deepgram_voice", "").strip()
+        if not voice:
+            return (False, "Deepgram voice/model is required (e.g. aura-asteria-en).")
 
         return (True, "")

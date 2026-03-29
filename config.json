@@ -3,7 +3,7 @@
     "gemini": "AIzaSyBsht8ULftQlp33BVv4cXTWlSm_ggkVQB4",
     "elevenlabs": "sk_6b121ae1fea7b2c6252e510eae586c8274e2a34f4e5920d6",
     "google_tts": "",
-    "fal_ai": "",
+    "fal_ai": "0de63003-8cd6-4d25-9d99-532080c578df:052381b48d888556dbed6187366672b6",
     "replicate": "",
     "stable_horde": "",
     "deepgram": ""
@@ -17,8 +17,7 @@
     "google_tts_language": "hi-IN",
     "kokoro_model_path": "",
     "chatterbox_path": "",
-    "deepgram_model": "aura-2",
-    "deepgram_voice": "aura-asteria-en",
+    "deepgram_voice": "aura-2-asteria-en",
     "elevenlabs_stability": 0.3,
     "elevenlabs_similarity_boost": 0.85,
     "elevenlabs_style": 0.45
@@ -30,14 +29,14 @@
     "pollinations_model": "dreamshaper",
     "fal_model": "fal-ai/fast-sdxl",
     "replicate_model": "stability-ai/sdxl",
-    "image_count": 6,
+    "image_count": 4,
     "width": 1080,
     "height": 1920
   },
   "pipeline": {
     "language": "hi",
     "upload_mode": "unlisted",
-    "output_folder": "output",
+    "output_folder": "C:/Users/hunte/OneDrive/Desktop/videos",
     "gemini_model": "gemini-2.0-flash",
     "chrome_profiles": [
       {
@@ -47,7 +46,7 @@
       }
     ],
     "active_profile_index": 0,
-    "upload_enabled": true,
+    "upload_enabled": false,
     "thumbnail_enabled": true
   },
   "aspect_ratio": "9:16",
@@ -69,7 +68,7 @@
   "openai_api_key": "",
   "video_features_enabled": true,
   "img2video_enabled": false,
-  "img2video_backend": "grok_video_5s",
+  "img2video_backend": "kling_standard",
   "img2video_duration": "5",
   "ollama_url": "http://localhost:11434",
   "ollama_model": "deepseek-r1:7b",
