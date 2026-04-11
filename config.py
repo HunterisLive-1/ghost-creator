@@ -2,14 +2,28 @@
 config.py — Centralised settings & shared paths for Ghost Creator AI.
 All modules import from here; secrets come from the .env file.
 """
-import os
 import logging
+import os
+import shutil
+import sys
 import colorlog
 from pathlib import Path
 from dotenv import load_dotenv
 
 # ── Load .env ──────────────────────────────────────────────────────────────────
 load_dotenv()
+
+
+def get_base_dir() -> Path:
+    """
+    Install / project root: folder containing the EXE when running a PyInstaller
+    bundle; otherwise the directory containing this file. Use for writable paths
+    (e.g. voiceover output) — never use sys._MEIPASS or __file__ alone for those.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
 
 # ── Directory Layout ───────────────────────────────────────────────────────────
 BASE_DIR    = Path(__file__).resolve().parent
@@ -19,6 +33,49 @@ WORKFLOW_JSON = BASE_DIR / "workflow_api.json"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
+
+
+def _bundle_root() -> Path:
+    """PyInstaller extract dir when frozen; project root when running from source."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return BASE_DIR
+
+
+def _ffmpeg_exe_names() -> tuple[str, str]:
+    if sys.platform == "win32":
+        return "ffmpeg.exe", "ffprobe.exe"
+    return "ffmpeg", "ffprobe"
+
+
+def get_ffmpeg_executable() -> str:
+    """
+    Path to ffmpeg: bundled ``ffmpeg/`` next to the app, then PATH, then bare name.
+
+    ``modules/voicer.py`` used to resolve ``modules/ffmpeg/`` (wrong); callers must
+    use this so one-folder installs and PyInstaller bundles both work.
+    """
+    ff, _ = _ffmpeg_exe_names()
+    bundled = _bundle_root() / "ffmpeg" / ff
+    if bundled.exists():
+        return str(bundled)
+    w = shutil.which("ffmpeg")
+    if w:
+        return w
+    return ff
+
+
+def get_ffprobe_executable() -> str:
+    """Path to ffprobe: bundled folder, then PATH, then bare name."""
+    _, fp = _ffmpeg_exe_names()
+    bundled = _bundle_root() / "ffmpeg" / fp
+    if bundled.exists():
+        return str(bundled)
+    w = shutil.which("ffprobe")
+    if w:
+        return w
+    return fp
+
 
 # ── API Keys ───────────────────────────────────────────────────────────────────
 GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "")

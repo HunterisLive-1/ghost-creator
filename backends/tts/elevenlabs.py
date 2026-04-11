@@ -7,6 +7,8 @@ for Hindi support.
 """
 
 import logging
+import os
+from pathlib import Path
 
 from backends.base import TTSBackend
 from core.config_manager import config
@@ -42,6 +44,8 @@ class ElevenLabsTTS(TTSBackend):
         """
         from elevenlabs import ElevenLabs as ElevenLabsClient
         from elevenlabs.types import VoiceSettings
+
+        os.makedirs(str(Path(output_path).resolve().parent), exist_ok=True)
 
         api_key = config.get("api_keys.elevenlabs", "")
         voice_id = config.get("tts.elevenlabs_voice_id", "")

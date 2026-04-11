@@ -17,13 +17,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from config import get_logger, TEMP_DIR
+from config import get_base_dir, get_ffmpeg_executable, get_logger
 from core.config_manager import config
 
-# ── FFmpeg path (same logic as video_builder) ────────────────────────────────
-_BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-_LOCAL_FFMPEG = os.path.join(_BASE_DIR, "ffmpeg", "ffmpeg.exe")
-_FFMPEG = _LOCAL_FFMPEG if os.path.exists(_LOCAL_FFMPEG) else "ffmpeg"
+_FFMPEG = get_ffmpeg_executable()
 
 # Suppress CMD window flash on Windows for all subprocess calls
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -49,19 +46,21 @@ def _get_backend_map() -> dict[str, type]:
     if BACKEND_MAP:
         return BACKEND_MAP
 
-    from backends.tts.chatterbox import ChatterboxTTS
     from backends.tts.elevenlabs import ElevenLabsTTS
     from backends.tts.deepgram import DeepgramTTS
     from backends.tts.edge_tts import EdgeTTS
     from backends.tts.google_tts import GoogleTTS
     from backends.tts.kokoro_tts import KokoroTTS
+    from backends.tts.omnivoice_tts import OmniVoiceTTS
 
     BACKEND_MAP = {
-        "chatterbox":  ChatterboxTTS,
+        "omnivoice":   OmniVoiceTTS,
+        "chatterbox":  OmniVoiceTTS,
         "elevenlabs":  ElevenLabsTTS,
         "deepgram":    DeepgramTTS,
         "edge_tts":    EdgeTTS,
         "google_tts":  GoogleTTS,
+        "kokoro":      KokoroTTS,
         "kokoro_tts":  KokoroTTS,
     }
     return BACKEND_MAP
@@ -69,7 +68,7 @@ def _get_backend_map() -> dict[str, type]:
 
 def _get_backend():
     """Instantiate the configured TTS backend."""
-    backend_name = config.get("tts.backend", "chatterbox")
+    backend_name = config.get("tts.backend", "omnivoice")
     backend_map = _get_backend_map()
 
     if backend_name not in backend_map:
@@ -88,12 +87,11 @@ def _get_backend():
 def ensure_tts_ready() -> bool:
     """
     Validate the configured TTS backend is ready.
-    For Chatterbox: starts the server if needed.
+    For backends with ensure_running (e.g. legacy flows): may start services.
     Returns True if ready.
     """
     backend = _get_backend()
 
-    # Chatterbox has special startup logic
     if hasattr(backend, "ensure_running"):
         language = config.get("pipeline.language", "hi")
         return backend.ensure_running(language)
@@ -121,7 +119,7 @@ def run_voiceover(
     language : str, optional
         Language code ("hi", "en", etc.). Defaults to pipeline.language from config.
     output_path : str or Path, optional
-        Where to save the audio. Defaults to temp/voiceover.mp3.
+        Where to save the audio. Defaults to ``<get_base_dir()>/temp/voiceover.mp3``.
 
     Returns
     -------
@@ -131,9 +129,13 @@ def run_voiceover(
     if language is None:
         language = config.get("pipeline.language", "hi")
     if output_path is None:
-        output_path = TEMP_DIR / "voiceover.mp3"
+        output_path = get_base_dir() / "temp" / "voiceover.mp3"
 
-    output_path = Path(output_path)
+    output_path = Path(output_path).resolve()
+    os.makedirs(str(output_path.parent), exist_ok=True)
+    voiceover_path = str(output_path)
+    print(f"[DEBUG] Voiceover output path: {voiceover_path}")
+
     backend = _get_backend()
 
     # Validate backend config
@@ -144,10 +146,10 @@ def run_voiceover(
     log.info(f"Generating voiceover with {backend.name} ({len(text)} chars, lang={language})")
 
     # Run the async synthesize method
-    result = asyncio.run(backend.synthesize(text, language, str(output_path)))
+    result = asyncio.run(backend.synthesize(text, language, voiceover_path))
 
     # ── Apply pace-based speed adjustment via FFmpeg atempo ─────────────────
-    result_path = _apply_pace_speed(Path(result))
+    result_path = _apply_pace_speed(Path(result).resolve())
 
     log.info(f"Voiceover saved → {result_path}")
     return result_path
@@ -177,7 +179,17 @@ def _apply_pace_speed(audio_path: Path) -> Path:
         "-c:a", "libmp3lame", "-q:a", "2",
         str(tmp_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, creationflags=_NO_WINDOW)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, creationflags=_NO_WINDOW)
+    except FileNotFoundError as exc:
+        log.error(
+            "FFmpeg not found (needed for video pace). Install FFmpeg and add it to PATH, "
+            "or place ffmpeg.exe + ffprobe.exe in an ffmpeg folder next to the app."
+        )
+        raise RuntimeError(
+            "FFmpeg is required for pace/speed adjustment but was not found. "
+            "Install FFmpeg or bundle ffmpeg/ffmpeg.exe next to the application."
+        ) from exc
     if result.returncode != 0:
         log.warning(f"atempo filter failed (will use original): {result.stderr[-200:]}")
         return audio_path
@@ -193,7 +205,7 @@ def _apply_pace_speed(audio_path: Path) -> Path:
 
 def generate_voiceover(text: str, output_filename: str = "voiceover.mp3") -> Path:
     """Legacy wrapper — calls run_voiceover with default settings."""
-    output_path = TEMP_DIR / output_filename
+    output_path = get_base_dir() / "temp" / output_filename
     return run_voiceover(text, output_path=output_path)
 
 

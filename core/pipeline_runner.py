@@ -276,7 +276,11 @@ class PipelineRunner:
                 return
             self._emit(3, "🎙️ Generating voiceover …", "INFO")
             from modules.voicer import run_voiceover
-            audio_path = run_voiceover(script["voiceover_text"], language=language)
+            audio_path = run_voiceover(
+                script["voiceover_text"],
+                language=language,
+                output_path=run_dir / "voiceover.mp3",
+            )
             self._emit(3, f"Voiceover saved: {audio_path}", "SUCCESS")
 
             # ── Step 4: Images ────────────────────────────────────────────

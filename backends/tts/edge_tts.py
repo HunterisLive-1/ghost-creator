@@ -6,6 +6,8 @@ edge-tts Python package.  High quality for both Hindi and English.
 """
 
 import logging
+import os
+from pathlib import Path
 
 from backends.base import TTSBackend
 from core.config_manager import config
@@ -36,6 +38,8 @@ class EdgeTTS(TTSBackend):
         Output is saved as MP3.
         """
         import edge_tts
+
+        os.makedirs(str(Path(output_path).resolve().parent), exist_ok=True)
 
         # Select voice based on language
         if language.lower() in ("hi", "hindi"):

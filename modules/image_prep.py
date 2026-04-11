@@ -9,7 +9,10 @@ import sys
 import time
 from pathlib import Path
 
+from config import get_ffmpeg_executable
+
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+_FFMPEG = get_ffmpeg_executable()
 
 from PIL import Image
 
@@ -130,7 +133,7 @@ def prepare_custom_images(
                 vf = f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"
                 subprocess.run(
                     [
-                        "ffmpeg",
+                        _FFMPEG,
                         "-y",
                         "-loglevel",
                         "quiet",

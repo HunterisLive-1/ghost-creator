@@ -42,6 +42,22 @@ class PipelineTab(ctk.CTkFrame):
         self._current_step_idx = -1
         self._progress_val = 0.0
 
+        # Uplink fixed at bottom; everything else scrolls (small screens / short windows)
+        self._uplink_lbl = ctk.CTkLabel(
+            self, text="UPLINK: [No Profile]",
+            font=("Orbitron", 12, "bold"), text_color=ACCENT_SEC
+        )
+        self._uplink_lbl.pack(side="bottom", anchor="se", padx=20, pady=10)
+
+        self._scroll = ctk.CTkScrollableFrame(
+            self,
+            fg_color="transparent",
+            scrollbar_button_color=BORDER,
+            scrollbar_button_hover_color=ACCENT_PRI,
+        )
+        self._scroll.pack(fill="both", expand=True)
+        self._body = self._scroll
+
         self._build_topic_row()
         self._build_duration_row()
         self._build_image_source_section()
@@ -52,18 +68,11 @@ class PipelineTab(ctk.CTkFrame):
         self._build_log_section()
         self._build_output_preview()
 
-        # Uplink status
-        self._uplink_lbl = ctk.CTkLabel(
-            self, text="UPLINK: [No Profile]",
-            font=("Orbitron", 12, "bold"), text_color=ACCENT_SEC
-        )
-        self._uplink_lbl.pack(side="bottom", anchor="se", padx=20, pady=10)
-
         self._poll_queue()
 
     # ── Topic Input ───────────────────────────────────────────────────────
     def _build_topic_row(self):
-        frame = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
+        frame = ctk.CTkFrame(self._body, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
         frame.pack(fill="x", padx=20, pady=(20, 10))
         
         # Corner brackets (using canvas)
@@ -107,7 +116,7 @@ class PipelineTab(ctk.CTkFrame):
 
     # ── Target duration (pipeline tab) ───────────────────────────────────
     def _build_duration_row(self):
-        frame = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
+        frame = ctk.CTkFrame(self._body, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
         frame.pack(fill="x", padx=20, pady=(0, 10))
 
         inner = ctk.CTkFrame(frame, fg_color="transparent")
@@ -161,7 +170,7 @@ class PipelineTab(ctk.CTkFrame):
 
     # ── Image source (AI vs custom) ───────────────────────────────────────
     def _build_image_source_section(self):
-        frame = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
+        frame = ctk.CTkFrame(self._body, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
         frame.pack(fill="x", padx=20, pady=(0, 10))
 
         inner = ctk.CTkFrame(frame, fg_color="transparent")
@@ -385,7 +394,7 @@ class PipelineTab(ctk.CTkFrame):
 
     # ── Video Features Toggle ─────────────────────────────────────────────
     def _build_video_features_toggle(self):
-        frame = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
+        frame = ctk.CTkFrame(self._body, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
         frame.pack(fill="x", padx=20, pady=(0, 10))
 
         inner = ctk.CTkFrame(frame, fg_color="transparent")
@@ -423,7 +432,7 @@ class PipelineTab(ctk.CTkFrame):
 
     # ── Video Pace Selector ───────────────────────────────────────────────
     def _build_video_pace_row(self):
-        frame = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
+        frame = ctk.CTkFrame(self._body, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
         frame.pack(fill="x", padx=20, pady=(0, 10))
 
         inner = ctk.CTkFrame(frame, fg_color="transparent")
@@ -499,7 +508,7 @@ class PipelineTab(ctk.CTkFrame):
 
     # ── Run/Stop Controls ─────────────────────────────────────────────────
     def _build_control_row(self):
-        frame = ctk.CTkFrame(self, fg_color="transparent")
+        frame = ctk.CTkFrame(self._body, fg_color="transparent")
         frame.pack(fill="x", padx=20, pady=10)
 
         # Run Button
@@ -527,7 +536,7 @@ class PipelineTab(ctk.CTkFrame):
 
     # ── Progress Section ──────────────────────────────────────────────────
     def _build_progress_section(self):
-        frame = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
+        frame = ctk.CTkFrame(self._body, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
         frame.pack(fill="x", padx=20, pady=10)
         self._add_corner_brackets(frame)
 
@@ -624,8 +633,9 @@ class PipelineTab(ctk.CTkFrame):
 
     # ── Live Log ──────────────────────────────────────────────────────────
     def _build_log_section(self):
-        frame = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
-        frame.pack(fill="both", expand=True, padx=20, pady=10)
+        frame = ctk.CTkFrame(self._body, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
+        # fill="x" only: inside CTkScrollableFrame, expand=True would grow unbounded
+        frame.pack(fill="x", padx=20, pady=10)
         self._add_corner_brackets(frame)
 
         self.log_lbl = ctk.CTkLabel(frame, text="[ TERMINAL OUTPUT ] ▋",
@@ -636,9 +646,10 @@ class PipelineTab(ctk.CTkFrame):
         self._log_box = ctk.CTkTextbox(
             frame, font=("Consolas", 12),
             fg_color="#020608", border_color=BORDER, border_width=1, corner_radius=0,
-            state="disabled"
+            state="disabled",
+            height=240,
         )
-        self._log_box.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        self._log_box.pack(fill="x", padx=15, pady=(0, 15))
 
         self._log_box.tag_config("INFO", foreground=TEXT_SEC)
         self._log_box.tag_config("SUCCESS", foreground=ACCENT_SEC)
@@ -647,7 +658,7 @@ class PipelineTab(ctk.CTkFrame):
 
     # ── Output Preview ────────────────────────────────────────────────────
     def _build_output_preview(self):
-        self._output_frame = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=0, border_color=ACCENT_SEC, border_width=1)
+        self._output_frame = ctk.CTkFrame(self._body, fg_color=BG_CARD, corner_radius=0, border_color=ACCENT_SEC, border_width=1)
 
         self._output_label = ctk.CTkLabel(
             self._output_frame, text="",
@@ -735,7 +746,7 @@ class PipelineTab(ctk.CTkFrame):
 
             if output_path:
                 self._output_label.configure(text=f">> NEURAL RENDER COMPLETE: {output_path}")
-                self._output_frame.pack(fill="x", padx=20, pady=5)
+                self._output_frame.pack(fill="x", padx=20, pady=(0, 12))
 
             self._run_btn.configure(state="normal")
             self._stop_btn.configure(state="disabled", border_color=ACCENT_RED)

@@ -7,10 +7,16 @@ limited Hindi support.
 """
 
 import logging
+import os
 import subprocess
+import sys
+from pathlib import Path
 
 from backends.base import TTSBackend
+from config import get_ffmpeg_executable
 from core.config_manager import config
+
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 logger = logging.getLogger("ghost.tts.kokoro")
 
@@ -40,6 +46,8 @@ class KokoroTTS(TTSBackend):
         from kokoro import KPipeline
         import soundfile as sf
         import numpy as np
+
+        os.makedirs(str(Path(output_path).resolve().parent), exist_ok=True)
 
         # Kokoro language codes: "a" = American English
         if language.lower() in ("hi", "hindi"):
@@ -74,13 +82,13 @@ class KokoroTTS(TTSBackend):
             # Convert to MP3 if needed
             if output_path.endswith(".mp3"):
                 subprocess.run(
-                    ["ffmpeg", "-y", "-i", wav_path, "-codec:a", "libmp3lame",
+                    [get_ffmpeg_executable(), "-y", "-i", wav_path, "-codec:a", "libmp3lame",
                      "-q:a", "2", output_path],
                     check=True,
                     capture_output=True,
+                    creationflags=_NO_WINDOW,
                 )
                 # Clean up temp WAV
-                import os
                 if os.path.exists(wav_path) and wav_path != output_path:
                     os.remove(wav_path)
 

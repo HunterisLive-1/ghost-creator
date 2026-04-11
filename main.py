@@ -31,7 +31,7 @@ from core.config_manager import config
 
 from modules.researcher    import find_trending_topic
 from modules.scripter      import generate_script
-from modules.voicer        import generate_voiceover, ensure_chatterbox_running
+from modules.voicer        import generate_voiceover, ensure_tts_ready
 from modules.image_gen     import generate_images
 from modules.video_builder import build_video
 from modules.uploader      import upload_to_youtube
@@ -88,14 +88,14 @@ def run_full(topic: str | None = None) -> None:
     )
     _save_metadata(script["metadata"])
 
-    # Step 3 · Voiceover (auto-starts Chatterbox, kills it after to free GPU)
-    if not ensure_chatterbox_running():
-        raise RuntimeError("Chatterbox TTS server could not be started.")
-    log.info("[3/6] Voiceover via Chatterbox TTS …")
+    # Step 3 · Voiceover (OmniVoice loads then unloads to free GPU for images)
+    if not ensure_tts_ready():
+        raise RuntimeError("TTS backend is not ready — check Settings and reference audio / API keys.")
+    log.info("[3/6] Voiceover (TTS) …")
     audio_path = generate_voiceover(script["voiceover_text"])
     log.info(f"      → Audio: {audio_path}")
 
-    # Step 4 · Images (Chatterbox killed, full VRAM available)
+    # Step 4 · Images (TTS GPU memory released if local backend)
     log.info("[4/6] Images via ComfyUI …")
     num_scenes = int(script.get("num_scenes", len(script["image_prompts"])))
     image_prompts = script["image_prompts"][:num_scenes]

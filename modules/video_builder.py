@@ -13,18 +13,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-# -- Bundle Support --
-BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-LOCAL_FFMPEG = os.path.join(BASE_DIR, "ffmpeg", "ffmpeg.exe")
-LOCAL_FFPROBE = os.path.join(BASE_DIR, "ffmpeg", "ffprobe.exe")
-FFMPEG = LOCAL_FFMPEG if os.path.exists(LOCAL_FFMPEG) else "ffmpeg"
-FFPROBE = LOCAL_FFPROBE if os.path.exists(LOCAL_FFPROBE) else "ffprobe"
-
 from config import (
+    get_ffprobe_executable,
+    get_ffmpeg_executable,
     get_logger,
     OUTPUT_DIR,
     TEMP_DIR,
 )
+
+FFMPEG = get_ffmpeg_executable()
+FFPROBE = get_ffprobe_executable()
 
 # Suppress CMD window flash on Windows for all subprocess calls
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -120,7 +118,13 @@ def get_audio_duration(audio_path: str | Path) -> float:
         "default=noprint_wrappers=1:nokey=1",
         str(audio_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=_NO_WINDOW)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=_NO_WINDOW)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "ffprobe not found. Install FFmpeg (includes ffprobe) or bundle ffmpeg/ffprobe.exe "
+            "in the ffmpeg folder next to the application."
+        ) from exc
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed: {result.stderr}")
     return float(result.stdout.strip())
@@ -246,13 +250,19 @@ def _seconds_to_ass_time(seconds: float) -> str:
 
 def _run_ffmpeg(cmd: list[str], step_name: str) -> None:
     log.debug(f"FFmpeg [{step_name}]: {' '.join(cmd[:8])}…")
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=600,
-        creationflags=_NO_WINDOW,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            creationflags=_NO_WINDOW,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "FFmpeg not found. Install FFmpeg and add it to PATH, or place ffmpeg.exe + ffprobe.exe "
+            "in an ffmpeg folder next to the application (or rebuild the installer with ffmpeg bundled)."
+        ) from exc
     if result.returncode != 0:
         log.error(f"FFmpeg [{step_name}] stderr: {result.stderr[-500:]}")
         raise RuntimeError(f"FFmpeg [{step_name}] failed: {result.stderr[-300:]}")

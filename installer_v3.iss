@@ -1,11 +1,13 @@
 #define MyAppName "Ghost Creator AI"
-#define MyAppVersion "3.0"
+#define MyAppVersion "3.1"
 #define MyAppPublisher "HunterIsLive"
 #define MyAppURL "https://getmaya.online"
 #define MyAppExeName "GhostCreatorAI.exe"
 
 [Setup]
-AppId={{GhostCreatorAI-2025-HunterIsLive-UUID}
+; AppId kabhi mat badlo — warna purana install alag app ban jayega / upgrade toot jayega.
+; Inno mein { } ke liye {{ }} likho. Neeche wala value = {GhostCreatorAI-2025-HunterIsLive-UUID}
+AppId={{GhostCreatorAI-2025-HunterIsLive-UUID}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} v{#MyAppVersion}
@@ -50,7 +52,7 @@ Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; ComfyUI Workflow API
 Source: "workflow_api.json"; DestDir: "{app}"; Flags: ignoreversion
 
-; Note: FFmpeg is already bundled inside GhostCreatorAI.exe using --add-data in build.bat
+; Note: FFmpeg is inside GhostCreatorAI.exe (build.bat runs ensure_ffmpeg.ps1 + PyInstaller --add-data)
 ; Note: config.json is generated automatically in %LOCALAPPDATA%\GhostCreatorAI on first run
 ; Note: Chatterbox Server path can be set in the App Settings inside the UI. No need to package gigabytes of data.
 

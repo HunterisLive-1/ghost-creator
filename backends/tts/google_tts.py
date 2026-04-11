@@ -8,6 +8,7 @@ JSON key file.
 
 import logging
 import os
+from pathlib import Path
 
 from backends.base import TTSBackend
 from core.config_manager import config
@@ -35,6 +36,8 @@ class GoogleTTS(TTSBackend):
         Synthesize text using Google Cloud TTS WaveNet voices.
         """
         from google.cloud import texttospeech
+
+        os.makedirs(str(Path(output_path).resolve().parent), exist_ok=True)
 
         # Set credentials from config
         key_path = config.get("api_keys.google_tts", "")

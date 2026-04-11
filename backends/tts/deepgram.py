@@ -7,6 +7,8 @@ Uses the Deepgram REST API directly (no SDK dependency).
 """
 
 import logging
+import os
+from pathlib import Path
 
 import requests
 
@@ -32,6 +34,8 @@ class DeepgramTTS(TTSBackend):
         return False
 
     async def synthesize(self, text: str, language: str, output_path: str) -> str:
+        os.makedirs(str(Path(output_path).resolve().parent), exist_ok=True)
+
         api_key = config.get("api_keys.deepgram", "").strip()
         if not api_key:
             raise RuntimeError("Deepgram API key not configured")

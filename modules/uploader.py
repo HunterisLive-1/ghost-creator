@@ -82,29 +82,45 @@ async def _safe_click(page, selectors: list[str], timeout: int = 8_000, label: s
     return False
 
 
+async def _is_checked_or_aria_true(locator) -> bool:
+    """True if element reads as checked (aria-checked or native checkbox)."""
+    try:
+        aria = await locator.get_attribute("aria-checked")
+        if aria == "true":
+            return True
+        if aria == "false":
+            return False
+    except Exception:
+        pass
+    try:
+        return await locator.is_checked()
+    except Exception:
+        return False
+
+
 async def _handle_ad_suitability(page) -> bool:
     """
     Detect and handle YouTube's 'Ad suitability' self-certification step.
 
-    YouTube now inserts this step between Details and Video elements.
-    The correct action is to leave all checkboxes un-checked (= "None of the
-    above / safe content") and click 'Submit rating', then let the caller
-    click the main NEXT button.
-
-    Returns True if the Ad suitability page was detected and handled.
+    YouTube inserts this between Details and later wizard steps. The flow is:
+    leave boxes unchecked or check "None of the above", then the caller clicks
+    the standard NEXT button — there is no separate "Submit rating" action.
     """
-    # Detect the page by its heading text
-    ad_suitability_selectors = [
-        ':has-text("Ad suitability")',
-        ':has-text("ad suitability")',
-        'ytcp-video-metadata-editor-adbreak',
+    detect_timeout_ms = 2_000
+    detection_selectors = [
+        "ytcp-video-metadata-editor-adbreak",
         '[page-name="AD_SUITABILITY"]',
+        'h2:has-text("Ad suitability")',
+        ".ytcp-ad-suitability-page",
+        ':has-text("Rate your video carefully")',
+        "ytcp-ad-suitability",
     ]
+
     on_ad_page = False
-    for sel in ad_suitability_selectors:
+    for sel in detection_selectors:
         try:
             el = page.locator(sel).first
-            if await el.is_visible(timeout=1_500):
+            if await el.is_visible(timeout=detect_timeout_ms):
                 on_ad_page = True
                 break
         except Exception:
@@ -113,32 +129,41 @@ async def _handle_ad_suitability(page) -> bool:
     if not on_ad_page:
         return False
 
-    log.info("Ad Suitability page detected — submitting 'safe content' rating …")
+    log.info("[INFO] Ad Suitability step detected — handling...")
+    try:
+        await page.screenshot(path=_screenshot_path("ad_suitability_detected"))
+    except Exception:
+        pass
 
-    # Click "Submit rating" without checking any boxes (= no restricted content)
-    submit_selectors = [
-        'ytcp-button:has-text("Submit rating")',
-        'button:has-text("Submit rating")',
-        'ytcp-button[label="Submit rating"]',
-        '[aria-label*="Submit rating" i]',
-        ':has-text("Submit rating")',
+    none_selectors = [
+        'ytcp-checkbox-lit[label*="None of the above"]',
+        'ytcp-checkbox:has-text("None of the above")',
+        'label:has-text("None of the above")',
+        '[aria-label*="None of the above" i]',
     ]
-    submitted = False
-    for sel in submit_selectors:
+
+    none_handled = False
+    for sel in none_selectors:
         try:
             el = page.locator(sel).first
-            if await el.is_visible(timeout=3_000):
+            if not await el.is_visible(timeout=2_000):
+                continue
+            if await _is_checked_or_aria_true(el):
+                log.info("'None of the above' already checked — no click needed")
+            else:
                 await el.click()
-                await page.wait_for_timeout(1_500)
-                submitted = True
-                log.debug(f"Ad Suitability 'Submit rating' clicked via {sel!r}")
-                break
+                log.info("Checked 'None of the above' on Ad Suitability step")
+            none_handled = True
+            break
         except Exception:
             continue
 
-    if not submitted:
-        log.warning("'Submit rating' button not found on Ad Suitability page — will try clicking NEXT directly.")
+    if not none_handled:
+        log.info(
+            "No 'None of the above' control matched — leaving defaults (all unchecked)"
+        )
 
+    await page.wait_for_timeout(1_000)
     return True
 
 
@@ -180,7 +205,8 @@ async def _navigate_to_visibility(page, progress: Callable) -> None:
         # ── Handle Ad Suitability page if present ─────────────────
         handled = await _handle_ad_suitability(page)
         if handled:
-            progress("Ad Suitability step handled (safe content rating submitted) …")
+            progress("Ad Suitability step handled …")
+            await page.wait_for_timeout(1_500)
 
         # ── Click NEXT ─────────────────────────────────────────────
         progress(f"Navigating step {step + 1} …")

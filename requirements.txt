@@ -19,7 +19,11 @@ google-genai>=0.5.0
 openai>=1.0.0
 
 # --- Voice / TTS ---
-# Chatterbox TTS runs as a separate local server (see docs)
+# OmniVoice: install PyTorch for your OS/GPU first → https://pytorch.org/get-started/locally/
+# Then: pip install omnivoice
+omnivoice>=0.1.0
+torch>=2.4.0
+torchaudio>=2.4.0
 pydub>=0.25.1
 soundfile>=0.12.1
 edge-tts>=6.1.9

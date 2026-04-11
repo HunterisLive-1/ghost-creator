@@ -14,6 +14,7 @@ Features:
 
 import io
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -27,7 +28,11 @@ import requests
 from pydub import AudioSegment
 
 from backends.base import TTSBackend
+from config import get_base_dir, get_ffmpeg_executable
 from core.config_manager import config
+
+# pydub only searches PATH for "ffmpeg"; use same resolution as video/voicer (bundle + PATH)
+AudioSegment.converter = get_ffmpeg_executable()
 
 logger = logging.getLogger("ghost.tts.chatterbox")
 
@@ -65,8 +70,8 @@ class ChatterboxTTS(TTSBackend):
         return config.get("tts.chatterbox_url", "http://127.0.0.1:8004")
 
     def _get_base_dir(self) -> Path:
-        """Project root directory."""
-        return Path(config.path).parent
+        """Writable app root (EXE directory when frozen) — not PyInstaller _MEIPASS."""
+        return get_base_dir()
 
     def _get_chatterbox_dir(self) -> Path:
         configured_path = config.get("tts.chatterbox_path", "").strip()
@@ -250,6 +255,8 @@ class ChatterboxTTS(TTSBackend):
         if not self.ensure_running(language):
             raise RuntimeError("Chatterbox TTS server could not be started.")
 
+        os.makedirs(str(Path(output_path).resolve().parent), exist_ok=True)
+
         ref_audio = config.get("tts.chatterbox_reference_audio", "my_voice_reference.wav")
         ref_filename = Path(ref_audio).name
         base_dir = self._get_base_dir()
@@ -274,8 +281,14 @@ class ChatterboxTTS(TTSBackend):
             combined += segment
             logger.info(f"  Chunk {idx}/{len(chunks)} done ✓ ({len(segment)}ms audio)")
 
-        combined.export(output_path, format="mp3")
-        import os
+        try:
+            combined.export(output_path, format="mp3")
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "FFmpeg not found — needed to convert Chatterbox WAV to MP3. "
+                "Install FFmpeg on PATH, or keep ffmpeg/ffmpeg.exe next to Ghost Creator "
+                "(same as video pipeline)."
+            ) from exc
         size_kb = os.path.getsize(output_path) / 1024
         logger.info(f"Voiceover saved → {output_path} ({size_kb:.1f} KB, {len(combined)}ms total)")
 

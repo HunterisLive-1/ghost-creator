@@ -152,7 +152,7 @@ class GhostCreatorApp(ctk.CTk):
         self.update_backend_labels()
         
     def update_backend_labels(self):
-        tts = config.get("tts.backend", "chatterbox").upper()
+        tts = config.get("tts.backend", "omnivoice").upper()
         img = config.get("image.backend", "comfyui").upper()
         self.backend_label.configure(text=f"AUDIO_SUBROUTINE: [{tts}]   |   VISION_MATRIX: [{img}]")
 

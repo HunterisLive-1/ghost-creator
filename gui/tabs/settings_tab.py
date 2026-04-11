@@ -26,12 +26,12 @@ TEXT_HINT   = "#4A6080"
 
 # ── Per-backend beginner descriptions ─────────────────────────────────────────
 TTS_DESCRIPTIONS = {
-    "chatterbox": (
-        "🎙️  CHATTERBOX  —  Apni khud ki awaaz clone karo!\n"
-        "   • Apna ek reference audio (.wav/.mp3) record karo aur neeche path daalo\n"
-        "   • Pehle  start-chatterbox.bat  chalao — server start hona chahiye\n"
-        "   • Sabse realistic Hindi voice quality milti hai\n"
-        "   ⚠️  Local server + GPU recommended  |  No API key needed"
+    "omnivoice": (
+        "🎙️  OMNI VOICE  —  Local zero-shot clone (k2-fsa/OmniVoice)\n"
+        "   • Short reference .wav + us clip ki exact transcription (neeche)\n"
+        "   • Alag server ki zaroorat nahi — pip package direct GPU/CPU pe\n"
+        "   • 600+ languages  |  Hugging Face token kabhi-kabhi model ke liye\n"
+        "   ⚠️  GPU recommended  |  Install: torch + torchaudio + omnivoice"
     ),
     "edge_tts": (
         "✅  EDGE TTS  —  Beginners ke liye BEST choice! (Recommended)\n"
@@ -155,7 +155,10 @@ class SettingsTab(ctk.CTkFrame):
         self._key_visible = {}
 
         # State variables
-        self._tts_val = config.get("tts.backend", "chatterbox")
+        _tb = config.get("tts.backend", "omnivoice")
+        if _tb == "chatterbox":
+            _tb = "omnivoice"
+        self._tts_val = _tb
         self._img_val = config.get("image.backend", "comfyui")
 
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -332,7 +335,7 @@ class SettingsTab(ctk.CTkFrame):
         )
 
         options = [
-            ("chatterbox", "CHATTERBOX"),
+            ("omnivoice",  "OMNIVOICE ⭐"),
             ("edge_tts",   "EDGE TTS ✅"),
             ("elevenlabs", "ELEVENLABS"),
             ("deepgram",   "DEEPGRAM 🔊"),
@@ -377,29 +380,10 @@ class SettingsTab(ctk.CTkFrame):
                                   border_color=BORDER, border_width=1)
         tts_config.pack(fill="x", pady=(0, 5), ipadx=10, ipady=10)
 
-        # Chatterbox Server Directory
-        cb_row = ctk.CTkFrame(tts_config, fg_color="transparent")
-        cb_row.pack(fill="x", pady=(8, 2))
-        ctk.CTkLabel(cb_row, text="CHATTERBOX SERVER DIR:", width=200, anchor="w",
-                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
-        self._chatterbox_dir = ctk.CTkEntry(cb_row, width=280, font=("Share Tech Mono", 13),
-                                            fg_color=BG_MAIN, border_color=BORDER,
-                                            text_color=TEXT_PRI, corner_radius=0)
-        self._chatterbox_dir.insert(0, config.get("tts.chatterbox_path", ""))
-        self._chatterbox_dir.pack(side="left", padx=5)
-        self._chatterbox_dir.bind("<FocusIn>",  lambda e: self._chatterbox_dir.configure(border_width=2, border_color=ACCENT_PRI))
-        self._chatterbox_dir.bind("<FocusOut>", lambda e: self._chatterbox_dir.configure(border_width=1, border_color=BORDER))
-        ctk.CTkButton(cb_row, text="[ BROWSE ]", width=80,
-                      font=("Share Tech Mono", 13, "bold"), text_color=ACCENT_PRI,
-                      fg_color="transparent", hover_color=BG_CARD,
-                      border_color=BORDER, border_width=1, corner_radius=0,
-                      command=self._browse_chatterbox).pack(side="left", padx=5)
-        self._hint(tts_config, "Chatterbox-TTS-Server folder ka path daalo  |  start-chatterbox.bat pehle chalao")
-
-        # Chatterbox Reference Audio
+        # Voice clone reference (OmniVoice — same config key as legacy Chatterbox)
         cb_ref_row = ctk.CTkFrame(tts_config, fg_color="transparent")
         cb_ref_row.pack(fill="x", pady=(8, 2))
-        ctk.CTkLabel(cb_ref_row, text="CHATTERBOX REF AUDIO:", width=200, anchor="w",
+        ctk.CTkLabel(cb_ref_row, text="VOICE CLONE REF (.wav):", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
         self._chatterbox_ref = ctk.CTkEntry(cb_ref_row, width=280, font=("Share Tech Mono", 13),
                                             fg_color=BG_MAIN, border_color=BORDER,
@@ -413,7 +397,32 @@ class SettingsTab(ctk.CTkFrame):
                       fg_color="transparent", hover_color=BG_CARD,
                       border_color=BORDER, border_width=1, corner_radius=0,
                       command=self._browse_chatterbox_ref).pack(side="left", padx=5)
-        self._hint(tts_config, "Apni awaaz ka sample audio file (.wav / .mp3) — jis awaaz mein video banani hai")
+        self._hint(tts_config, "Chhota clear WAV — jis voice ko clone karna hai (project root ya full path)")
+
+        om_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_row.pack(fill="x", pady=(8, 2))
+        ctk.CTkLabel(om_row, text="REF TRANSCRIPT:", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        self._omnivoice_transcript = ctk.CTkEntry(om_row, width=400, font=("Share Tech Mono", 12),
+                                                    fg_color=BG_MAIN, border_color=BORDER,
+                                                    text_color=TEXT_PRI, corner_radius=0)
+        self._omnivoice_transcript.insert(0, config.get("tts.omnivoice_ref_transcript", "Transcription of the reference audio."))
+        self._omnivoice_transcript.pack(side="left", padx=5, fill="x", expand=True)
+        self._omnivoice_transcript.bind("<FocusIn>",  lambda e: self._omnivoice_transcript.configure(border_width=2, border_color=ACCENT_PRI))
+        self._omnivoice_transcript.bind("<FocusOut>", lambda e: self._omnivoice_transcript.configure(border_width=1, border_color=BORDER))
+        self._hint(tts_config, "Reference clip mein jo bola gaya hai wahi likho — clone quality isi par depend karti hai")
+
+        om_model_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_model_row.pack(fill="x", pady=(8, 2))
+        ctk.CTkLabel(om_model_row, text="OMNIVOICE MODEL ID:", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        self._omnivoice_model = ctk.CTkEntry(om_model_row, width=400, font=("Share Tech Mono", 12),
+                                             fg_color=BG_MAIN, border_color=BORDER,
+                                             text_color=TEXT_PRI, corner_radius=0)
+        self._omnivoice_model.insert(0, config.get("tts.omnivoice_model_id", "k2-fsa/OmniVoice"))
+        self._omnivoice_model.pack(side="left", padx=5, fill="x", expand=True)
+        self._omnivoice_model.bind("<FocusIn>",  lambda e: self._omnivoice_model.configure(border_width=2, border_color=ACCENT_PRI))
+        self._omnivoice_model.bind("<FocusOut>", lambda e: self._omnivoice_model.configure(border_width=1, border_color=BORDER))
 
         ctk.CTkLabel(tts_config, text="EDGE TTS VOICE:",
                      font=("Share Tech Mono", 12, "bold"),
@@ -1451,12 +1460,6 @@ class SettingsTab(ctk.CTkFrame):
         self._refresh_profile_menu()
 
     # ── Browse helpers ────────────────────────────────────────────────────
-    def _browse_chatterbox(self):
-        path = filedialog.askdirectory(title="Locate Chatterbox-TTS-Server directory")
-        if path:
-            self._chatterbox_dir.delete(0, "end")
-            self._chatterbox_dir.insert(0, path)
-
     def _browse_chatterbox_ref(self):
         path = filedialog.askopenfilename(
             title="Locate Reference Audio File",
@@ -1560,8 +1563,11 @@ class SettingsTab(ctk.CTkFrame):
             config.set(key_path, entry.get().strip())
 
         config.set("tts.backend",                   self._tts_val)
-        config.set("tts.chatterbox_path",            self._chatterbox_dir.get().strip())
         config.set("tts.chatterbox_reference_audio", self._chatterbox_ref.get().strip())
+        if hasattr(self, "_omnivoice_transcript"):
+            config.set("tts.omnivoice_ref_transcript", self._omnivoice_transcript.get().strip())
+        if hasattr(self, "_omnivoice_model"):
+            config.set("tts.omnivoice_model_id", self._omnivoice_model.get().strip() or "k2-fsa/OmniVoice")
         config.set("tts.edge_tts_voice",             self._edge_voice.get())
         config.set("tts.elevenlabs_voice_id",        self._eleven_voice.get().strip())
 

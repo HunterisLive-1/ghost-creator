@@ -38,10 +38,12 @@ DEFAULT_CONFIG: dict = {
     "xai_api_key": "",
     "grok_image_model": "grok-2-image-1212",
     "tts": {
-        "backend": "chatterbox",
+        "backend": "omnivoice",
         "chatterbox_url": "http://127.0.0.1:8004",
         "chatterbox_path": "",
         "chatterbox_reference_audio": "my_voice_reference.wav",
+        "omnivoice_model_id": "k2-fsa/OmniVoice",
+        "omnivoice_ref_transcript": "Transcription of the reference audio.",
         "elevenlabs_voice_id": "",
         "elevenlabs_stability": 0.30,
         "elevenlabs_similarity_boost": 0.85,
@@ -108,6 +110,8 @@ ENV_LOCAL_MAP: dict[str, tuple[str, type]] = {
     "CHATTERBOX_URL":             ("tts.chatterbox_url",                 str),
     "CHATTERBOX_SERVER_DIR":      ("tts.chatterbox_path",                str),
     "CHATTERBOX_REFERENCE_AUDIO": ("tts.chatterbox_reference_audio",     str),
+    "OMNIVOICE_MODEL_ID":         ("tts.omnivoice_model_id",             str),
+    "OMNIVOICE_REF_TRANSCRIPT":   ("tts.omnivoice_ref_transcript",       str),
     "ELEVENLABS_VOICE_ID":        ("tts.elevenlabs_voice_id",            str),
     "DEEPGRAM_MODEL":             ("tts.deepgram_model",                 str),
     "DEEPGRAM_VOICE":             ("tts.deepgram_voice",                 str),
@@ -171,17 +175,23 @@ REPLICATE_API_KEY={REPLICATE_API_KEY}
 STABLE_HORDE_API_KEY={STABLE_HORDE_API_KEY}
 
 # ── TTS (VOICE) BACKEND ──────────────────────────────────────────
-# Options: chatterbox | elevenlabs | deepgram
+# Options: omnivoice | edge_tts | elevenlabs | deepgram | google_tts | kokoro
 TTS_BACKEND={TTS_BACKEND}
 
-# Chatterbox local server URL
+# Chatterbox local server URL (legacy, unused with OmniVoice)
 CHATTERBOX_URL={CHATTERBOX_URL}
 
-# Full path to the Chatterbox-TTS-Server folder
+# Full path to the Chatterbox-TTS-Server folder (legacy)
 CHATTERBOX_SERVER_DIR={CHATTERBOX_SERVER_DIR}
 
-# Reference audio file for voice cloning (.wav/.mp3)
+# Voice-clone reference WAV path (OmniVoice + legacy Chatterbox)
 CHATTERBOX_REFERENCE_AUDIO={CHATTERBOX_REFERENCE_AUDIO}
+
+# Hugging Face model id for OmniVoice
+OMNIVOICE_MODEL_ID={OMNIVOICE_MODEL_ID}
+
+# What is spoken in the reference clip (for zero-shot clone)
+OMNIVOICE_REF_TRANSCRIPT={OMNIVOICE_REF_TRANSCRIPT}
 
 # ElevenLabs voice ID (from https://elevenlabs.io/voice-lab)
 ELEVENLABS_VOICE_ID={ELEVENLABS_VOICE_ID}
@@ -237,7 +247,7 @@ class ConfigManager:
     Singleton configuration manager backed by config.json + .env.local.
 
     Supports dot-notation key paths for nested access:
-        config.get("tts.backend")         → "chatterbox"
+            config.get("tts.backend")         → "omnivoice"
         config.get("api_keys.gemini")     → ""
         config.set("api_keys.gemini", "ABC123")
 
@@ -319,7 +329,7 @@ class ConfigManager:
 
         Examples:
             config.get("api_keys.gemini")   → ""
-            config.get("tts.backend")       → "chatterbox"
+            config.get("tts.backend")       → "omnivoice"
             config.get("missing.key")       → None
         """
         keys = key_path.split(".")
