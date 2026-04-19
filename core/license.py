@@ -5,12 +5,14 @@ encrypted local storage, and periodic re-verification.
 """
 
 import os
+import re
 import sys
 import json
 import time
 import hashlib
 import uuid
 import platform
+import subprocess
 import base64
 
 import requests
@@ -48,35 +50,109 @@ VERIFY_INTERVAL = 24 * 60 * 60
 
 _SALT = b"\x4f\x1c\xa8\x73\xd2\x56\x9b\xe0\x3f\x88\xc1\x47\xfa\x2d\x0e\x65"
 
+# Windows subprocess: hide console window when frozen GUI calls WMIC/PowerShell
+_SUBPROCESS_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-def get_machine_id() -> str:
-    """SHA-256 hash of CPU info + node name + MAC address."""
+
+def _legacy_machine_id_hex() -> str:
+    """Original v1 id: MAC/node can change after reinstall — kept for decrypt + API migration."""
     raw = platform.processor() + platform.node() + str(uuid.getnode())
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _derive_key() -> bytes:
-    """Derive a Fernet key from the machine fingerprint (ties license.dat to this PC)."""
+def _normalize_smbios_uuid(s: str) -> str | None:
+    s = s.strip()
+    if not s or re.match(r"^[Ff]{8}-(?:[Ff]{4}-){3}[Ff]{12}$", s):
+        return None
+    return s.lower()
+
+
+def _windows_smbios_uuid() -> str | None:
+    if platform.system() != "Windows":
+        return None
+    for cmd in (
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID",
+        ],
+        ["wmic", "csproduct", "get", "uuid"],
+    ):
+        try:
+            r = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=12,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=_SUBPROCESS_FLAGS,
+            )
+            if r.returncode != 0:
+                continue
+            if cmd[0] == "wmic":
+                for line in r.stdout.splitlines():
+                    line = line.strip()
+                    if line and "uuid" not in line.lower():
+                        u = _normalize_smbios_uuid(line)
+                        if u:
+                            return u
+            else:
+                u = _normalize_smbios_uuid(r.stdout)
+                if u:
+                    return u
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return None
+
+
+def get_machine_id() -> str:
+    """Stable device id for licensing.
+
+    v2 (Windows): SMBIOS system UUID — survives OS reinstall on the same hardware.
+    v1 fallback: legacy hash (older app builds + non-Windows).
+    """
+    u = _windows_smbios_uuid()
+    if u:
+        return hashlib.sha256(f"ghost|v2|{u}".encode()).hexdigest()
+    return _legacy_machine_id_hex()
+
+
+def _fernet_key_from_machine_hex(machine_id_hex: str) -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=_SALT,
         iterations=100_000,
     )
-    return base64.urlsafe_b64encode(kdf.derive(get_machine_id().encode()))
+    return base64.urlsafe_b64encode(kdf.derive(machine_id_hex.encode()))
+
+
+def _derive_key() -> bytes:
+    """Fernet key from current machine id (ties license.dat to this PC)."""
+    return _fernet_key_from_machine_hex(get_machine_id())
 
 
 def verify_with_server(license_key: str, machine_id: str) -> dict:
     """POST to the licensing API and return the JSON response.
 
+    Sends ``machine_id_legacy`` when it differs from ``machine_id`` so the server
+    can treat reinstalls / app upgrades as the same seat (v1 hash vs stable v2).
+
     Distinguishes between:
       - Explicit rejection  → {"success": False, "error": "rejected", ...}
       - Temporary problems  → {"success": False, "error": "connection_error"|"timeout"|"server_error"}
     """
+    payload: dict = {"license_key": license_key, "machine_id": machine_id}
+    leg = _legacy_machine_id_hex()
+    if leg != machine_id:
+        payload["machine_id_legacy"] = leg
     try:
         resp = requests.post(
             API_URL,
-            json={"license_key": license_key, "machine_id": machine_id},
+            json=payload,
             timeout=10,
         )
         # 4xx/5xx from the server are temporary issues, NOT explicit revocation
@@ -109,11 +185,22 @@ def load_license() -> dict | None:
     """Decrypt and return stored license data, or None if missing/tampered."""
     if not LICENSE_FILE.exists():
         return None
-    try:
-        fernet = Fernet(_derive_key())
-        return json.loads(fernet.decrypt(LICENSE_FILE.read_bytes()).decode())
-    except (InvalidToken, json.JSONDecodeError, Exception):
-        return None
+    blob = LICENSE_FILE.read_bytes()
+    keys: list[bytes] = []
+    cur = get_machine_id()
+    keys.append(_fernet_key_from_machine_hex(cur))
+    leg = _legacy_machine_id_hex()
+    if leg != cur:
+        keys.append(_fernet_key_from_machine_hex(leg))
+    for key in keys:
+        try:
+            fernet = Fernet(key)
+            return json.loads(fernet.decrypt(blob).decode())
+        except (InvalidToken, json.JSONDecodeError):
+            continue
+        except Exception:
+            continue
+    return None
 
 
 def _revoke_local_license() -> None:
@@ -142,7 +229,25 @@ def is_licensed() -> tuple[bool, str]:
         return False, "License key not found."
 
     if stored.get("machine_id") != machine_id:
-        return False, "License file was moved to a different device. Please re-activate."
+        # v1 → v2 upgrade or reinstall: ask server to bind the stable id (same seat)
+        mig = verify_with_server(stored["license_key"], machine_id)
+        if mig.get("success"):
+            save_license(
+                stored["license_key"],
+                machine_id,
+                activated_at=stored.get("activated_at"),
+            )
+            return True, "License verified."
+        err = mig.get("error", "")
+        if err in ("connection_error", "timeout", "server_error"):
+            return False, (
+                "License data does not match this PC profile. "
+                "Connect to the internet and try again, or re-enter your license key."
+            )
+        return False, (
+            mig.get("message")
+            or "Could not verify this license for this computer. Try activating again with your key."
+        )
 
     # Skip server call if we verified recently
     if not _due_for_check(stored):
@@ -196,6 +301,11 @@ def activate_license(license_key: str) -> tuple[bool, str]:
     if error in ("connection_error", "timeout", "server_error"):
         return False, "License verification failed. Check your internet connection and try again."
     elif error == "already_activated" or "another" in message:
-        return False, "This license key is already active on another device."
+        return False, (
+            "This license key is already in use. "
+            "If you reinstalled Windows on the same PC, your seller must reset the seat on the server "
+            "or enable device matching for reinstalls. "
+            "Otherwise the key may be active on another computer."
+        )
     else:
         return False, result.get("message") or "Invalid license key."

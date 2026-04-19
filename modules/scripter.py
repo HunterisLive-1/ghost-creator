@@ -31,12 +31,11 @@ log = get_logger("scripter")
 # ISO 639-1 code → (Gemini display name, script instruction for voiceover/title)
 VOICEOVER_LANG_META: dict[str, tuple[str, str]] = {
     "hi": (
-        "Hinglish",
+        "Hindi",
         (
-            "Write in Hinglish — Hindi spoken naturally but typed entirely in Roman/Latin script. "
-            "Example: 'Kya aap jaante hain ke yeh ek kamaal ki cheez hai?' "
-            "NEVER use Devanagari or any other non-Latin script. "
-            "All words must be readable by someone who knows only the English alphabet."
+            "Write in pure Hindi using Devanagari script only. "
+            "NEVER use Hinglish, Roman Hindi, or English spellings for Hindi words. "
+            "Example: 'क्या आप जानते हैं कि यह एक कमाल की चीज़ है?'"
         ),
     ),
     "hinglish": (
@@ -63,6 +62,20 @@ def _lang_display_and_script(lang: str) -> tuple[str, str]:
     return (code.upper(), "Use the correct native writing system for this language.")
 
 
+def _omnivoice_emotion_rules(tts_backend: str) -> str:
+    backend = (tts_backend or "").strip().lower()
+    if backend != "omnivoice":
+        return ""
+    return (
+        '\nOMNIVOICE EMOTION FLAGS (MANDATORY for "voiceover_text"):\n'
+        "- Prefix each sentence with one emotion flag.\n"
+        "- Allowed flags only: [neutral], [excited], [serious], [curious], [urgent], [dramatic], [calm]\n"
+        "- Format example: [excited] यह सच जानकर आप चौंक जाएंगे।\n"
+        "- Keep one flag per sentence and vary naturally by context.\n"
+        "- Do not use emojis. Do not invent new flags."
+    )
+
+
 # ── Prompt Template ───────────────────────────────────────────────────────────
 def _build_prompt(
     topic: str,
@@ -73,6 +86,7 @@ def _build_prompt(
     target_words: int,
     video_type: str,
     composition_hint: str,
+    tts_backend: str,
 ) -> str:
     """
     Build the full Gemini prompt for the given topic and voiceover language.
@@ -82,6 +96,7 @@ def _build_prompt(
     metadata.description / tags → in English (for YouTube SEO)
     """
     lang_display, script_rule = _lang_display_and_script(lang)
+    omnivoice_emotion_rules = _omnivoice_emotion_rules(tts_backend)
     duration_guidance = (
         "Keep it short, concise, and high-energy."
         if target_duration <= 90
@@ -109,6 +124,7 @@ IMPORTANT LANGUAGE RULES:
 - "image_prompts" MUST always be in English (for Stable Diffusion quality).
 - "title" MUST be in {lang_display}.
 - "description" and "tags" MUST be in English (for YouTube SEO).
+{omnivoice_emotion_rules}
 
 Output ONLY a valid JSON object. No markdown fences, no extra text.
 
@@ -161,6 +177,7 @@ Rules for voiceover_text:
 - End: short YouTube-style CTA in {lang_display} (subscribe / bell / follow)
 - Target: approximately {target_words} words
 - Write as if a real {lang_display}-speaking creator is talking — natural rhythm, not robotic
+- If OMNIVOICE emotion flags are enabled above, every sentence must start with one allowed flag
 
 Rules for english_subtitle_text:
 - Direct English translation of voiceover_text
@@ -492,6 +509,7 @@ def generate_script(
     target_words = int((target_duration / 60) * 130)
     video_type = "YouTube Short" if target_duration <= 90 else "YouTube video"
     composition_hint = "vertical portrait" if aspect_ratio == "9:16" else "wide cinematic landscape"
+    tts_backend = cfg.get("tts_backend") or config.get("tts.backend", "omnivoice")
 
     provider = cfg.get("script_provider") or config.get("script_provider", "gemini")
     log.info(f"Generating script: topic={topic!r}  lang={language!r}  provider={provider!r}")
@@ -504,6 +522,7 @@ def generate_script(
         target_words=target_words,
         video_type=video_type,
         composition_hint=composition_hint,
+        tts_backend=tts_backend,
     )
 
     if provider == "openai":
@@ -521,6 +540,249 @@ def generate_script(
 
     log.info(f"Script generated → title: {script['metadata']['title']!r}")
     return script
+
+
+# ── Documentary Mode ──────────────────────────────────────────────────────────
+
+def _build_documentary_prompt(
+    topic: str,
+    lang: str,
+    target_duration: int,
+    num_segments: int,
+    tts_backend: str,
+) -> str:
+    lang_display, script_rule = _lang_display_and_script(lang)
+    omnivoice_rules = _omnivoice_emotion_rules(tts_backend)
+    _min = target_duration // 60
+    _sec = target_duration % 60
+    duration_label = f"{_min} minute{'s' if _min != 1 else ''}" + (f" {_sec}s" if _sec else "")
+    target_words = int((target_duration / 60) * 130)
+
+    return f"""You are a professional documentary scriptwriter.
+
+════════════════════════════════════════════════════════
+TOPIC (MANDATORY — DO NOT DEVIATE):  "{topic}"
+════════════════════════════════════════════════════════
+Every word of narration, every video search query, the title, and all metadata
+MUST be directly and specifically about this exact topic: "{topic}".
+════════════════════════════════════════════════════════
+
+LANGUAGE RULES:
+- "voiceover" fields MUST be in {lang_display}. {script_rule}
+- "video_query" fields MUST be in English (for YouTube search).
+- "title" MUST be in {lang_display}.
+- "description" and "tags" MUST be in English (YouTube SEO).
+{omnivoice_rules}
+
+Output ONLY valid JSON. No markdown fences, no extra text.
+
+════════════════════════════════════════════════════════
+WORD COUNT (NON-NEGOTIABLE):
+- Target duration : {target_duration} seconds ({duration_label})
+- Required words  : {target_words} words across all segment voiceovers
+- Speaking rate   : ~130 words/min
+- DO NOT stop early. Write all {target_words} words.
+════════════════════════════════════════════════════════
+
+VIDEO QUERY RULES (CRITICAL for good footage):
+- Each "video_query" is a YouTube search string for REAL stock footage.
+- Be specific and visual — search for footage that SHOWS the concept, not explains it.
+- Good examples: "NASA rocket launch slow motion", "coral reef underwater ocean 4K",
+  "ancient Rome ruins aerial view", "stock market trading floor busy"
+- Bad examples: "explain economy", "history documentary", "facts about topic"
+- Queries must match the segment's narration content exactly.
+- Length: 3–7 words. English only. No quotes inside the query.
+
+JSON schema — produce EXACTLY this structure:
+{{
+  "title": "<{lang_display} documentary title about '{topic}', max 70 chars>",
+  "voiceover_text": "<full combined narration — all segments joined — {target_words} words in {lang_display}>",
+  "segments": [
+    {{
+      "voiceover": "<{lang_display} narration for this segment — natural pacing, full sentences>",
+      "video_query": "<specific English YouTube search query for matching real footage>",
+      "duration_hint": <integer seconds for this segment>
+    }}
+    /* repeat for all {num_segments} segments — total duration_hint must equal {target_duration} */
+  ],
+  "metadata": {{
+    "title": "<same as top-level title>",
+    "description": "<compelling English description ~200 words, SEO keywords for '{topic}'>",
+    "tags": ["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]
+  }}
+}}
+
+SEGMENT RULES:
+- Produce exactly {num_segments} segments.
+- Each segment covers one aspect / chapter of the topic.
+- Segments flow naturally: hook → context → detail → depth → conclusion/CTA.
+- First segment: shocking hook directly about "{topic}".
+- Last segment: short CTA in {lang_display} (like/subscribe/comment).
+- Each "voiceover" must be self-contained — listener can understand without context.
+- Sum of all duration_hint values must equal {target_duration}.
+
+Generate the JSON now:"""
+
+
+def _validate_documentary_script(script: dict, num_segments: int) -> dict:
+    """Validate and normalise a documentary script dict."""
+    for key in ("title", "voiceover_text", "segments", "metadata"):
+        if key not in script:
+            raise KeyError(f"Missing key in documentary script: {key!r}")
+    segs = script["segments"]
+    if not isinstance(segs, list) or len(segs) < 1:
+        raise ValueError("'segments' must be a non-empty list")
+    for i, s in enumerate(segs):
+        if "voiceover" not in s:
+            raise KeyError(f"Segment {i} missing 'voiceover'")
+        if "video_query" not in s:
+            s["video_query"] = s.get("voiceover", "")[:50]
+        if "duration_hint" not in s:
+            s["duration_hint"] = 20
+    # Stitch full voiceover_text if missing or empty
+    if not script.get("voiceover_text", "").strip():
+        script["voiceover_text"] = " ".join(s["voiceover"] for s in segs)
+    return script
+
+
+def generate_documentary_script(
+    topic: str,
+    lang: str | None = None,
+    target_duration: int = 180,
+    script_config: dict | None = None,
+    n_segments: int = 0,
+) -> dict:
+    """
+    Generate a documentary script: narration + YouTube footage queries per segment.
+
+    Returns a dict with:
+        title          : str
+        voiceover_text : str  (full concatenated narration)
+        segments       : list[{voiceover, video_query, duration_hint}]
+        metadata       : {title, description, tags}
+    """
+    cfg = script_config or {}
+    language = (lang or "hi").lower().strip()
+    # Use explicit count if given, otherwise auto: 1 segment per ~25 s (min 3, max 20)
+    if n_segments and n_segments > 0:
+        num_segments = max(3, min(20, n_segments))
+    else:
+        num_segments = max(3, min(20, round(target_duration / 25)))
+    tts_backend = cfg.get("tts_backend") or config.get("tts.backend", "omnivoice")
+    provider = cfg.get("script_provider") or config.get("script_provider", "gemini")
+
+    log.info(
+        "Generating documentary script: topic=%r  lang=%r  provider=%r  segments=%s",
+        topic, language, provider, num_segments,
+    )
+
+    prompt = _build_documentary_prompt(topic, language, target_duration, num_segments, tts_backend)
+
+    if provider == "openai":
+        raw = _generate_raw_openai(prompt, cfg)
+    elif provider == "ollama":
+        raw = _generate_raw_ollama(prompt, cfg)
+    else:
+        raw = _generate_raw_gemini(prompt, cfg)
+
+    script = _extract_json(raw)
+    script = _validate_documentary_script(script, num_segments)
+    log.info("Documentary script ready: %s segment(s), title=%r", len(script["segments"]), script["title"])
+    return script
+
+
+def _generate_raw_gemini(prompt: str, script_config: dict) -> str:
+    """Call Gemini and return raw response text (no parsing)."""
+    api_key = (script_config.get("api_keys.gemini") or config.get("api_keys.gemini", "")).strip()
+    if not api_key:
+        raise ValueError("No Gemini API key was provided. Please add it in Settings.")
+    gemini_model = script_config.get("gemini_model") or config.get("gemini_model", GEMINI_MODEL)
+
+    for attempt in range(1, 4):
+        log.debug("Gemini API call (attempt %s, model=%r) …", attempt, gemini_model)
+        try:
+            client = _gemini_client(api_key, gemini_model)
+            response = client.models.generate_content(
+                model=gemini_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.7 if attempt == 1 else 0.4,
+                    max_output_tokens=24576,
+                    safety_settings=[
+                        types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_ONLY_HIGH"),
+                        types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_ONLY_HIGH"),
+                        types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_ONLY_HIGH"),
+                        types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_ONLY_HIGH"),
+                    ],
+                ),
+            )
+            raw = response.text
+            if raw is None:
+                raise ValueError("Gemini returned no text (safety filter).")
+            return raw
+        except (json.JSONDecodeError, KeyError, ValueError):
+            if attempt == 3:
+                raise
+        except Exception as api_exc:
+            err = str(api_exc)
+            if "404" in err or "NOT_FOUND" in err:
+                next_m = None
+                try:
+                    idx = _GEMINI_FALLBACK_CHAIN.index(gemini_model)
+                    if idx + 1 < len(_GEMINI_FALLBACK_CHAIN):
+                        next_m = _GEMINI_FALLBACK_CHAIN[idx + 1]
+                except ValueError:
+                    if gemini_model != _GEMINI_FINAL_FALLBACK:
+                        next_m = _GEMINI_FINAL_FALLBACK
+                if next_m:
+                    log.warning("Model %r not available — switching to %r", gemini_model, next_m)
+                    gemini_model = next_m
+                    continue
+            raise RuntimeError(f"Gemini API error: {api_exc}") from api_exc
+    raise RuntimeError("_generate_raw_gemini: unexpected exit")
+
+
+def _generate_raw_openai(prompt: str, script_config: dict) -> str:
+    """Call OpenAI and return raw response text."""
+    from openai import OpenAI
+    api_key = (script_config.get("openai_api_key") or config.get("openai_api_key", "")).strip()
+    if not api_key:
+        raise ValueError("OpenAI API key is not set.")
+    model = script_config.get("openai_model") or config.get("openai_model", "gpt-4o")
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "You are a documentary scriptwriter. Output valid JSON only."},
+            {"role": "user", "content": prompt},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.8,
+        max_tokens=24576,
+    )
+    return response.choices[0].message.content
+
+
+def _generate_raw_ollama(prompt: str, script_config: dict) -> str:
+    """Call Ollama and return raw response text."""
+    url = (script_config.get("ollama_url") or config.get("ollama_url", "http://localhost:11434")).rstrip("/")
+    model = script_config.get("ollama_model") or config.get("ollama_model", "llama3")
+    resp = requests.post(
+        f"{url}/v1/chat/completions",
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You are a documentary scriptwriter. Output valid JSON only."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.7,
+            "max_tokens": 24576,
+            "stream": False,
+        },
+        timeout=600,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
 
 
 if __name__ == "__main__":

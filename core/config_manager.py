@@ -30,26 +30,30 @@ DEFAULT_CONFIG: dict = {
     "api_keys": {
         "gemini": "",
         "elevenlabs": "",
-        "deepgram": "",
         "fal_ai": "",
         "replicate": "",
         "stable_horde": "",
+        "pexels": "",
     },
     "xai_api_key": "",
     "grok_image_model": "grok-2-image-1212",
     "tts": {
         "backend": "omnivoice",
-        "chatterbox_url": "http://127.0.0.1:8004",
-        "chatterbox_path": "",
-        "chatterbox_reference_audio": "my_voice_reference.wav",
+        "omnivoice_url": "http://127.0.0.1:8765",
+        "omnivoice_mode": "clone",
+        "reference_audio": "my_voice_reference.wav",
         "omnivoice_model_id": "k2-fsa/OmniVoice",
         "omnivoice_ref_transcript": "Transcription of the reference audio.",
+        "omnivoice_design_voice": "custom",
+        "omnivoice_speaking_style": "default",
+        "omnivoice_quality_preset": "balanced",
+        "omnivoice_voice_gender": "",
+        "omnivoice_extra_instruct": "",
+        "omnivoice_language_hint": "",
         "elevenlabs_voice_id": "",
         "elevenlabs_stability": 0.30,
         "elevenlabs_similarity_boost": 0.85,
         "elevenlabs_style": 0.45,
-        "deepgram_model": "aura-2",
-        "deepgram_voice": "aura-asteria-en",
     },
     "image": {
         "backend": "comfyui",
@@ -74,6 +78,13 @@ DEFAULT_CONFIG: dict = {
     "ollama_model": "llama3",
     "video_features_enabled": True,
     "video_pace": "medium",
+    "pipeline_mode": "normal",
+    "documentary.max_clip_duration": 120,
+    "documentary.length_mode": "short",
+    "documentary.voice_backend": "omnivoice",
+    "documentary.short_duration": 60,
+    "documentary.long_duration": 600,
+    "documentary.segments": 0,          # 0 = auto (1 per ~25s of duration)
     "img2video_enabled": False,
     "img2video_backend": "kling_standard",
     "img2video_duration": "5",
@@ -101,20 +112,23 @@ ENV_LOCAL_MAP: dict[str, tuple[str, type]] = {
     # API Keys
     "GEMINI_API_KEY":             ("api_keys.gemini",                    str),
     "ELEVENLABS_API_KEY":         ("api_keys.elevenlabs",                str),
-    "DEEPGRAM_API_KEY":           ("api_keys.deepgram",                  str),
     "FAL_AI_API_KEY":             ("api_keys.fal_ai",                    str),
     "REPLICATE_API_KEY":          ("api_keys.replicate",                 str),
     "STABLE_HORDE_API_KEY":       ("api_keys.stable_horde",              str),
     # TTS
     "TTS_BACKEND":                ("tts.backend",                        str),
-    "CHATTERBOX_URL":             ("tts.chatterbox_url",                 str),
-    "CHATTERBOX_SERVER_DIR":      ("tts.chatterbox_path",                str),
-    "CHATTERBOX_REFERENCE_AUDIO": ("tts.chatterbox_reference_audio",     str),
+    "OMNIVOICE_URL":              ("tts.omnivoice_url",                  str),
+    "OMNIVOICE_MODE":             ("tts.omnivoice_mode",                 str),
+    "REFERENCE_AUDIO":            ("tts.reference_audio",                str),
     "OMNIVOICE_MODEL_ID":         ("tts.omnivoice_model_id",             str),
     "OMNIVOICE_REF_TRANSCRIPT":   ("tts.omnivoice_ref_transcript",       str),
+    "OMNIVOICE_DESIGN_VOICE":     ("tts.omnivoice_design_voice",         str),
+    "OMNIVOICE_SPEAKING_STYLE":   ("tts.omnivoice_speaking_style",       str),
+    "OMNIVOICE_QUALITY_PRESET":   ("tts.omnivoice_quality_preset",       str),
+    "OMNIVOICE_VOICE_GENDER":     ("tts.omnivoice_voice_gender",         str),
+    "OMNIVOICE_EXTRA_INSTRUCT":   ("tts.omnivoice_extra_instruct",       str),
+    "OMNIVOICE_LANGUAGE_HINT":    ("tts.omnivoice_language_hint",        str),
     "ELEVENLABS_VOICE_ID":        ("tts.elevenlabs_voice_id",            str),
-    "DEEPGRAM_MODEL":             ("tts.deepgram_model",                 str),
-    "DEEPGRAM_VOICE":             ("tts.deepgram_voice",                 str),
     # Image
     "IMAGE_BACKEND":              ("image.backend",                      str),
     "COMFYUI_URL":                ("image.comfyui_url",                  str),
@@ -159,10 +173,6 @@ GEMINI_API_KEY={GEMINI_API_KEY}
 # Get key: https://elevenlabs.io/app/subscription
 ELEVENLABS_API_KEY={ELEVENLABS_API_KEY}
 
-# Deepgram — cloud TTS
-# Get key: https://console.deepgram.com/
-DEEPGRAM_API_KEY={DEEPGRAM_API_KEY}
-
 # Fal.ai — fast cloud image generation
 # Get key: https://fal.ai/dashboard/keys
 FAL_AI_API_KEY={FAL_AI_API_KEY}
@@ -175,17 +185,17 @@ REPLICATE_API_KEY={REPLICATE_API_KEY}
 STABLE_HORDE_API_KEY={STABLE_HORDE_API_KEY}
 
 # ── TTS (VOICE) BACKEND ──────────────────────────────────────────
-# Options: omnivoice | edge_tts | elevenlabs | deepgram | google_tts | kokoro
+# Options: omnivoice | edge_tts | elevenlabs | google_tts
 TTS_BACKEND={TTS_BACKEND}
 
-# Chatterbox local server URL (legacy, unused with OmniVoice)
-CHATTERBOX_URL={CHATTERBOX_URL}
+# OmniVoice local server URL (when using server mode)
+OMNIVOICE_URL={OMNIVOICE_URL}
 
-# Full path to the Chatterbox-TTS-Server folder (legacy)
-CHATTERBOX_SERVER_DIR={CHATTERBOX_SERVER_DIR}
+# OmniVoice generation mode: clone | design
+OMNIVOICE_MODE={OMNIVOICE_MODE}
 
-# Voice-clone reference WAV path (OmniVoice + legacy Chatterbox)
-CHATTERBOX_REFERENCE_AUDIO={CHATTERBOX_REFERENCE_AUDIO}
+# Voice-clone reference WAV path (used by OmniVoice)
+REFERENCE_AUDIO={REFERENCE_AUDIO}
 
 # Hugging Face model id for OmniVoice
 OMNIVOICE_MODEL_ID={OMNIVOICE_MODEL_ID}
@@ -195,10 +205,6 @@ OMNIVOICE_REF_TRANSCRIPT={OMNIVOICE_REF_TRANSCRIPT}
 
 # ElevenLabs voice ID (from https://elevenlabs.io/voice-lab)
 ELEVENLABS_VOICE_ID={ELEVENLABS_VOICE_ID}
-
-# Deepgram model + voice
-DEEPGRAM_MODEL={DEEPGRAM_MODEL}
-DEEPGRAM_VOICE={DEEPGRAM_VOICE}
 
 # ── IMAGE BACKEND ────────────────────────────────────────────────
 # Options: comfyui | pollinations | gemini_imagen | fal_ai | stable_horde | replicate

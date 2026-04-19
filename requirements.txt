@@ -19,18 +19,17 @@ google-genai>=0.5.0
 openai>=1.0.0
 
 # --- Voice / TTS ---
-# OmniVoice: install PyTorch for your OS/GPU first → https://pytorch.org/get-started/locally/
+# OmniVoice: install PyTorch + torchaudio for your OS/GPU first →
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 # Then: pip install omnivoice
 omnivoice>=0.1.0
-torch>=2.4.0
-torchaudio>=2.4.0
+torch>=2.10.0
+torchaudio>=2.11.0
 pydub>=0.25.1
 soundfile>=0.12.1
 edge-tts>=6.1.9
 elevenlabs>=1.0.0
-deepgram-sdk>=3.0.0
 google-cloud-texttospeech>=2.16.0
-kokoro>=0.9.0
 
 
 
@@ -52,6 +51,9 @@ playwright>=1.43.0
 
 # --- License ---
 cryptography>=42.0.0
+
+# --- Documentary mode (footage download) ---
+yt-dlp>=2024.1.1
 
 # --- Utilities ---
 tqdm>=4.66.0

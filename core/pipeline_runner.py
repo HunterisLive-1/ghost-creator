@@ -84,6 +84,11 @@ class PipelineRunner:
         self.pending_scene_prompts: list | None = None
         self.waiting_for_image_review = False
 
+        self._video_preview_event = threading.Event()
+        self._video_preview_approved: bool = False
+        self.pending_video_path: str | None = None
+        self.waiting_for_video_preview = False
+
     def start(self, topic: str | None = None) -> None:
         """Start the pipeline in a background thread."""
         if self.thread and self.thread.is_alive():
@@ -99,6 +104,11 @@ class PipelineRunner:
         self.pending_scene_prompts = None
         self.waiting_for_image_review = False
 
+        self._video_preview_event.clear()
+        self._video_preview_approved = False
+        self.pending_video_path = None
+        self.waiting_for_video_preview = False
+
         self.running = True
         self.thread = threading.Thread(
             target=self._run,
@@ -113,6 +123,7 @@ class PipelineRunner:
         self.running = False
         self._script_review_event.set()
         self._image_review_event.set()
+        self._video_preview_event.set()
         self._emit(0, "Pipeline stopped by user", "WARNING")
         log.info("Pipeline stop requested by user")
 
@@ -146,10 +157,25 @@ class PipelineRunner:
         self.stop()
         self._image_review_event.set()
 
+    def approve_video_preview(self) -> None:
+        """Called by GUI when user approves the video preview and wants to continue."""
+        self._video_preview_approved = True
+        self.waiting_for_video_preview = False
+        self._video_preview_event.set()
+
+    def cancel_from_video_preview(self) -> None:
+        """Called by GUI when user cancels from the video preview window."""
+        self._video_preview_approved = False
+        self.waiting_for_video_preview = False
+        self.stop()
+        self._video_preview_event.set()
+
     def _run(self, topic: str | None) -> None:
         """Main pipeline execution — runs in background thread."""
         try:
             from core.config_manager import config
+
+            pipeline_mode = config.get("pipeline_mode", "normal")
 
             # ── Step 1: Research ──────────────────────────────────────────
             if not self.running:
@@ -161,6 +187,10 @@ class PipelineRunner:
             else:
                 topic = find_trending_topic()
                 self._emit(1, f"Found topic: {topic!r}", "SUCCESS")
+
+            if pipeline_mode == "documentary":
+                self._run_documentary(topic, config)
+                return
 
             # ── Step 2: Script ────────────────────────────────────────────
             if not self.running:
@@ -177,6 +207,7 @@ class PipelineRunner:
                 "api_keys.gemini": config.get("api_keys.gemini", ""),
                 "ollama_url": config.get("ollama_url", "http://localhost:11434"),
                 "ollama_model": config.get("ollama_model", "llama3"),
+                "tts_backend": config.get("tts.backend", "omnivoice"),
             }
             _provider_label = script_cfg["script_provider"].capitalize()
             self._emit(2, f"📝 Generating script via {_provider_label} …", "INFO")
@@ -276,10 +307,15 @@ class PipelineRunner:
                 return
             self._emit(3, "🎙️ Generating voiceover …", "INFO")
             from modules.voicer import run_voiceover
+
+            def _voice_progress(msg: str) -> None:
+                self._emit(3, msg, "INFO")
+
             audio_path = run_voiceover(
                 script["voiceover_text"],
                 language=language,
                 output_path=run_dir / "voiceover.mp3",
+                progress_callback=_voice_progress,
             )
             self._emit(3, f"Voiceover saved: {audio_path}", "SUCCESS")
 
@@ -438,7 +474,21 @@ class PipelineRunner:
             )
             self._emit(5, f"Video rendered: {video_path}", "SUCCESS")
 
-            # ── Step 5.5: Thumbnail (optional, only when upload is enabled) ──
+            # ── Step 5.5: Video preview (optional pause before upload) ───────
+            if config.get("video_preview_enabled", True):
+                if not self.running:
+                    return
+                self.pending_video_path = str(video_path)
+                self.waiting_for_video_preview = True
+                self._video_preview_event.clear()
+                self._emit(5, "🎬 Video ready — waiting for your preview …", "INFO")
+                self._video_preview_event.wait()   # blocks until GUI approves or cancels
+                self.waiting_for_video_preview = False
+                if not self.running or not self._video_preview_approved:
+                    return
+                self._emit(5, "Video approved ✓ — continuing …", "SUCCESS")
+
+            # ── Step 5.7: Thumbnail (optional, only when upload is enabled) ──
             thumbnail_path: str = ""
             if config.get("pipeline.upload_enabled", True) and config.get("pipeline.thumbnail_enabled", True):
                 if not self.running:
@@ -516,6 +566,206 @@ class PipelineRunner:
             self.running = False
             self.waiting_for_script_review = False
             self.waiting_for_image_review = False
+
+    # ── Documentary Pipeline ───────────────────────────────────────────────────
+
+    def _run_documentary(self, topic: str, config) -> None:
+        """
+        Documentary mode pipeline:
+          Step 2 → Script with video queries (Gemini)
+          Step 3 → Voiceover (OmniVoice)
+          Step 4 → Download footage clips (yt-dlp)
+          Step 5 → Assemble video (FFmpeg: clips + audio, no subtitles)
+          Step 5.5 → Optional video preview
+          Step 6 → Upload (optional)
+        """
+        import json as _json
+        from config import OUTPUT_DIR
+        from modules.scripter import generate_documentary_script
+
+        language = config.get("pipeline.language", "hi")
+        target_duration = config.get("target_duration", 180)
+        aspect_ratio = config.get("aspect_ratio", "9:16")
+        script_cfg = {
+            "script_provider": config.get("script_provider", "gemini"),
+            "gemini_model": config.get("gemini_model", "gemini-2.0-flash"),
+            "openai_model": config.get("openai_model", "gpt-4o"),
+            "openai_api_key": config.get("openai_api_key", ""),
+            "api_keys.gemini": config.get("api_keys.gemini", ""),
+            "ollama_url": config.get("ollama_url", "http://localhost:11434"),
+            "ollama_model": config.get("ollama_model", "llama3"),
+            "tts_backend": config.get("tts.backend", "omnivoice"),
+        }
+
+        # ── Step 2: Documentary script ────────────────────────────────────
+        if not self.running:
+            return
+        _provider_label = script_cfg["script_provider"].capitalize()
+        self._emit(2, f"📝 Generating documentary script via {_provider_label} …", "INFO")
+
+        n_segs_override = int(config.get("documentary.segments", 0) or 0)
+        script = generate_documentary_script(
+            topic,
+            lang=language,
+            target_duration=target_duration,
+            script_config=script_cfg,
+            n_segments=n_segs_override,
+        )
+        title = script.get("title") or script.get("metadata", {}).get("title", topic)
+        num_segs = len(script["segments"])
+        self._emit(2, f"Script ready: {title!r} ({num_segs} segments)", "SUCCESS")
+        log.info("Documentary script: %s segments", num_segs)
+
+        # Script review (reuse same pause mechanism)
+        if config.get("script_review_enabled", True):
+            self._emit(2, "Script ready — waiting for your review …", "INFO")
+            self.pending_script_data = {
+                "title": title,
+                "voiceover": script["voiceover_text"],
+                "image_prompts": [s["video_query"] for s in script["segments"]],
+            }
+            self.waiting_for_script_review = True
+            self._script_review_event.clear()
+            self._script_review_event.wait()
+
+            if not self.running or self._approved_script is None:
+                self.progress_queue.put({
+                    "step": 0, "message": "Pipeline cancelled", "level": "WARNING",
+                    "timestamp": datetime.now().isoformat(), "done": True,
+                    "output_path": "", "run_id": self._run_id,
+                })
+                return
+
+            approved = self._approved_script
+            script["voiceover_text"] = approved["voiceover"]
+            script["title"] = approved["title"]
+            # Update video queries from review (stored in image_prompts slot)
+            new_queries = list(approved.get("image_prompts", []))
+            for i, q in enumerate(new_queries):
+                if i < len(script["segments"]):
+                    script["segments"][i]["video_query"] = q
+            self.waiting_for_script_review = False
+            self.pending_script_data = None
+            self._emit(2, "Script approved — continuing …", "SUCCESS")
+        else:
+            self._emit(2, "Script ready — review disabled, continuing …", "SUCCESS")
+
+        # Create run folder
+        run_dir = _make_run_dir(title, config, OUTPUT_DIR)
+        self._emit(2, f"[INFO] Run folder: {run_dir}", "INFO")
+        log.info("Run output folder: %s", run_dir)
+
+        try:
+            (run_dir / "metadata.json").write_text(
+                _json.dumps(script["metadata"], ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+        # ── Step 3: Voiceover ─────────────────────────────────────────────
+        if not self.running:
+            return
+        self._emit(3, "🎙️ Generating voiceover …", "INFO")
+        from modules.voicer import run_voiceover
+
+        def _voice_progress(msg: str) -> None:
+            self._emit(3, msg, "INFO")
+
+        audio_path = run_voiceover(
+            script["voiceover_text"],
+            language=language,
+            output_path=run_dir / "voiceover.mp3",
+            progress_callback=_voice_progress,
+        )
+        self._emit(3, f"Voiceover saved: {audio_path}", "SUCCESS")
+
+        # ── Step 4: Download footage clips ────────────────────────────────
+        if not self.running:
+            return
+        self._emit(4, f"📹 Downloading {num_segs} footage clips from YouTube …", "INFO")
+        from modules.video_fetcher import fetch_clips
+
+        def _fetch_progress(msg: str) -> None:
+            self._emit(4, msg, "INFO")
+
+        max_clip_dur = int(config.get("documentary.max_clip_duration", 120))
+        clips_dir = run_dir / "clips"
+        clips = fetch_clips(
+            script["segments"],
+            clips_dir,
+            max_clip_duration=max_clip_dur,
+            progress_callback=_fetch_progress,
+        )
+        good = sum(1 for c in clips if c is not None)
+        self._emit(4, f"{good}/{num_segs} clips downloaded", "SUCCESS" if good > 0 else "WARNING")
+
+        # ── Step 5: Assemble documentary ──────────────────────────────────
+        if not self.running:
+            return
+        self._emit(5, "🎬 Assembling documentary with FFmpeg …", "INFO")
+        from modules.documentary_assembler import assemble_documentary
+
+        def _asm_progress(msg: str) -> None:
+            self._emit(5, msg, "INFO")
+
+        _output_filename = f"documentary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        video_path = assemble_documentary(
+            clips=clips,
+            audio_path=audio_path,
+            segments=script["segments"],
+            output_dir=run_dir,
+            output_filename=_output_filename,
+            aspect_ratio=aspect_ratio,
+            progress_callback=_asm_progress,
+        )
+        self._emit(5, f"Documentary rendered: {video_path}", "SUCCESS")
+
+        # ── Step 5.5: Video preview ───────────────────────────────────────
+        if config.get("video_preview_enabled", True):
+            if not self.running:
+                return
+            self.pending_video_path = str(video_path)
+            self.waiting_for_video_preview = True
+            self._video_preview_event.clear()
+            self._emit(5, "🎬 Video ready — waiting for your preview …", "INFO")
+            self._video_preview_event.wait()
+            self.waiting_for_video_preview = False
+            if not self.running or not self._video_preview_approved:
+                return
+            self._emit(5, "Video approved ✓ — continuing …", "SUCCESS")
+
+        # ── Step 6: Upload ────────────────────────────────────────────────
+        if not self.running:
+            return
+        if config.get("pipeline.upload_enabled", True):
+            self._emit(6, "📤 Uploading to YouTube Studio …", "INFO")
+            from modules.uploader import upload_to_youtube
+
+            def _upload_progress(msg: str) -> None:
+                self._emit(6, msg, "INFO")
+
+            upload_to_youtube(
+                video_path=video_path,
+                metadata=script["metadata"],
+                progress_callback=_upload_progress,
+                retries=1,
+            )
+            self._emit(6, "Upload complete! 🚀", "SUCCESS")
+            done_msg = f"Documentary complete! Video: {video_path}"
+        else:
+            self._emit(6, "⏭️ Upload disabled — documentary saved locally.", "SUCCESS")
+            done_msg = f"Documentary complete (no upload). Saved: {video_path}"
+
+        self.progress_queue.put({
+            "step": 7,
+            "message": done_msg,
+            "level": "SUCCESS",
+            "timestamp": datetime.now().isoformat(),
+            "done": True,
+            "output_path": str(video_path),
+            "run_id": self._run_id,
+        })
 
     def _emit(self, step: int, message: str, level: str = "INFO") -> None:
         """Emit a progress event to the queue."""

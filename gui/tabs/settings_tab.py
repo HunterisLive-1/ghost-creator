@@ -27,11 +27,11 @@ TEXT_HINT   = "#4A6080"
 # ── Per-backend beginner descriptions ─────────────────────────────────────────
 TTS_DESCRIPTIONS = {
     "omnivoice": (
-        "🎙️  OMNI VOICE  —  Local zero-shot clone (k2-fsa/OmniVoice)\n"
-        "   • Short reference .wav + us clip ki exact transcription (neeche)\n"
-        "   • Alag server ki zaroorat nahi — pip package direct GPU/CPU pe\n"
-        "   • 600+ languages  |  Hugging Face token kabhi-kabhi model ke liye\n"
-        "   ⚠️  GPU recommended  |  Install: torch + torchaudio + omnivoice"
+        "🎙️  OMNI VOICE  —  Local zero-shot voice clone\n"
+        "   • Server mode: run.bat path set karo → pipeline auto-start karega\n"
+        "   • Package mode: pip install torch torchaudio omnivoice (no server)\n"
+        "   • Short reference .wav + transcription zaroori hai clone ke liye\n"
+        "   ⚠️  GPU recommended  |  600+ languages supported"
     ),
     "edge_tts": (
         "✅  EDGE TTS  —  Beginners ke liye BEST choice! (Recommended)\n"
@@ -53,20 +53,6 @@ TTS_DESCRIPTIONS = {
         "   • Text-to-Speech API enable karo\n"
         "   • Service Account JSON file download karo aur path neeche daalo\n"
         "   ⚙️  Advanced setup  |  Paid  |  Very high quality"
-    ),
-    "kokoro": (
-        "🤖  KOKORO TTS  —  Free local AI voice model\n"
-        "   • Pehli baar auto-download hoga (~1GB model)\n"
-        "   • GPU ho toh fast, CPU pe bhi chalega (thoda slow)\n"
-        "   • Model ka folder path neeche daalo (ya empty chodo auto ke liye)\n"
-        "   ✔️  Free  |  No internet needed  |  Offline use possible"
-    ),
-    "deepgram": (
-        "🔊  DEEPGRAM  —  Fast cloud TTS (Aura voices)\n"
-        "   • console.deepgram.com pe account banao → API key lo\n"
-        "   • API Key neeche API Keys section mein daalo\n"
-        "   • Voice: aura-asteria-en (female) / aura-zeus-en (male) / aura-luna-en\n"
-        "   💰  Pay-per-character (very cheap)  |  Fast  |  Clear English voices"
     ),
 }
 
@@ -137,13 +123,55 @@ _TRANSITION_CONFIG_TO_STYLE = {v: k for k, v in _TRANSITION_STYLE_TO_CONFIG.item
 API_KEY_INFO = {
     "api_keys.gemini":      ("REQUIRED", ACCENT_GRN,  "Script + Image generation  •  Free at: aistudio.google.com/app/apikey"),
     "api_keys.elevenlabs":  ("OPTIONAL", TEXT_HINT,   "Sirf ElevenLabs TTS use karne par chahiye  •  elevenlabs.io"),
-    "api_keys.deepgram":    ("OPTIONAL", TEXT_HINT,   "Sirf Deepgram TTS use karne par chahiye  •  console.deepgram.com"),
     "api_keys.google_tts":  ("OPTIONAL", TEXT_HINT,   "Google Cloud TTS ka service-account JSON file ka PATH daalo"),
     "api_keys.fal_ai":      ("OPTIONAL", TEXT_HINT,   "Sirf Fal.ai image backend use karne par chahiye  •  fal.ai/dashboard"),
     "api_keys.replicate":   ("OPTIONAL", TEXT_HINT,   "Sirf Replicate image backend use karne par chahiye  •  replicate.com"),
     "api_keys.stable_horde":("OPTIONAL", TEXT_HINT,   "Free use ke liye '0000000000' daalo  •  stablehorde.net"),
+    "api_keys.pexels":      ("OPTIONAL", TEXT_HINT,   "Documentary footage ke liye real stock videos  •  pexels.com/api (free)"),
     "xai_api_key":          ("OPTIONAL", TEXT_HINT,   "Grok Imagine images + Grok Video clips ke liye  •  console.x.ai"),
 }
+
+OMNIVOICE_STYLE_OPTIONS = {
+    "Default - neutral": "default",
+    "Narrator - calm documentary": "narrator",
+    "Storyteller - warm": "storyteller",
+    "Excited / energetic": "excited",
+    "News / formal reader": "news",
+    "Whisper / soft": "whisper",
+    "Casual conversation": "casual",
+}
+OMNIVOICE_STYLE_REV = {v: k for k, v in OMNIVOICE_STYLE_OPTIONS.items()}
+
+OMNIVOICE_QUALITY_OPTIONS = {
+    "Faster preview": "fast",
+    "Balanced": "balanced",
+    "Higher quality (slower)": "high",
+}
+OMNIVOICE_QUALITY_REV = {v: k for k, v in OMNIVOICE_QUALITY_OPTIONS.items()}
+
+OMNIVOICE_VOICE_OPTIONS = {
+    "Custom - use style + tags": "custom",
+    "Female - warm & clear": "vf_warm",
+    "Female - soft storyteller": "vf_story",
+    "Male - news / formal": "vm_news",
+    "Male - deep narrator": "vm_narrator",
+    "Male - young energetic": "vm_young",
+    "Neutral - model picks voice": "neutral_auto",
+}
+OMNIVOICE_VOICE_REV = {v: k for k, v in OMNIVOICE_VOICE_OPTIONS.items()}
+
+OMNIVOICE_GENDER_OPTIONS = {
+    "Unspecified": "",
+    "Male": "male",
+    "Female": "female",
+}
+OMNIVOICE_GENDER_REV = {v: k for k, v in OMNIVOICE_GENDER_OPTIONS.items()}
+
+OMNIVOICE_MODE_OPTIONS = {
+    "Voice Cloning": "clone",
+    "Sound Design": "design",
+}
+OMNIVOICE_MODE_REV = {v: k for k, v in OMNIVOICE_MODE_OPTIONS.items()}
 
 
 class SettingsTab(ctk.CTkFrame):
@@ -155,10 +183,7 @@ class SettingsTab(ctk.CTkFrame):
         self._key_visible = {}
 
         # State variables
-        _tb = config.get("tts.backend", "omnivoice")
-        if _tb == "chatterbox":
-            _tb = "omnivoice"
-        self._tts_val = _tb
+        self._tts_val = config.get("tts.backend", "omnivoice")
         self._img_val = config.get("image.backend", "comfyui")
 
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -264,11 +289,11 @@ class SettingsTab(ctk.CTkFrame):
         keys = [
             ("Gemini API Key",              "api_keys.gemini"),
             ("ElevenLabs API Key",          "api_keys.elevenlabs"),
-            ("Deepgram API Key",            "api_keys.deepgram"),
             ("Google Cloud TTS (JSON path)","api_keys.google_tts"),
             ("Fal.ai API Key",              "api_keys.fal_ai"),
             ("Replicate API Key",           "api_keys.replicate"),
             ("Stable Horde API Key",        "api_keys.stable_horde"),
+            ("Pexels API Key",              "api_keys.pexels"),
             ("xAI API Key",                 "xai_api_key"),
         ]
 
@@ -338,9 +363,7 @@ class SettingsTab(ctk.CTkFrame):
             ("omnivoice",  "OMNIVOICE ⭐"),
             ("edge_tts",   "EDGE TTS ✅"),
             ("elevenlabs", "ELEVENLABS"),
-            ("deepgram",   "DEEPGRAM 🔊"),
             ("google_tts", "GOOGLE CLOUD"),
-            ("kokoro",     "KOKORO TTS"),
         ]
 
         btn_frame = ctk.CTkFrame(section, fg_color="transparent")
@@ -380,23 +403,91 @@ class SettingsTab(ctk.CTkFrame):
                                   border_color=BORDER, border_width=1)
         tts_config.pack(fill="x", pady=(0, 5), ipadx=10, ipady=10)
 
-        # Voice clone reference (OmniVoice — same config key as legacy Chatterbox)
+        # ── OmniVoice server path + autostart ─────────────────────────────
+        ctk.CTkLabel(
+            tts_config, text="OMNIVOICE SERVER:",
+            font=("Share Tech Mono", 12, "bold"), text_color=ACCENT_PRI,
+        ).pack(anchor="w", padx=10, pady=(10, 0))
+
+        om_mode_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_mode_row.pack(fill="x", pady=(6, 2))
+        ctk.CTkLabel(om_mode_row, text="OMNIVOICE MODE:", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        current_mode = config.get("tts.omnivoice_mode", "clone")
+        mode_display = OMNIVOICE_MODE_REV.get(current_mode, "Voice Cloning")
+        self._omnivoice_mode = ctk.CTkSegmentedButton(
+            om_mode_row,
+            values=["Voice Cloning", "Sound Design"],
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=TEXT_PRI,
+            fg_color=BG_SEC,
+            selected_color=ACCENT_PRI,
+            selected_hover_color=ACCENT_SEC,
+            unselected_color=BG_CARD,
+            unselected_hover_color=BORDER,
+            corner_radius=0,
+        )
+        self._omnivoice_mode.set(mode_display)
+        self._omnivoice_mode.pack(side="left", padx=5)
+        self._hint(tts_config, "Voice Cloning = reference WAV + transcript  |  Sound Design = bina reference audio ke generated voice")
+
+        ov_path_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        ov_path_row.pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(ov_path_row, text="SERVER PATH (run.bat):", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        self._omnivoice_server_path = ctk.CTkEntry(
+            ov_path_row, width=310, font=("Share Tech Mono", 12),
+            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT_PRI, corner_radius=0,
+        )
+        self._omnivoice_server_path.insert(0, config.get("tts.omnivoice_server_path", ""))
+        self._omnivoice_server_path.pack(side="left", padx=5)
+        self._omnivoice_server_path.bind(
+            "<FocusIn>",  lambda e: self._omnivoice_server_path.configure(border_width=2, border_color=ACCENT_PRI))
+        self._omnivoice_server_path.bind(
+            "<FocusOut>", lambda e: self._omnivoice_server_path.configure(border_width=1, border_color=BORDER))
+        ctk.CTkButton(
+            ov_path_row, text="[ BROWSE ]", width=80,
+            font=("Share Tech Mono", 13, "bold"), text_color=ACCENT_PRI,
+            fg_color="transparent", hover_color=BG_CARD,
+            border_color=BORDER, border_width=1, corner_radius=0,
+            command=self._browse_omnivoice_server,
+        ).pack(side="left", padx=5)
+
+        self._omnivoice_autostart_var = ctk.BooleanVar(
+            value=bool(config.get("tts.omnivoice_autostart", True))
+        )
+        ctk.CTkCheckBox(
+            tts_config,
+            text="Auto-start OmniVoice server before each pipeline run",
+            variable=self._omnivoice_autostart_var,
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC,
+            fg_color=BG_MAIN, border_color=BORDER,
+            hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
+        ).pack(anchor="w", padx=10, pady=(4, 2))
+        self._hint(
+            tts_config,
+            "run.bat ka path daalo (e.g. D:/omnivoice/OmniVoice/run.bat). "
+            "Auto-start ON → pipeline khud server start karega. "
+            "OFF → manually start karo pehle.",
+        )
+
+        # Voice clone reference audio
         cb_ref_row = ctk.CTkFrame(tts_config, fg_color="transparent")
         cb_ref_row.pack(fill="x", pady=(8, 2))
         ctk.CTkLabel(cb_ref_row, text="VOICE CLONE REF (.wav):", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
-        self._chatterbox_ref = ctk.CTkEntry(cb_ref_row, width=280, font=("Share Tech Mono", 13),
-                                            fg_color=BG_MAIN, border_color=BORDER,
-                                            text_color=TEXT_PRI, corner_radius=0)
-        self._chatterbox_ref.insert(0, config.get("tts.chatterbox_reference_audio", "my_voice_reference.wav"))
-        self._chatterbox_ref.pack(side="left", padx=5)
-        self._chatterbox_ref.bind("<FocusIn>",  lambda e: self._chatterbox_ref.configure(border_width=2, border_color=ACCENT_PRI))
-        self._chatterbox_ref.bind("<FocusOut>", lambda e: self._chatterbox_ref.configure(border_width=1, border_color=BORDER))
+        self._ref_audio = ctk.CTkEntry(cb_ref_row, width=280, font=("Share Tech Mono", 13),
+                                       fg_color=BG_MAIN, border_color=BORDER,
+                                       text_color=TEXT_PRI, corner_radius=0)
+        self._ref_audio.insert(0, config.get("tts.reference_audio", "my_voice_reference.wav"))
+        self._ref_audio.pack(side="left", padx=5)
+        self._ref_audio.bind("<FocusIn>",  lambda e: self._ref_audio.configure(border_width=2, border_color=ACCENT_PRI))
+        self._ref_audio.bind("<FocusOut>", lambda e: self._ref_audio.configure(border_width=1, border_color=BORDER))
         ctk.CTkButton(cb_ref_row, text="[ BROWSE ]", width=80,
                       font=("Share Tech Mono", 13, "bold"), text_color=ACCENT_PRI,
                       fg_color="transparent", hover_color=BG_CARD,
                       border_color=BORDER, border_width=1, corner_radius=0,
-                      command=self._browse_chatterbox_ref).pack(side="left", padx=5)
+                      command=self._browse_ref_audio).pack(side="left", padx=5)
         self._hint(tts_config, "Chhota clear WAV — jis voice ko clone karna hai (project root ya full path)")
 
         om_row = ctk.CTkFrame(tts_config, fg_color="transparent")
@@ -423,6 +514,100 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_model.pack(side="left", padx=5, fill="x", expand=True)
         self._omnivoice_model.bind("<FocusIn>",  lambda e: self._omnivoice_model.configure(border_width=2, border_color=ACCENT_PRI))
         self._omnivoice_model.bind("<FocusOut>", lambda e: self._omnivoice_model.configure(border_width=1, border_color=BORDER))
+        self._hint(tts_config, "OmniVoice Hugging Face model id (default: k2-fsa/OmniVoice)")
+
+        ctk.CTkLabel(tts_config, text="OMNIVOICE VOICE DESIGN:",
+                     font=("Share Tech Mono", 12, "bold"),
+                     text_color=ACCENT_PRI).pack(anchor="w", padx=10, pady=(10, 0))
+
+        om_voice_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_voice_row.pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(om_voice_row, text="VOICE CHARACTER:", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        cur_voice = config.get("tts.omnivoice_design_voice", "custom")
+        self._omnivoice_voice = ctk.CTkOptionMenu(
+            om_voice_row,
+            values=list(OMNIVOICE_VOICE_OPTIONS.keys()),
+            font=("Share Tech Mono", 12), text_color=TEXT_PRI,
+            fg_color=BG_SEC, button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI, corner_radius=0,
+            width=320,
+        )
+        self._omnivoice_voice.set(OMNIVOICE_VOICE_REV.get(cur_voice, "Custom - use style + tags"))
+        self._omnivoice_voice.pack(side="left", padx=5)
+
+        om_style_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_style_row.pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(om_style_row, text="SPEAKING STYLE:", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        cur_style = config.get("tts.omnivoice_speaking_style", "default")
+        self._omnivoice_style = ctk.CTkOptionMenu(
+            om_style_row,
+            values=list(OMNIVOICE_STYLE_OPTIONS.keys()),
+            font=("Share Tech Mono", 12), text_color=TEXT_PRI,
+            fg_color=BG_SEC, button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI, corner_radius=0,
+            width=320,
+        )
+        self._omnivoice_style.set(OMNIVOICE_STYLE_REV.get(cur_style, "Default - neutral"))
+        self._omnivoice_style.pack(side="left", padx=5)
+
+        om_quality_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_quality_row.pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(om_quality_row, text="QUALITY PRESET:", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        cur_quality = config.get("tts.omnivoice_quality_preset", "balanced")
+        self._omnivoice_quality = ctk.CTkOptionMenu(
+            om_quality_row,
+            values=list(OMNIVOICE_QUALITY_OPTIONS.keys()),
+            font=("Share Tech Mono", 12), text_color=TEXT_PRI,
+            fg_color=BG_SEC, button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI, corner_radius=0,
+            width=320,
+        )
+        self._omnivoice_quality.set(OMNIVOICE_QUALITY_REV.get(cur_quality, "Balanced"))
+        self._omnivoice_quality.pack(side="left", padx=5)
+
+        om_gender_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_gender_row.pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(om_gender_row, text="VOICE GENDER:", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        cur_gender = config.get("tts.omnivoice_voice_gender", "")
+        self._omnivoice_gender = ctk.CTkOptionMenu(
+            om_gender_row,
+            values=list(OMNIVOICE_GENDER_OPTIONS.keys()),
+            font=("Share Tech Mono", 12), text_color=TEXT_PRI,
+            fg_color=BG_SEC, button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI, corner_radius=0,
+            width=180,
+        )
+        self._omnivoice_gender.set(OMNIVOICE_GENDER_REV.get(cur_gender, "Unspecified"))
+        self._omnivoice_gender.pack(side="left", padx=5)
+
+        om_instr_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_instr_row.pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(om_instr_row, text="EXTRA VOICE TAGS:", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        self._omnivoice_instruct = ctk.CTkEntry(om_instr_row, width=400, font=("Share Tech Mono", 12),
+                                                fg_color=BG_MAIN, border_color=BORDER,
+                                                text_color=TEXT_PRI, corner_radius=0)
+        self._omnivoice_instruct.insert(0, config.get("tts.omnivoice_extra_instruct", ""))
+        self._omnivoice_instruct.pack(side="left", padx=5, fill="x", expand=True)
+        self._omnivoice_instruct.bind("<FocusIn>",  lambda e: self._omnivoice_instruct.configure(border_width=2, border_color=ACCENT_PRI))
+        self._omnivoice_instruct.bind("<FocusOut>", lambda e: self._omnivoice_instruct.configure(border_width=1, border_color=BORDER))
+
+        om_lang_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_lang_row.pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(om_lang_row, text="LANGUAGE HINT:", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        self._omnivoice_language = ctk.CTkEntry(om_lang_row, width=240, font=("Share Tech Mono", 12),
+                                                fg_color=BG_MAIN, border_color=BORDER,
+                                                text_color=TEXT_PRI, corner_radius=0)
+        self._omnivoice_language.insert(0, config.get("tts.omnivoice_language_hint", ""))
+        self._omnivoice_language.pack(side="left", padx=5)
+        self._omnivoice_language.bind("<FocusIn>",  lambda e: self._omnivoice_language.configure(border_width=2, border_color=ACCENT_PRI))
+        self._omnivoice_language.bind("<FocusOut>", lambda e: self._omnivoice_language.configure(border_width=1, border_color=BORDER))
+        self._hint(tts_config, "WebUI style controls: profile + style + quality + tags. Language hint optional (hi/en etc).")
 
         ctk.CTkLabel(tts_config, text="EDGE TTS VOICE:",
                      font=("Share Tech Mono", 12, "bold"),
@@ -491,41 +676,6 @@ class SettingsTab(ctk.CTkFrame):
             "Higher = more dramatic  |  Recommended: 0.35–0.55"
         )
         self._hint(tts_config, "Speaker Boost is always ON — gives cleaner, more present voice output")
-
-        # Deepgram TTS settings
-        ctk.CTkLabel(tts_config, text="DEEPGRAM VOICE:",
-                     font=("Share Tech Mono", 12, "bold"),
-                     text_color=TEXT_SEC).pack(anchor="w", padx=10, pady=(12, 0))
-        self._deepgram_voice = ctk.CTkOptionMenu(
-            tts_config,
-            values=[
-                "aura-asteria-en", "aura-zeus-en", "aura-luna-en",
-                "aura-orion-en",   "aura-arcas-en", "aura-orpheus-en",
-                "aura-stella-en",  "aura-hera-en",
-            ],
-            font=("Share Tech Mono", 13), text_color=TEXT_PRI,
-            fg_color=BG_SEC, button_color=BORDER, button_hover_color=ACCENT_PRI,
-            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI, corner_radius=0,
-            width=240,
-        )
-        self._deepgram_voice.set(config.get("tts.deepgram_voice", "aura-asteria-en"))
-        self._deepgram_voice.pack(anchor="w", padx=10, pady=(2, 2))
-        self._hint(tts_config, "asteria/luna/stella/hera = female  |  zeus/orpheus/angus = male  |  English voices")
-
-        ctk.CTkLabel(tts_config, text="DEEPGRAM MODEL:",
-                     font=("Share Tech Mono", 12, "bold"),
-                     text_color=TEXT_SEC).pack(anchor="w", padx=10, pady=(6, 0))
-        self._deepgram_model = ctk.CTkOptionMenu(
-            tts_config,
-            values=["aura-2", "aura-2-en", "aura"],
-            font=("Share Tech Mono", 13), text_color=TEXT_PRI,
-            fg_color=BG_SEC, button_color=BORDER, button_hover_color=ACCENT_PRI,
-            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI, corner_radius=0,
-            width=160,
-        )
-        self._deepgram_model.set(config.get("tts.deepgram_model", "aura-2"))
-        self._deepgram_model.pack(anchor="w", padx=10, pady=(2, 8))
-        self._hint(tts_config, "aura-2 = latest model  |  Get API key: console.deepgram.com → API Keys")
 
     def _select_tts(self, val):
         self._tts_val = val
@@ -782,6 +932,32 @@ class SettingsTab(ctk.CTkFrame):
         self._hint(
             section,
             "When enabled, pipeline pauses after script generation so you can review and edit before images are created.",
+        )
+
+        self._video_preview_var = ctk.BooleanVar(value=bool(config.get("video_preview_enabled", True)))
+        self._chk_video_preview = ctk.CTkCheckBox(
+            section,
+            text="Pause for video preview before uploading",
+            variable=self._video_preview_var,
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=TEXT_SEC,
+            fg_color=BG_MAIN,
+            border_color=BORDER,
+            hover_color=BG_CARD,
+            checkmark_color=ACCENT_PRI,
+            corner_radius=0,
+        )
+        self._chk_video_preview.pack(anchor="w", padx=10, pady=(2, 2))
+        ctk.CTkLabel(
+            section,
+            text="   ↳  Opens your media player so you can watch the final video before it uploads",
+            font=("Share Tech Mono", 11),
+            text_color=TEXT_HINT,
+            anchor="w",
+        ).pack(anchor="w", padx=10, pady=(0, 2))
+        self._hint(
+            section,
+            "When enabled, pipeline pauses after video assembly so you can preview the result, then approve or cancel the upload.",
         )
 
     def _sync_transition_style_visibility(self):
@@ -1460,14 +1636,23 @@ class SettingsTab(ctk.CTkFrame):
         self._refresh_profile_menu()
 
     # ── Browse helpers ────────────────────────────────────────────────────
-    def _browse_chatterbox_ref(self):
+    def _browse_ref_audio(self):
         path = filedialog.askopenfilename(
             title="Locate Reference Audio File",
-            filetypes=[("Audio Files", "*.wav *.mp3 *.m4a"), ("All Files", "*.*")]
+            filetypes=[("Audio Files", "*.wav *.mp3 *.m4a"), ("All Files", "*.*")],
         )
         if path:
-            self._chatterbox_ref.delete(0, "end")
-            self._chatterbox_ref.insert(0, path)
+            self._ref_audio.delete(0, "end")
+            self._ref_audio.insert(0, path)
+
+    def _browse_omnivoice_server(self):
+        path = filedialog.askopenfilename(
+            title="Locate OmniVoice run.bat",
+            filetypes=[("Batch Files", "*.bat"), ("All Files", "*.*")],
+        )
+        if path:
+            self._omnivoice_server_path.delete(0, "end")
+            self._omnivoice_server_path.insert(0, path)
 
     def _browse_output(self):
         path = filedialog.askdirectory()
@@ -1562,12 +1747,30 @@ class SettingsTab(ctk.CTkFrame):
         for key_path, entry in self._key_entries.items():
             config.set(key_path, entry.get().strip())
 
-        config.set("tts.backend",                   self._tts_val)
-        config.set("tts.chatterbox_reference_audio", self._chatterbox_ref.get().strip())
+        config.set("tts.backend",          self._tts_val)
+        config.set("tts.reference_audio",  self._ref_audio.get().strip())
+        if hasattr(self, "_omnivoice_server_path"):
+            config.set("tts.omnivoice_server_path", self._omnivoice_server_path.get().strip())
+        if hasattr(self, "_omnivoice_autostart_var"):
+            config.set("tts.omnivoice_autostart", bool(self._omnivoice_autostart_var.get()))
+        if hasattr(self, "_omnivoice_mode"):
+            config.set("tts.omnivoice_mode", OMNIVOICE_MODE_OPTIONS.get(self._omnivoice_mode.get(), "clone"))
         if hasattr(self, "_omnivoice_transcript"):
             config.set("tts.omnivoice_ref_transcript", self._omnivoice_transcript.get().strip())
         if hasattr(self, "_omnivoice_model"):
             config.set("tts.omnivoice_model_id", self._omnivoice_model.get().strip() or "k2-fsa/OmniVoice")
+        if hasattr(self, "_omnivoice_voice"):
+            config.set("tts.omnivoice_design_voice", OMNIVOICE_VOICE_OPTIONS.get(self._omnivoice_voice.get(), "custom"))
+        if hasattr(self, "_omnivoice_style"):
+            config.set("tts.omnivoice_speaking_style", OMNIVOICE_STYLE_OPTIONS.get(self._omnivoice_style.get(), "default"))
+        if hasattr(self, "_omnivoice_quality"):
+            config.set("tts.omnivoice_quality_preset", OMNIVOICE_QUALITY_OPTIONS.get(self._omnivoice_quality.get(), "balanced"))
+        if hasattr(self, "_omnivoice_gender"):
+            config.set("tts.omnivoice_voice_gender", OMNIVOICE_GENDER_OPTIONS.get(self._omnivoice_gender.get(), ""))
+        if hasattr(self, "_omnivoice_instruct"):
+            config.set("tts.omnivoice_extra_instruct", self._omnivoice_instruct.get().strip())
+        if hasattr(self, "_omnivoice_language"):
+            config.set("tts.omnivoice_language_hint", self._omnivoice_language.get().strip())
         config.set("tts.edge_tts_voice",             self._edge_voice.get())
         config.set("tts.elevenlabs_voice_id",        self._eleven_voice.get().strip())
 
@@ -1582,11 +1785,6 @@ class SettingsTab(ctk.CTkFrame):
             config.set("tts.elevenlabs_similarity_boost", _safe_float(self._eleven_similarity, 0.85))
             config.set("tts.elevenlabs_style",            _safe_float(self._eleven_style, 0.45))
 
-        # Deepgram
-        if hasattr(self, "_deepgram_voice"):
-            config.set("tts.deepgram_voice", self._deepgram_voice.get())
-        if hasattr(self, "_deepgram_model"):
-            config.set("tts.deepgram_model", self._deepgram_model.get())
 
         config.set("image.backend",                  self._img_val)
         config.set("image.comfyui_url",              self._comfyui_url.get().strip())
@@ -1617,6 +1815,9 @@ class SettingsTab(ctk.CTkFrame):
 
         if hasattr(self, "_script_review_var"):
             config.set("script_review_enabled", bool(self._script_review_var.get()))
+
+        if hasattr(self, "_video_preview_var"):
+            config.set("video_preview_enabled", bool(self._video_preview_var.get()))
 
         if hasattr(self, "_provider_var"):
             _prov_map = {"Gemini": "gemini", "OpenAI": "openai", "Ollama": "ollama"}

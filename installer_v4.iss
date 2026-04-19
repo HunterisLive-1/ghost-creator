@@ -1,5 +1,5 @@
 #define MyAppName "Ghost Creator AI"
-#define MyAppVersion "3.1"
+#define MyAppVersion "4.0"
 #define MyAppPublisher "HunterIsLive"
 #define MyAppURL "https://getmaya.online"
 #define MyAppExeName "GhostCreatorAI.exe"
@@ -19,7 +19,7 @@ DefaultDirName={autopf}\GhostCreatorAI
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=installer_output
-OutputBaseFilename=GhostCreatorAI_v3_Setup
+OutputBaseFilename=GhostCreatorAI_v4_Setup
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\icon.ico
 Compression=lzma2/ultra64
@@ -49,12 +49,12 @@ Source: "dist\GhostCreatorAI.exe"; DestDir: "{app}"; DestName: "GhostCreatorAI.e
 ; App icon for shortcuts
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
-; ComfyUI Workflow API
-Source: "workflow_api.json"; DestDir: "{app}"; Flags: ignoreversion
+; ComfyUI Workflow API (optional — only bundled if file exists)
+Source: "workflow_api.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; Note: FFmpeg is inside GhostCreatorAI.exe (build.bat runs ensure_ffmpeg.ps1 + PyInstaller --add-data)
 ; Note: config.json is generated automatically in %LOCALAPPDATA%\GhostCreatorAI on first run
-; Note: Chatterbox Server path can be set in the App Settings inside the UI. No need to package gigabytes of data.
+; Note: OmniVoice TTS server path can be set in the App Settings inside the UI.
 
 [Icons]
 ; Desktop shortcut

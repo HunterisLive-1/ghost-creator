@@ -114,6 +114,72 @@ class PipelineTab(ctk.CTkFrame):
             self._topic_entry.configure(state="normal")
             self._auto_check.configure(text_color=TEXT_SEC)
 
+    # ── Pipeline Mode Selector ────────────────────────────────────────────
+    def _build_pipeline_mode_row(self):
+        frame = ctk.CTkFrame(self._body, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
+        frame.pack(fill="x", padx=20, pady=(0, 10))
+
+        inner = ctk.CTkFrame(frame, fg_color="transparent")
+        inner.pack(fill="x", padx=15, pady=12)
+
+        ctk.CTkLabel(
+            inner, text="PIPELINE MODE:",
+            font=("Share Tech Mono", 14), text_color=ACCENT_PRI,
+        ).pack(side="left")
+
+        _saved = config.get("pipeline_mode", "normal")
+        _init_label = "🎬 Documentary" if _saved == "documentary" else "🤖 Normal"
+
+        self._mode_seg = ctk.CTkSegmentedButton(
+            inner,
+            values=["🤖 Normal", "🎬 Documentary"],
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=TEXT_PRI,
+            fg_color=BG_MAIN,
+            selected_color=ACCENT_PRI,
+            selected_hover_color=ACCENT_SEC,
+            unselected_color=BG_CARD,
+            unselected_hover_color=BORDER,
+            corner_radius=0,
+            command=self._on_mode_change,
+        )
+        self._mode_seg.set(_init_label)
+        self._mode_seg.pack(side="left", padx=15)
+
+        self._mode_hint = ctk.CTkLabel(
+            inner,
+            text=self._mode_hint_text(_saved),
+            font=("Share Tech Mono", 11),
+            text_color=TEXT_SEC,
+        )
+        self._mode_hint.pack(side="left", padx=10)
+
+    def _mode_hint_text(self, mode: str) -> str:
+        if mode == "documentary":
+            return "Script + OmniVoice + YouTube footage + FFmpeg — no image gen"
+        return "Script + Voice + AI Images + Video assembly"
+
+    def _on_mode_change(self, label: str) -> None:
+        mode = "documentary" if "Documentary" in label else "normal"
+        config.set("pipeline_mode", mode)
+        self._mode_hint.configure(text=self._mode_hint_text(mode))
+        # Hide/show image source section depending on mode
+        self._refresh_mode_visibility(mode)
+
+    def _refresh_mode_visibility(self, mode: str | None = None) -> None:
+        if mode is None:
+            mode = config.get("pipeline_mode", "normal")
+        # In documentary mode the image source / video features rows don't apply
+        is_doc = mode == "documentary"
+        for widget in getattr(self, "_normal_only_widgets", []):
+            try:
+                if is_doc:
+                    widget.pack_forget()
+                else:
+                    widget.pack(fill="x", padx=20, pady=(0, 10))
+            except Exception:
+                pass
+
     # ── Target duration (pipeline tab) ───────────────────────────────────
     def _build_duration_row(self):
         frame = ctk.CTkFrame(self._body, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
@@ -802,6 +868,7 @@ class PipelineTab(ctk.CTkFrame):
 
         self.after(500, self._check_for_review_needed)
         self.after(500, self._check_for_image_review)
+        self.after(500, self._check_for_video_preview)
 
     def _check_for_review_needed(self):
         if not self.pipeline_running:
@@ -871,6 +938,33 @@ class PipelineTab(ctk.CTkFrame):
             on_continue=on_continue,
             on_skip=on_skip,
         )
+
+    def _check_for_video_preview(self):
+        if not self.pipeline_running:
+            return
+        if self.runner and getattr(self.runner, "waiting_for_video_preview", False):
+            self._show_video_preview_window()
+            return
+        self.after(500, self._check_for_video_preview)
+
+    def _show_video_preview_window(self):
+        from gui.components.video_preview import VideoPreviewWindow
+
+        video_path = self.runner.pending_video_path
+        if not video_path:
+            self.runner.approve_video_preview()
+            return
+
+        def on_approve():
+            self.runner.approve_video_preview()
+            self._append_log("[OK] Video approved ✓ — continuing pipeline...", "SUCCESS")
+            self.after(500, self._check_for_video_preview)
+
+        def on_cancel():
+            self.runner.cancel_from_video_preview()
+            self._on_pipeline_stopped()
+
+        VideoPreviewWindow(self.winfo_toplevel(), video_path, on_approve, on_cancel)
 
     def _on_pipeline_stopped(self):
         self.pipeline_running = False

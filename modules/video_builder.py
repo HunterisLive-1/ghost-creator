@@ -1,6 +1,6 @@
 """
-modules/video_builder.py — FFmpeg Video Assembly (9:16 / 16:9) + ASS Subtitles
-================================================================================
+modules/video_builder.py — FFmpeg Video Assembly (9:16 / 16:9)
+==============================================================
 Assembles images + MP3 into a final MP4 with configurable aspect ratio,
 cycled Ken Burns–style motion, optional cinematic intro, and xfade transitions.
 
@@ -82,25 +82,6 @@ PACE_SETTINGS = {
     "fast":   {"zoom_speed_mult": 0.55, "transition_sec": 0.25},
 }
 
-# ── Subtitle styling ──────────────────────────────────────────────────────────
-WORDS_PER_CHUNK = 4
-ASS_FONT_NAME   = "Impact"            # Bold impact font — classic YT subtitle look
-
-# ASS colour format: &HAABBGGRR  (alpha, blue, green, red)
-# Rotating colour pool — one colour per subtitle chunk for "colorful" effect
-ASS_COLORS = [
-    "&H0000FFFF",   # Yellow  (most readable on any background)
-    "&H00FFFFFF",   # White
-    "&H0000D7FF",   # Gold / orange-yellow
-    "&H0040FFFF",   # Bright yellow-green
-    "&H00FFFFFF",   # White  (repeat for balance)
-]
-ASS_OUTLINE_COLOR = "&H00000000"   # Black outline
-ASS_SHADOW_COLOR  = "&H88000000"   # Semi-transparent black shadow
-ASS_OUTLINE_WIDTH = 3              # Thick outline for visibility
-ASS_SHADOW_DEPTH  = 2
-
-
 def _strip_emojis(text: str) -> str:
     """Remove emojis and problematic Unicode symbols."""
     return re.sub(r'[^\w\s.,!?"\'\-\+\=]', "", text)
@@ -162,90 +143,6 @@ def _zoompan_chain(
         f"scale={width * 2}:{height * 2},"
         f"zoompan={inner}:d={d_frames}:s={width}x{height}:fps={MOTION_FPS}"
     )
-
-
-def _subtitle_font_size(height: int) -> int:
-    """
-    Scale subtitle font size to ~5.5% of video height.
-    Produces nicely readable text on both 1080p (16:9) and 1920px-tall (9:16).
-    """
-    return max(38, min(int(height * 0.055), 120))
-
-
-def _subtitle_margin_v(height: int, aspect_ratio: str) -> int:
-    """Bottom margin so subtitles sit in the lower band (ASS alignment 2)."""
-    if aspect_ratio == "16:9":
-        return int(height * 0.10)   # bottom ~10%
-    return int(height * 0.12)       # 9:16 — bottom ~12%
-
-
-def _generate_ass_subtitles(
-    text: str,
-    audio_duration: float,
-    output_path: str | Path,
-    width: int,
-    height: int,
-    aspect_ratio: str,
-) -> str:
-    """Generate colorful, bold-italic ASS subtitles with per-chunk colour cycling."""
-    clean_text = _strip_emojis(text).strip()
-    if not clean_text:
-        clean_text = "Ghost Creator AI"
-
-    words = clean_text.split()
-    chunks: list[str] = []
-    for i in range(0, len(words), WORDS_PER_CHUNK):
-        chunks.append(" ".join(words[i : i + WORDS_PER_CHUNK]))
-    if not chunks:
-        chunks = [clean_text]
-
-    chunk_duration = audio_duration / len(chunks)
-    margin_v  = _subtitle_margin_v(height, aspect_ratio)
-    font_size = _subtitle_font_size(height)
-
-    log.info(f"ASS subtitle placement: MarginV={margin_v}, FontSize={font_size} (aspect {aspect_ratio})")
-
-    # Base style: Bold=1, Italic=1, yellow fill, black outline, shadow
-    base_color = ASS_COLORS[0]   # yellow — default in Style definition
-
-    ass_content = f"""[Script Info]
-Title: Ghost Creator AI Subtitles
-ScriptType: v4.00+
-PlayResX: {width}
-PlayResY: {height}
-WrapStyle: 0
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{ASS_FONT_NAME},{font_size},{base_color},&H000000FF,{ASS_OUTLINE_COLOR},{ASS_SHADOW_COLOR},1,1,0,0,100,100,1,0,1,{ASS_OUTLINE_WIDTH},{ASS_SHADOW_DEPTH},2,30,30,{margin_v},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-
-    n_colors = len(ASS_COLORS)
-    for idx, chunk_text in enumerate(chunks):
-        start_str  = _seconds_to_ass_time(idx * chunk_duration)
-        end_str    = _seconds_to_ass_time((idx + 1) * chunk_duration)
-        safe_text  = chunk_text.replace("\\", "\\\\")
-        # Inline colour override rotates through the colour pool
-        color_tag  = ASS_COLORS[idx % n_colors]
-        colored    = f"{{\\c{color_tag}}}{safe_text}"
-        ass_content += f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{colored}\n"
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(ass_content)
-
-    log.info(f"ASS subtitles: {len(chunks)} chunks, font={font_size}px → {output_path}")
-    return str(output_path)
-
-
-def _seconds_to_ass_time(seconds: float) -> str:
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    cs = int((seconds % 1) * 100)
-    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
 def _run_ffmpeg(cmd: list[str], step_name: str) -> None:
@@ -468,7 +365,7 @@ def build_video(
     output_dir: "Path | str | None" = None,
 ) -> Path:
     """
-    Assemble final MP4 from images/video-clips + audio + subtitles (FFmpeg only).
+    Assemble final MP4 from images/video-clips + audio (FFmpeg only).
 
     Accepts either ``scene_data`` (list of dicts with type+path) or the legacy
     ``image_paths`` (list of Path/str). When both are given, ``scene_data`` wins.
@@ -535,7 +432,6 @@ def build_video(
         _build_simple_video(scene_data, audio_path, out_path, width, height, total_dur)
         return out_path
 
-    sub_text = english_subtitle_text or voiceover_text
     temp_dir = TEMP_DIR / "ffmpeg_build"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -725,30 +621,19 @@ def build_video(
         ]
         _run_ffmpeg(cmd, "mix_audio")
 
-        log.info("Generating ASS subtitles …")
-        ass_path = temp_dir / "subtitles.ass"
-        _generate_ass_subtitles(sub_text, total_duration, ass_path, width, height, aspect_ratio)
-
-        log.info("Burning subtitles into final video …")
-        ass_filter_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
+        log.info("Subtitles disabled — saving final video without subtitle burn.")
         cmd = [
             FFMPEG,
             "-y",
             "-i",
             str(no_subs_path),
-            "-vf",
-            f"ass='{ass_filter_path}'",
             "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-crf",
-            "18",
+            "copy",
             "-c:a",
             "copy",
             str(out_path),
         ]
-        _run_ffmpeg(cmd, "burn_subtitles")
+        _run_ffmpeg(cmd, "final_no_subtitles")
 
         log.info(f"Video rendered → {out_path}")
 

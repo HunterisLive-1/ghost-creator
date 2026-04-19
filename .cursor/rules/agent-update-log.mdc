@@ -1,0 +1,16 @@
+---
+description: Require writing notes for every agent fix/update
+alwaysApply: true
+---
+
+# Agent Update Writing Rule
+
+- Agar Cursor ka koi bhi agent code mein `update`, `fix`, ya `change` kare, to us change ka short written note dena mandatory hai.
+- Yeh note hamesha project root ki file `AGENT_CHANGES.md` mein likha jayega (append mode).
+- Note mein minimum ye 3 cheezein honi chahiye:
+  1. kya change kiya
+  2. kis file/path mein kiya
+  3. kyu kiya (reason)
+- Agar multiple files change hui ho, to har file ka alag bullet mention karo.
+- Har entry ke saath date/time aur short task title likho.
+- Kaam khatam karte waqt verify karo ki `AGENT_CHANGES.md` update ho chuki hai; bina is note ke task complete mat mark karo.

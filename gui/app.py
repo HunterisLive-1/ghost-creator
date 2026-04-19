@@ -1,5 +1,5 @@
 """
-gui/app.py — Ghost Creator AI v3 Neural Interface
+gui/app.py — Ghost Creator AI v4 Neural Interface
 """
 import queue
 import sys
@@ -14,6 +14,7 @@ if str(_project_root) not in sys.path:
 from core.config_manager import config
 from gui.tabs.pipeline_tab import PipelineTab
 from gui.tabs.settings_tab import SettingsTab
+from gui.tabs.documentary_tab import DocumentaryTab
 
 # === BLUE AI PALETTE ===
 BG_MAIN     = "#050A10"
@@ -32,7 +33,7 @@ ctk.set_appearance_mode("dark")
 class GhostCreatorApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Ghost Creator AI v3 — Neural Interface")
+        self.title("Ghost Creator AI v4 — Neural Interface")
         self.geometry("1100x800")
         self.minsize(800, 600)
         self.configure(fg_color=BG_MAIN)
@@ -90,7 +91,7 @@ class GhostCreatorApp(ctk.CTk):
         
         badge = ctk.CTkFrame(bar, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=ACCENT_PRI)
         badge.pack(side="left", padx=10)
-        ctk.CTkLabel(badge, text="v3.0 PRO", font=("Orbitron", 11, "bold"), text_color=ACCENT_PRI).pack(side="left", padx=(10, 2), pady=2)
+        ctk.CTkLabel(badge, text="v4.0 PRO", font=("Orbitron", 11, "bold"), text_color=ACCENT_PRI).pack(side="left", padx=(10, 2), pady=2)
         self.cursor_label = ctk.CTkLabel(badge, text="▋", font=("Courier New", 11, "bold"), text_color=ACCENT_PRI, width=10)
         self.cursor_label.pack(side="left", padx=(0, 5))
         
@@ -118,12 +119,19 @@ class GhostCreatorApp(ctk.CTk):
         )
         self.tabview.pack(fill="both", expand=True, padx=15, pady=5)
 
-        tab_pipeline = self.tabview.add("▶ PIPELINE")
-        tab_settings = self.tabview.add("⚙ SETTINGS")
-        tab_history = self.tabview.add("📋 HISTORY")
+        tab_pipeline    = self.tabview.add("▶ PIPELINE")
+        tab_documentary = self.tabview.add("🎬 DOCUMENTARY")
+        tab_settings    = self.tabview.add("⚙ SETTINGS")
+        tab_history     = self.tabview.add("📋 HISTORY")
+
+        # Each tab gets its own progress queue so they don't cross-contaminate
+        self.doc_queue = queue.Queue()
 
         self.pipeline_tab = PipelineTab(tab_pipeline, progress_queue=self.progress_queue, app_ref=self)
         self.pipeline_tab.pack(fill="both", expand=True)
+
+        self.documentary_tab = DocumentaryTab(tab_documentary, progress_queue=self.doc_queue, app_ref=self)
+        self.documentary_tab.pack(fill="both", expand=True)
 
         self.settings_tab = SettingsTab(tab_settings, app_ref=self)
         self.settings_tab.pack(fill="both", expand=True)

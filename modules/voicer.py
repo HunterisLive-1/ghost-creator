@@ -41,27 +41,23 @@ BACKEND_MAP: dict[str, type] = {}
 
 
 def _get_backend_map() -> dict[str, type]:
-    """Lazy-load backend classes only when needed."""
+    """Return a map of backend name → class, importing only the selected backend."""
     global BACKEND_MAP
     if BACKEND_MAP:
         return BACKEND_MAP
 
-    from backends.tts.elevenlabs import ElevenLabsTTS
-    from backends.tts.deepgram import DeepgramTTS
-    from backends.tts.edge_tts import EdgeTTS
-    from backends.tts.google_tts import GoogleTTS
-    from backends.tts.kokoro_tts import KokoroTTS
-    from backends.tts.omnivoice_tts import OmniVoiceTTS
+    # Import each backend lazily so a missing optional dependency only fails
+    # when that backend is actually used.
+    def _load(module_path: str, class_name: str):
+        import importlib
+        mod = importlib.import_module(module_path)
+        return getattr(mod, class_name)
 
     BACKEND_MAP = {
-        "omnivoice":   OmniVoiceTTS,
-        "chatterbox":  OmniVoiceTTS,
-        "elevenlabs":  ElevenLabsTTS,
-        "deepgram":    DeepgramTTS,
-        "edge_tts":    EdgeTTS,
-        "google_tts":  GoogleTTS,
-        "kokoro":      KokoroTTS,
-        "kokoro_tts":  KokoroTTS,
+        "omnivoice":   lambda: _load("backends.tts.omnivoice_tts", "OmniVoiceTTS"),
+        "elevenlabs":  lambda: _load("backends.tts.elevenlabs", "ElevenLabsTTS"),
+        "edge_tts":    lambda: _load("backends.tts.edge_tts", "EdgeTTS"),
+        "google_tts":  lambda: _load("backends.tts.google_tts", "GoogleTTS"),
     }
     return BACKEND_MAP
 
@@ -77,7 +73,9 @@ def _get_backend():
             f"Available: {list(backend_map.keys())}"
         )
 
-    backend = backend_map[backend_name]()
+    # Each entry is a loader lambda that imports the class on first call
+    backend_cls = backend_map[backend_name]()
+    backend = backend_cls()
     log.info(f"TTS backend: {backend.name} (local={backend.is_local}, key={backend.requires_key})")
     return backend
 
@@ -108,6 +106,7 @@ def run_voiceover(
     text: str,
     language: str | None = None,
     output_path: str | Path | None = None,
+    progress_callback=None,
 ) -> Path:
     """
     Synthesize voiceover text using the configured TTS backend.
@@ -137,6 +136,10 @@ def run_voiceover(
     print(f"[DEBUG] Voiceover output path: {voiceover_path}")
 
     backend = _get_backend()
+
+    # Give the backend a progress hook so it can emit GUI-visible messages
+    if progress_callback is not None:
+        backend._progress_cb = progress_callback
 
     # Validate backend config
     valid, error = backend.validate_config(config.data)
@@ -180,7 +183,7 @@ def _apply_pace_speed(audio_path: Path) -> Path:
         str(tmp_path),
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, creationflags=_NO_WINDOW)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, creationflags=_NO_WINDOW)
     except FileNotFoundError as exc:
         log.error(
             "FFmpeg not found (needed for video pace). Install FFmpeg and add it to PATH, "
@@ -209,9 +212,6 @@ def generate_voiceover(text: str, output_filename: str = "voiceover.mp3") -> Pat
     return run_voiceover(text, output_path=output_path)
 
 
-def ensure_chatterbox_running() -> bool:
-    """Legacy wrapper — calls ensure_tts_ready."""
-    return ensure_tts_ready()
 
 
 if __name__ == "__main__":

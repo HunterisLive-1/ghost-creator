@@ -80,12 +80,6 @@ def get_ffprobe_executable() -> str:
 # ── API Keys ───────────────────────────────────────────────────────────────────
 GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "")
 
-# ── Chatterbox TTS (Local) ────────────────────────────────────────────────────
-CHATTERBOX_ENABLED         = os.getenv("CHATTERBOX_ENABLED", "true").lower() == "true"
-CHATTERBOX_API_URL         = os.getenv("CHATTERBOX_API_URL", "http://127.0.0.1:8004")
-CHATTERBOX_REFERENCE_AUDIO = os.getenv("CHATTERBOX_REFERENCE_AUDIO", "my_voice_reference.wav")
-CHATTERBOX_LANGUAGE        = os.getenv("CHATTERBOX_LANGUAGE", "hi")
-
 # ── ComfyUI ────────────────────────────────────────────────────────────────────
 COMFYUI_URL         = os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")
 

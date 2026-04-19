@@ -22,6 +22,7 @@ virtualenv/
 # ── Secrets — NEVER COMMIT ───────────────────────────────────
 .env
 .env.local
+config.json
 build.bat
 
 # ── Generated Media (large files — never commit) ─────────────
