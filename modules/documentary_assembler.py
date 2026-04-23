@@ -163,6 +163,7 @@ def assemble_documentary(
     output_filename: str = "documentary.mp4",
     aspect_ratio: str = "9:16",
     progress_callback: _CB = None,
+    playback_speed: float = 1.0,
 ) -> Path:
     """
     Build the final documentary video:
@@ -175,6 +176,7 @@ def assemble_documentary(
         output_filename: e.g. "documentary_20260415_201527.mp4"
         aspect_ratio:    "9:16" (default) or "16:9"
         progress_callback: optional fn(str)
+        playback_speed:  1.0 = normal; >1.0 applies same factor to video + voice (e.g. 1.2 = snappier pace)
 
     Returns:
         Path to assembled video
@@ -184,6 +186,7 @@ def assemble_documentary(
         return _assemble(
             clips, audio_path, segments, output_dir,
             output_filename, aspect_ratio, progress_callback, tmp_dir,
+            playback_speed=playback_speed,
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -192,6 +195,7 @@ def assemble_documentary(
 def _assemble(
     clips, audio_path, segments, output_dir,
     output_filename, aspect_ratio, progress_callback, tmp_dir,
+    playback_speed: float = 1.0,
 ) -> Path:
     tmp = Path(tmp_dir)
 
@@ -243,20 +247,37 @@ def _assemble(
         str(concat_out),
     )
 
-    # ── 5. Attach voiceover, strip original audio ────────────────────────
+    # ── 5. Attach voiceover, strip original audio; optional same-factor speedup ─
     _notify(progress_callback, "  🎵 Attaching voiceover …")
     output_dir.mkdir(parents=True, exist_ok=True)
     final = output_dir / output_filename
-    _ffmpeg(
-        "-i", str(concat_out),
-        "-i", str(audio_path),
-        "-map", "0:v:0",
-        "-map", "1:a:0",
-        "-c:v", "copy",
-        "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
-        str(final),
-    )
+    # atempo supports 0.5–2.0 per filter; keep exports predictable
+    spd = min(2.0, max(0.5, float(playback_speed)))
+    if abs(spd - 1.0) < 0.001:
+        _ffmpeg(
+            "-i", str(concat_out),
+            "-i", str(audio_path),
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            str(final),
+        )
+    else:
+        _notify(progress_callback, f"  ⚡ Output playback {spd}× (video + voice in sync) …")
+        fcx = f"[0:v]setpts=PTS/{spd:.6f}[v];[1:a]atempo={spd:.6f}[a]"
+        _ffmpeg(
+            "-i", str(concat_out),
+            "-i", str(audio_path),
+            "-filter_complex", fcx,
+            "-map", "[v]",
+            "-map", "[a]",
+            "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            str(final),
+        )
 
     size_mb = final.stat().st_size / (1024 * 1024)
     _notify(progress_callback, f"  ✅ Documentary ready: {final.name} ({size_mb:.1f} MB)")

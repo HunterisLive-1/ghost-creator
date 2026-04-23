@@ -27,85 +27,42 @@ TEXT_HINT   = "#4A6080"
 # ── Per-backend beginner descriptions ─────────────────────────────────────────
 TTS_DESCRIPTIONS = {
     "omnivoice": (
-        "🎙️  OMNI VOICE  —  Local zero-shot voice clone\n"
-        "   • Server mode: run.bat path set karo → pipeline auto-start karega\n"
-        "   • Package mode: pip install torch torchaudio omnivoice (no server)\n"
-        "   • Short reference .wav + transcription zaroori hai clone ke liye\n"
-        "   ⚠️  GPU recommended  |  600+ languages supported"
+        "🎙️ OmniVoice — local clone/design. run.bat (server) ya pip. Reference .wav, GPU help.\n"
+        "   Details: neeche fold \"OmniVoice\" mein."
     ),
     "edge_tts": (
-        "✅  EDGE TTS  —  Beginners ke liye BEST choice! (Recommended)\n"
-        "   • Microsoft ka free cloud voice — zero setup chahiye\n"
-        "   • Sirf internet connection chahiye, turant kaam karta hai\n"
-        "   • Hindi: MadhurNeural (male) / SwaraNeural (female)\n"
-        "   ✔️  Free  |  No API key  |  No local server  |  Works instantly"
+        "✅ Edge TTS — free cloud, no key. Hindi/English voices neeche \"Edge TTS & ElevenLabs\" fold mein."
     ),
     "elevenlabs": (
-        "⭐  ELEVENLABS  —  Sabse realistic professional voice\n"
-        "   • ElevenLabs.io pe account banao → Subscription lo\n"
-        "   • API Key Settings mein daalo\n"
-        "   • Voice Lab se apni pasand ki Voice ka ID copy karo, neeche daalo\n"
-        "   💰  Paid plan required  |  Best quality  |  Many Hindi voices available"
+        "⭐ ElevenLabs — API key chahiye; neeche Voice ID + tuning fold mein (paid, best quality)."
     ),
     "google_tts": (
-        "☁️  GOOGLE CLOUD TTS  —  Google ka official professional voice\n"
-        "   • Google Cloud Console pe project banao\n"
-        "   • Text-to-Speech API enable karo\n"
-        "   • Service Account JSON file download karo aur path neeche daalo\n"
-        "   ⚙️  Advanced setup  |  Paid  |  Very high quality"
+        "☁️ Google Cloud TTS — service-account JSON path API Keys + advanced setup (paid)."
     ),
 }
 
 IMG_DESCRIPTIONS = {
     "gemini_imagen": (
-        "✅  IMAGEN-3  —  Beginners ke liye BEST choice! (Recommended)\n"
-        "   • Sirf Gemini API Key chahiye — koi extra setup nahi\n"
-        "   • Aistudio.google.com se free API key lo\n"
-        "   • Google ka latest image model — achhi quality\n"
-        "   ✔️  Free tier available  |  No local GPU  |  Works instantly"
+        "✅ Imagen-3 — sirf Gemini key, cloud, no GPU. Best default.\n"
+        "   Fal/Replicate/Comfy = neeche ComfyUI fold + API keys."
     ),
     "pollinations": (
-        "🆓  POLLINATIONS  —  Completely free, no key needed!\n"
-        "   • Koi account nahi, koi key nahi — bas select karo aur chalaao\n"
-        "   • Model choose karo: dreamshaper / flux / turbo\n"
-        "   • Quality thodi basic hogi but zero cost\n"
-        "   ✔️  100% Free  |  No signup  |  Beginner friendly"
+        "🆓 Pollinations — free, no key; model dropdown image section mein. Basic quality."
     ),
     "comfyui": (
-        "⚡  COMFYUI  —  Local Stable Diffusion (Powerful)\n"
-        "   • Apne PC pe Stable Diffusion run karo — best control\n"
-        "   • GPU minimum 6GB VRAM chahiye (RTX/AMD)\n"
-        "   • Pehle ComfyUI install karo aur server start karo\n"
-        "   • Default URL: http://127.0.0.1:8188\n"
-        "   ⚠️  Advanced users  |  GPU required  |  Free after setup"
+        "⚡ ComfyUI — local, GPU, URL neeche \"ComfyUI URL\" fold mein. ~8188."
     ),
     "fal_ai": (
-        "🚀  FAL.AI  —  Fastest cloud image generation\n"
-        "   • Fal.ai pe account banao → API key lo → Settings mein daalo\n"
-        "   • SDXL, Flux, aur many more models available\n"
-        "   • Speed + quality dono best hain cloud options mein\n"
-        "   💰  Pay-per-use (cheap)  |  Very fast  |  No local GPU"
+        "🚀 Fal — fast cloud; API key. Pay-per-image."
     ),
     "stable_horde": (
-        "🌐  STABLE HORDE  —  Community free GPU cloud\n"
-        "   • Bilkul free — anonymous use ke liye '0000000000' key daalo\n"
-        "   • Community ke GPU pe queue mein wait karna hoga (slow)\n"
-        "   • Account banao toh priority milegi\n"
-        "   ✔️  Free  |  Slow (queue)  |  No local GPU needed"
+        "🌐 Stable Horde — free community GPU; key 000… ; slow queue possible."
     ),
     "replicate": (
-        "🔧  REPLICATE  —  Premium hosted AI models\n"
-        "   • Replicate.com pe account banao → API token lo\n"
-        "   • Sabse zyada model options available hain\n"
-        "   • SDXL, Flux, custom LoRA models sab yahan milte hain\n"
-        "   💰  Pay-per-use  |  Most variety  |  No local GPU"
+        "🔧 Replicate — hosted models, API key; many models, pay-per-use."
     ),
     "grok_imagine": (
-        "⭐  GROK IMAGINE  —  xAI's image generation (Recommended alternative)\n"
-        "   • console.x.ai pe account banao → API key lo → Settings mein daalo\n"
-        "   • Standard: $0.02/image  |  Pro: $0.07/image\n"
-        "   • Same xAI key se Grok Video clips bhi generate kar sakte ho\n"
-        "   💰  Pay-per-use  |  Fast (~5-10s)  |  Reliable quality  |  No GPU"
+        "⭐ Grok Imagine — xAI key; Standard/Pro model neeche jab select ho. $0.02–0.07/img."
     ),
 }
 
@@ -254,32 +211,21 @@ class SettingsTab(ctk.CTkFrame):
 
     # ── Beginner Banner ───────────────────────────────────────────────────
     def _build_beginner_banner(self, parent):
-        banner = ctk.CTkFrame(parent, fg_color="#0A1A0F", corner_radius=0,
-                              border_width=1, border_color=ACCENT_GRN)
-        banner.pack(fill="x", pady=(5, 15), padx=5)
-
-        ctk.CTkLabel(
-            banner,
-            text="🚀  QUICK START — Pehli Baar Setup Kaise Karo",
-            font=("Orbitron", 13, "bold"),
-            text_color=ACCENT_GRN,
-        ).pack(anchor="w", padx=15, pady=(12, 4))
-
-        guide = (
-            "  1.  API KEYS section mein sirf  GEMINI API KEY  daalo  (free hai — aistudio.google.com)\n"
-            "  2.  AUDIO SUBROUTINE mein  EDGE TTS  select karo  (free, no setup needed)\n"
-            "  3.  VISION MATRIX mein  IMAGEN-3  select karo  (sirf Gemini key se kaam karta hai)\n"
-            "  4.  CORE PARAMETERS mein Language chuno:  hi / en / mr / bn / gu / ta  (voiceover + script)\n"
-            "  5.  Neeche  [ SAVE CONFIG ]  dabao  →  Pipeline tab pe jao  →  RUN!"
+        inner = self._add_foldable(
+            parent, "🚀  Quick start (first run — 5 steps)", start_open=False
         )
         ctk.CTkLabel(
-            banner,
-            text=guide,
+            inner,
+            text=(
+                "1) API Keys → GEMINI  (aistudio.google.com)  ·  2) Audio → EDGE TTS  (free)  ·  "
+                "3) Vision → IMAGEN-3  ·  4) Core → language hi/en/…  ·  5) [ SAVE ] → Pipeline → RUN"
+            ),
             font=("Share Tech Mono", 12),
             text_color="#88CCAA",
             justify="left",
             anchor="w",
-        ).pack(anchor="w", padx=15, pady=(0, 12))
+            wraplength=800,
+        ).pack(anchor="w", padx=10, pady=(2, 8))
 
     # ── Section 1: API Keys ───────────────────────────────────────────────
     def _build_api_keys_section(self, parent):
@@ -297,13 +243,22 @@ class SettingsTab(ctk.CTkFrame):
             ("xAI API Key",                 "xai_api_key"),
         ]
 
-        for label_text, key_path in keys:
+        more_keys_frame: ctk.CTkFrame | None = None
+        for idx, (label_text, key_path) in enumerate(keys):
+            if idx == 0:
+                key_parent: ctk.CTkFrame = section
+            else:
+                if more_keys_frame is None:
+                    more_keys_frame = self._add_foldable(
+                        section, "More API keys (optional — 7 fields)", start_open=False
+                    )
+                key_parent = more_keys_frame
             badge_text, badge_color, hint_text = API_KEY_INFO.get(
                 key_path, ("OPTIONAL", TEXT_HINT, "")
             )
 
             # Container card
-            card = ctk.CTkFrame(section, fg_color=BG_CARD, corner_radius=0,
+            card = ctk.CTkFrame(key_parent, fg_color=BG_CARD, corner_radius=0,
                                 border_width=1, border_color=BORDER)
             card.pack(fill="x", pady=4)
 
@@ -351,6 +306,42 @@ class SettingsTab(ctk.CTkFrame):
         self._key_visible[key_path] = not self._key_visible[key_path]
         entry.configure(show="" if self._key_visible[key_path] else "●")
 
+    def _add_foldable(
+        self, parent, title: str, *, start_open: bool = True
+    ) -> ctk.CTkFrame:
+        """Header row (toggle) + inner frame. Pack children on the returned inner frame."""
+        box = ctk.CTkFrame(parent, fg_color="transparent")
+        box.pack(fill="x", pady=(2, 0))
+        state = {"open": start_open}
+        head = ctk.CTkFrame(box, fg_color=BG_CARD, corner_radius=0, border_width=1, border_color=BORDER)
+        head.pack(fill="x")
+        inner = ctk.CTkFrame(box, fg_color="transparent")
+
+        def toggle() -> None:
+            state["open"] = not state["open"]
+            if state["open"]:
+                inner.pack(fill="x", pady=(2, 4))
+                btn.configure(text=f"  ▼  {title}")
+            else:
+                inner.pack_forget()
+                btn.configure(text=f"  ▶  {title}")
+
+        btn = ctk.CTkButton(
+            head,
+            text=f"  {'▼' if start_open else '▶'}  {title}",
+            command=toggle,
+            anchor="w",
+            height=30,
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=TEXT_PRI,
+            fg_color="transparent",
+            hover_color=BG_SEC,
+        )
+        btn.pack(fill="x", padx=1, pady=1)
+        if start_open:
+            inner.pack(fill="x", pady=(2, 4))
+        return inner
+
     # ── Section 2: TTS Backend ────────────────────────────────────────────
     def _build_tts_section(self, parent):
         section = self._section(
@@ -386,15 +377,15 @@ class SettingsTab(ctk.CTkFrame):
         self._tts_desc = ctk.CTkLabel(
             section,
             text="",
-            font=("Share Tech Mono", 12),
+            font=("Share Tech Mono", 11),
             text_color="#88CCAA",
             justify="left",
             anchor="w",
-            wraplength=820,
+            wraplength=760,
             fg_color="#071510",
             corner_radius=0,
         )
-        self._tts_desc.pack(fill="x", padx=0, pady=(0, 10), ipadx=12, ipady=10)
+        self._tts_desc.pack(fill="x", padx=0, pady=(0, 6), ipadx=10, ipady=6)
 
         self._select_tts(self._tts_val)
 
@@ -403,13 +394,62 @@ class SettingsTab(ctk.CTkFrame):
                                   border_color=BORDER, border_width=1)
         tts_config.pack(fill="x", pady=(0, 5), ipadx=10, ipady=10)
 
-        # ── OmniVoice server path + autostart ─────────────────────────────
+        _vpe = config.get("tts.voice_post_process", 1)
+        if isinstance(_vpe, bool):
+            _vpost_on = _vpe
+        else:
+            try:
+                _vpost_on = int(_vpe) != 0
+            except (TypeError, ValueError):
+                _vpost_on = True
+        self._voice_post_var = ctk.BooleanVar(value=_vpost_on)
+        ctk.CTkCheckBox(
+            tts_config,
+            text="Post-process voiceover: FFmpeg cleanup (80 Hz high-pass + loudness normalize) — all TTS",
+            variable=self._voice_post_var,
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC,
+            fg_color=BG_MAIN, border_color=BORDER,
+            hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
+        ).pack(anchor="w", padx=10, pady=(10, 2))
+        self._hint(
+            tts_config,
+            "Bina manual touch: TTS ke baad level consistent + halka rumble hata. "
+            "FFmpeg chahiye. Target LUFS: config / .env  `tts.voice_post_target_lufs` (default -16).",
+        )
+
+        _vst = config.get("tts.voice_post_silence_trim", 1)
+        if isinstance(_vst, bool):
+            _vst_on = _vst
+        else:
+            try:
+                _vst_on = int(_vst) != 0
+            except (TypeError, ValueError):
+                _vst_on = True
+        self._voice_post_silence_var = ctk.BooleanVar(value=_vst_on)
+        ctk.CTkCheckBox(
+            tts_config,
+            text="+ Smart silence: lambi chup kam, chhote word/sentence gaps bane rahen (FFmpeg silenceremove)",
+            variable=self._voice_post_silence_var,
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC,
+            fg_color=BG_MAIN, border_color=BORDER,
+            hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
+        ).pack(anchor="w", padx=10, pady=(2, 2))
+        self._hint(
+            tts_config,
+            "Fine-tune: `tts.voice_post_silence_min_internal` (sec, lamba dead-air) · "
+            "`tts.voice_post_silence_keep` (replaced gap) · `tts.voice_post_silence_threshold_db` — default 0.42 / 0.22 / -46.",
+        )
+        omni_inner = self._add_foldable(
+            tts_config, "OmniVoice — run.bat, mode, reference, design, quality", start_open=True
+        )
+
+        # ── OmniVoice (collapsed header above) ────────────────────────────
         ctk.CTkLabel(
-            tts_config, text="OMNIVOICE SERVER:",
+            omni_inner, text="OMNIVOICE SERVER:",
             font=("Share Tech Mono", 12, "bold"), text_color=ACCENT_PRI,
         ).pack(anchor="w", padx=10, pady=(10, 0))
 
-        om_mode_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_mode_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_mode_row.pack(fill="x", pady=(6, 2))
         ctk.CTkLabel(om_mode_row, text="OMNIVOICE MODE:", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
@@ -429,9 +469,9 @@ class SettingsTab(ctk.CTkFrame):
         )
         self._omnivoice_mode.set(mode_display)
         self._omnivoice_mode.pack(side="left", padx=5)
-        self._hint(tts_config, "Voice Cloning = reference WAV + transcript  |  Sound Design = bina reference audio ke generated voice")
+        self._hint(omni_inner, "Voice Cloning = reference WAV + transcript  |  Sound Design = bina reference audio ke generated voice")
 
-        ov_path_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        ov_path_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         ov_path_row.pack(fill="x", pady=(4, 2))
         ctk.CTkLabel(ov_path_row, text="SERVER PATH (run.bat):", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
@@ -457,7 +497,7 @@ class SettingsTab(ctk.CTkFrame):
             value=bool(config.get("tts.omnivoice_autostart", True))
         )
         ctk.CTkCheckBox(
-            tts_config,
+            omni_inner,
             text="Auto-start OmniVoice server before each pipeline run",
             variable=self._omnivoice_autostart_var,
             font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC,
@@ -465,14 +505,14 @@ class SettingsTab(ctk.CTkFrame):
             hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
         ).pack(anchor="w", padx=10, pady=(4, 2))
         self._hint(
-            tts_config,
+            omni_inner,
             "run.bat ka path daalo (e.g. D:/omnivoice/OmniVoice/run.bat). "
             "Auto-start ON → pipeline khud server start karega. "
             "OFF → manually start karo pehle.",
         )
 
         # Voice clone reference audio
-        cb_ref_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        cb_ref_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         cb_ref_row.pack(fill="x", pady=(8, 2))
         ctk.CTkLabel(cb_ref_row, text="VOICE CLONE REF (.wav):", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
@@ -488,22 +528,45 @@ class SettingsTab(ctk.CTkFrame):
                       fg_color="transparent", hover_color=BG_CARD,
                       border_color=BORDER, border_width=1, corner_radius=0,
                       command=self._browse_ref_audio).pack(side="left", padx=5)
-        self._hint(tts_config, "Chhota clear WAV — jis voice ko clone karna hai (project root ya full path)")
+        self._hint(omni_inner, "Chhota clear WAV — jis voice ko clone karna hai (project root ya full path)")
 
-        om_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        _auto_raw = config.get("tts.omnivoice_auto_transcribe_ref", 1)
+        if isinstance(_auto_raw, bool):
+            _auto_on = _auto_raw
+        else:
+            try:
+                _auto_on = bool(int(_auto_raw))
+            except (TypeError, ValueError):
+                _auto_on = True
+        self._omnivoice_auto_ref_var = ctk.BooleanVar(value=_auto_on)
+        ctk.CTkCheckBox(
+            omni_inner,
+            text="Auto-transcribe reference (Whisper — OmniVoice WebUI default, recommended)",
+            variable=self._omnivoice_auto_ref_var,
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC,
+            fg_color=BG_MAIN, border_color=BORDER,
+            hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
+        ).pack(anchor="w", padx=10, pady=(6, 2))
+        self._hint(
+            omni_inner,
+            "ON = reference clip ka exact text model khud nikaalega (WebUI jaisa). "
+            "OFF = neeche manual transcript (exact words) zaroori.",
+        )
+
+        om_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_row.pack(fill="x", pady=(8, 2))
         ctk.CTkLabel(om_row, text="REF TRANSCRIPT:", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
         self._omnivoice_transcript = ctk.CTkEntry(om_row, width=400, font=("Share Tech Mono", 12),
                                                     fg_color=BG_MAIN, border_color=BORDER,
                                                     text_color=TEXT_PRI, corner_radius=0)
-        self._omnivoice_transcript.insert(0, config.get("tts.omnivoice_ref_transcript", "Transcription of the reference audio."))
+        self._omnivoice_transcript.insert(0, config.get("tts.omnivoice_ref_transcript", ""))
         self._omnivoice_transcript.pack(side="left", padx=5, fill="x", expand=True)
         self._omnivoice_transcript.bind("<FocusIn>",  lambda e: self._omnivoice_transcript.configure(border_width=2, border_color=ACCENT_PRI))
         self._omnivoice_transcript.bind("<FocusOut>", lambda e: self._omnivoice_transcript.configure(border_width=1, border_color=BORDER))
-        self._hint(tts_config, "Reference clip mein jo bola gaya hai wahi likho — clone quality isi par depend karti hai")
+        self._hint(omni_inner, "Sirf jab 'Auto-transcribe' band ho: reference WAV ke exact shabd likho. Khali rehne par auto-ON use karo.")
 
-        om_model_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_model_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_model_row.pack(fill="x", pady=(8, 2))
         ctk.CTkLabel(om_model_row, text="OMNIVOICE MODEL ID:", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
@@ -514,13 +577,13 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_model.pack(side="left", padx=5, fill="x", expand=True)
         self._omnivoice_model.bind("<FocusIn>",  lambda e: self._omnivoice_model.configure(border_width=2, border_color=ACCENT_PRI))
         self._omnivoice_model.bind("<FocusOut>", lambda e: self._omnivoice_model.configure(border_width=1, border_color=BORDER))
-        self._hint(tts_config, "OmniVoice Hugging Face model id (default: k2-fsa/OmniVoice)")
+        self._hint(omni_inner, "OmniVoice Hugging Face model id (default: k2-fsa/OmniVoice)")
 
-        ctk.CTkLabel(tts_config, text="OMNIVOICE VOICE DESIGN:",
+        ctk.CTkLabel(omni_inner, text="OMNIVOICE VOICE DESIGN:",
                      font=("Share Tech Mono", 12, "bold"),
                      text_color=ACCENT_PRI).pack(anchor="w", padx=10, pady=(10, 0))
 
-        om_voice_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_voice_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_voice_row.pack(fill="x", pady=(4, 2))
         ctk.CTkLabel(om_voice_row, text="VOICE CHARACTER:", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
@@ -536,7 +599,7 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_voice.set(OMNIVOICE_VOICE_REV.get(cur_voice, "Custom - use style + tags"))
         self._omnivoice_voice.pack(side="left", padx=5)
 
-        om_style_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_style_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_style_row.pack(fill="x", pady=(4, 2))
         ctk.CTkLabel(om_style_row, text="SPEAKING STYLE:", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
@@ -552,7 +615,7 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_style.set(OMNIVOICE_STYLE_REV.get(cur_style, "Default - neutral"))
         self._omnivoice_style.pack(side="left", padx=5)
 
-        om_quality_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_quality_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_quality_row.pack(fill="x", pady=(4, 2))
         ctk.CTkLabel(om_quality_row, text="QUALITY PRESET:", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
@@ -568,7 +631,7 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_quality.set(OMNIVOICE_QUALITY_REV.get(cur_quality, "Balanced"))
         self._omnivoice_quality.pack(side="left", padx=5)
 
-        om_gender_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_gender_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_gender_row.pack(fill="x", pady=(4, 2))
         ctk.CTkLabel(om_gender_row, text="VOICE GENDER:", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
@@ -584,7 +647,7 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_gender.set(OMNIVOICE_GENDER_REV.get(cur_gender, "Unspecified"))
         self._omnivoice_gender.pack(side="left", padx=5)
 
-        om_instr_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_instr_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_instr_row.pack(fill="x", pady=(4, 2))
         ctk.CTkLabel(om_instr_row, text="EXTRA VOICE TAGS:", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
@@ -596,7 +659,7 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_instruct.bind("<FocusIn>",  lambda e: self._omnivoice_instruct.configure(border_width=2, border_color=ACCENT_PRI))
         self._omnivoice_instruct.bind("<FocusOut>", lambda e: self._omnivoice_instruct.configure(border_width=1, border_color=BORDER))
 
-        om_lang_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        om_lang_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_lang_row.pack(fill="x", pady=(4, 2))
         ctk.CTkLabel(om_lang_row, text="LANGUAGE HINT:", width=200, anchor="w",
                      font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
@@ -607,13 +670,16 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_language.pack(side="left", padx=5)
         self._omnivoice_language.bind("<FocusIn>",  lambda e: self._omnivoice_language.configure(border_width=2, border_color=ACCENT_PRI))
         self._omnivoice_language.bind("<FocusOut>", lambda e: self._omnivoice_language.configure(border_width=1, border_color=BORDER))
-        self._hint(tts_config, "WebUI style controls: profile + style + quality + tags. Language hint optional (hi/en etc).")
+        self._hint(omni_inner, "WebUI style controls: profile + style + quality + tags. Language hint optional (hi/en etc).")
 
-        ctk.CTkLabel(tts_config, text="EDGE TTS VOICE:",
+        alt_tts = self._add_foldable(
+            tts_config, "Edge TTS & ElevenLabs", start_open=False
+        )
+        ctk.CTkLabel(alt_tts, text="EDGE TTS VOICE:",
                      font=("Share Tech Mono", 12, "bold"),
                      text_color=TEXT_SEC).pack(anchor="w", padx=10, pady=(10, 0))
         self._edge_voice = ctk.CTkOptionMenu(
-            tts_config,
+            alt_tts,
             values=["hi-IN-MadhurNeural", "hi-IN-SwaraNeural",
                     "en-US-GuyNeural", "en-US-JennyNeural"],
             font=("Share Tech Mono", 13), text_color=TEXT_PRI,
@@ -622,28 +688,28 @@ class SettingsTab(ctk.CTkFrame):
         )
         self._edge_voice.set(config.get("tts.edge_tts_voice", "hi-IN-MadhurNeural"))
         self._edge_voice.pack(anchor="w", padx=10, pady=(2, 2))
-        self._hint(tts_config, "Hindi: MadhurNeural (male) / SwaraNeural (female)  |  English: GuyNeural / JennyNeural")
+        self._hint(alt_tts, "Hindi: MadhurNeural (male) / SwaraNeural (female)  |  English: GuyNeural / JennyNeural")
 
-        ctk.CTkLabel(tts_config, text="ELEVENLABS VOICE ID:",
+        ctk.CTkLabel(alt_tts, text="ELEVENLABS VOICE ID:",
                      font=("Share Tech Mono", 12, "bold"),
                      text_color=TEXT_SEC).pack(anchor="w", padx=10, pady=(10, 0))
-        self._eleven_voice = ctk.CTkEntry(tts_config, width=350, font=("Share Tech Mono", 13),
+        self._eleven_voice = ctk.CTkEntry(alt_tts, width=350, font=("Share Tech Mono", 13),
                                           fg_color=BG_MAIN, border_color=BORDER,
                                           text_color=TEXT_PRI, corner_radius=0)
         self._eleven_voice.insert(0, config.get("tts.elevenlabs_voice_id", "") or "")
         self._eleven_voice.pack(anchor="w", padx=10, pady=(2, 2))
         self._eleven_voice.bind("<FocusIn>",  lambda e: self._eleven_voice.configure(border_width=2, border_color=ACCENT_PRI))
         self._eleven_voice.bind("<FocusOut>", lambda e: self._eleven_voice.configure(border_width=1, border_color=BORDER))
-        self._hint(tts_config, "ElevenLabs.io → Voice Lab → apni voice pe click karo → Voice ID copy karo")
+        self._hint(alt_tts, "ElevenLabs.io → Voice Lab → apni voice pe click karo → Voice ID copy karo")
 
         # ElevenLabs realism knobs
-        eleven_knobs_row = ctk.CTkFrame(tts_config, fg_color="transparent")
+        eleven_knobs_row = ctk.CTkFrame(alt_tts, fg_color="transparent")
         eleven_knobs_row.pack(fill="x", pady=(4, 0))
         ctk.CTkLabel(eleven_knobs_row, text="ELEVENLABS VOICE SETTINGS (Realism Tuning):",
                      font=("Share Tech Mono", 11, "bold"), text_color=TEXT_SEC,
                      anchor="w").pack(anchor="w", padx=10, pady=(6, 2))
 
-        knob_inner = ctk.CTkFrame(tts_config, fg_color=BG_CARD, corner_radius=0,
+        knob_inner = ctk.CTkFrame(alt_tts, fg_color=BG_CARD, corner_radius=0,
                                   border_width=1, border_color=BORDER)
         knob_inner.pack(fill="x", padx=10, pady=(0, 4))
 
@@ -675,7 +741,7 @@ class SettingsTab(ctk.CTkFrame):
             knob_inner, "Style Exaggeration:", "tts.elevenlabs_style", 0.45,
             "Higher = more dramatic  |  Recommended: 0.35–0.55"
         )
-        self._hint(tts_config, "Speaker Boost is always ON — gives cleaner, more present voice output")
+        self._hint(alt_tts, "Speaker Boost is always ON — gives cleaner, more present voice output")
 
     def _select_tts(self, val):
         self._tts_val = val
@@ -728,15 +794,15 @@ class SettingsTab(ctk.CTkFrame):
         self._img_desc = ctk.CTkLabel(
             section,
             text="",
-            font=("Share Tech Mono", 12),
+            font=("Share Tech Mono", 11),
             text_color="#88CCAA",
             justify="left",
             anchor="w",
-            wraplength=820,
+            wraplength=760,
             fg_color="#071510",
             corner_radius=0,
         )
-        self._img_desc.pack(fill="x", padx=0, pady=(0, 10), ipadx=12, ipady=10)
+        self._img_desc.pack(fill="x", padx=0, pady=(0, 6), ipadx=10, ipady=6)
 
         # Grok model sub-panel (shown only when Grok Imagine is selected)
         GROK_MODEL_OPTIONS = {
@@ -768,22 +834,26 @@ class SettingsTab(ctk.CTkFrame):
 
         self._select_img(self._img_val)
 
-        # Image config sub-section
-        img_config = ctk.CTkFrame(section, fg_color=BG_MAIN, corner_radius=0,
-                                  border_color=BORDER, border_width=1)
-        img_config.pack(fill="x", pady=(0, 5), ipadx=10, ipady=10)
+        # ComfyUI URL (fold — Imagen / Grok users skip)
+        _comfy_fold = self._add_foldable(
+            section, "ComfyUI URL (local SD — if using ComfyUI backend)",
+            start_open=False,
+        )
+        inner_img = ctk.CTkFrame(_comfy_fold, fg_color=BG_MAIN, corner_radius=0,
+                                 border_color=BORDER, border_width=1)
+        inner_img.pack(fill="x", pady=(0, 4), ipadx=10, ipady=8)
 
-        ctk.CTkLabel(img_config, text="COMFYUI NODE URL:",
+        ctk.CTkLabel(inner_img, text="COMFYUI NODE URL:",
                      font=("Share Tech Mono", 12, "bold"),
                      text_color=TEXT_SEC).pack(anchor="w", padx=10, pady=(8, 0))
-        self._comfyui_url = ctk.CTkEntry(img_config, width=400, font=("Share Tech Mono", 13),
+        self._comfyui_url = ctk.CTkEntry(inner_img, width=400, font=("Share Tech Mono", 13),
                                          fg_color=BG_MAIN, border_color=BORDER,
                                          text_color=TEXT_PRI, corner_radius=0)
         self._comfyui_url.insert(0, config.get("image.comfyui_url", "http://127.0.0.1:8188"))
         self._comfyui_url.pack(anchor="w", padx=10, pady=(2, 2))
         self._comfyui_url.bind("<FocusIn>",  lambda e: self._comfyui_url.configure(border_width=2, border_color=ACCENT_PRI))
         self._comfyui_url.bind("<FocusOut>", lambda e: self._comfyui_url.configure(border_width=1, border_color=BORDER))
-        self._hint(img_config, "Sirf ComfyUI backend ke liye. Default: http://127.0.0.1:8188  |  ComfyUI server pehle start karo")
+        self._hint(inner_img, "ComfyUI backend only. Default :8188 — server start karo pehle.")
 
     def _select_img(self, val):
         self._img_val = val
@@ -829,10 +899,15 @@ class SettingsTab(ctk.CTkFrame):
             unselected_color=BG_CARD,
             unselected_hover_color=BORDER,
             corner_radius=0,
+            command=self._on_aspect_segment_change,
         )
         self._aspect_seg.set(aspect_default)
         self._aspect_seg.pack(anchor="w", padx=10, pady=(0, 6), fill="x")
-        self._hint(section, "9:16 = Shorts / Reels  |  16:9 = standard YouTube landscape")
+        self._hint(
+            section,
+            "9:16 = vertical Shorts  |  16:9 = landscape. Change = turant apply + disk save — "
+            "[ SAVE CONFIG ] ab optional hai is ke liye.",
+        )
 
         ce = config.get("cinematic_effects", {})
         intro_on = bool(ce.get("intro", True))
@@ -1740,6 +1815,15 @@ class SettingsTab(ctk.CTkFrame):
                 config.save()
                 self._refresh_profile_menu()
 
+    def _on_aspect_segment_change(self, value: str) -> None:
+        """Apply aspect ratio on tap so pipeline/Documentary see it without a separate [ SAVE CONFIG ] click."""
+        aspect_ratio = "16:9" if value == "16:9 YouTube" else "9:16"
+        config.set("aspect_ratio", aspect_ratio)
+        try:
+            config.save()
+        except OSError:
+            pass
+
     # ── Save Action ───────────────────────────────────────────────────────
     def _save(self):
         self._save_btn.configure(fg_color=ACCENT_GRN, text_color=BG_MAIN, text="[ SAVED ✓ ]")
@@ -1749,12 +1833,18 @@ class SettingsTab(ctk.CTkFrame):
 
         config.set("tts.backend",          self._tts_val)
         config.set("tts.reference_audio",  self._ref_audio.get().strip())
+        if hasattr(self, "_voice_post_var"):
+            config.set("tts.voice_post_process", 1 if self._voice_post_var.get() else 0)
+        if hasattr(self, "_voice_post_silence_var"):
+            config.set("tts.voice_post_silence_trim", 1 if self._voice_post_silence_var.get() else 0)
         if hasattr(self, "_omnivoice_server_path"):
             config.set("tts.omnivoice_server_path", self._omnivoice_server_path.get().strip())
         if hasattr(self, "_omnivoice_autostart_var"):
             config.set("tts.omnivoice_autostart", bool(self._omnivoice_autostart_var.get()))
         if hasattr(self, "_omnivoice_mode"):
             config.set("tts.omnivoice_mode", OMNIVOICE_MODE_OPTIONS.get(self._omnivoice_mode.get(), "clone"))
+        if hasattr(self, "_omnivoice_auto_ref_var"):
+            config.set("tts.omnivoice_auto_transcribe_ref", 1 if self._omnivoice_auto_ref_var.get() else 0)
         if hasattr(self, "_omnivoice_transcript"):
             config.set("tts.omnivoice_ref_transcript", self._omnivoice_transcript.get().strip())
         if hasattr(self, "_omnivoice_model"):

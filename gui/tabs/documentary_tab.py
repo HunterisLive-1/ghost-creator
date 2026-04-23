@@ -145,8 +145,8 @@ class DocumentaryTab(ctk.CTkFrame):
                      font=("Share Tech Mono", 13, "bold"), text_color=ACCENT_GOLD,
                      ).pack(anchor="w", pady=(4, 0))
         ctk.CTkLabel(si,
-                     text="• Quick cinematic doc (YouTube Shorts)\n"
-                          "• 3–4 footage segments\n"
+                     text="• Quick 30–60s; output size: Settings → Video format (9:16 or 16:9)\n"
+                          "• Auto: several short clips / cuts\n"
                           "• Fast narration, punchy cuts",
                      font=("Share Tech Mono", 11), text_color=TEXT_SEC, justify="left",
                      ).pack(anchor="w", pady=(8, 0))
@@ -171,7 +171,7 @@ class DocumentaryTab(ctk.CTkFrame):
                      ).pack(anchor="w", pady=(4, 0))
         ctk.CTkLabel(li,
                      text="• Full feature documentary\n"
-                          "• 5–20 footage segments\n"
+                          "• More clips on longer runs (auto), up to 100\n"
                           "• Deep narration, chapter-style flow",
                      font=("Share Tech Mono", 11), text_color=TEXT_SEC, justify="left",
                      ).pack(anchor="w", pady=(8, 0))
@@ -420,7 +420,10 @@ class DocumentaryTab(ctk.CTkFrame):
         )
         ctk.CTkOptionMenu(
             row1,
-            values=["Auto", "3", "5", "7", "10", "15", "20"],
+            values=[
+                "Auto", "3", "5", "7", "10", "15", "20", "25", "30", "40", "50",
+                "60", "70", "80", "90", "100",
+            ],
             variable=self._seg_var,
             width=80,
             font=("Share Tech Mono", 12),
@@ -455,29 +458,22 @@ class DocumentaryTab(ctk.CTkFrame):
                      font=("Share Tech Mono", 11), text_color=TEXT_SEC,
                      ).pack(side="left")
 
-        # Aspect ratio
-        ctk.CTkFrame(row1, fg_color="transparent", width=16).pack(side="left")
-        ctk.CTkLabel(row1, text="Ratio:",
-                     font=("Share Tech Mono", 12), text_color=TEXT_SEC,
-                     ).pack(side="left")
-
-        self._aspect_btns: dict[str, ctk.CTkButton] = {}
-        cur_ar = config.get("aspect_ratio", "9:16")
-        ar_row = ctk.CTkFrame(row1, fg_color="transparent")
-        ar_row.pack(side="left", padx=(8, 0))
-        for ar in ("9:16", "16:9"):
-            sel = (ar == cur_ar)
-            btn = ctk.CTkButton(
-                ar_row, text=ar, width=70,
-                font=("Share Tech Mono", 12, "bold"),
-                fg_color=ACCENT_DOC if sel else "transparent",
-                text_color=BG_MAIN if sel else TEXT_SEC,
-                border_color=ACCENT_DOC if sel else BORDER,
-                border_width=1, corner_radius=0,
-                command=lambda a=ar: self._select_aspect(a),
-            )
-            btn.pack(side="left", padx=3)
-            self._aspect_btns[ar] = btn
+        row2 = ctk.CTkFrame(inner, fg_color="transparent")
+        row2.pack(fill="x", pady=(10, 0))
+        ctk.CTkLabel(
+            row2,
+            text="Output aspect: change in Settings → [ Video format & effects ] — "
+            "Pexels uses portrait (9:16) or landscape (16:9) to match. Current:",
+            font=("Share Tech Mono", 11), text_color=TEXT_SEC, justify="left", anchor="w",
+            wraplength=900,
+        ).pack(anchor="w")
+        self._doc_aspect_lbl = ctk.CTkLabel(
+            row2,
+            text="",
+            font=("Share Tech Mono", 12, "bold"), text_color=ACCENT_DOC, anchor="w",
+        )
+        self._doc_aspect_lbl.pack(anchor="w", pady=(2, 0))
+        self._refresh_doc_aspect_lbl()
 
     def _save_segments(self, val: str) -> None:
         try:
@@ -491,13 +487,14 @@ class DocumentaryTab(ctk.CTkFrame):
         except ValueError:
             pass
 
-    def _select_aspect(self, ar: str) -> None:
-        config.set("aspect_ratio", ar)
-        for a, btn in self._aspect_btns.items():
-            if a == ar:
-                btn.configure(fg_color=ACCENT_DOC, text_color=BG_MAIN, border_color=ACCENT_DOC)
-            else:
-                btn.configure(fg_color="transparent", text_color=TEXT_SEC, border_color=BORDER)
+    def _refresh_doc_aspect_lbl(self) -> None:
+        if not hasattr(self, "_doc_aspect_lbl"):
+            return
+        ar = str(config.get("aspect_ratio", "9:16"))
+        orient = "portrait" if ar == "9:16" else "landscape"
+        self._doc_aspect_lbl.configure(
+            text=f"  →  {ar}  (Pexels: {orient})"
+        )
 
     # ── Controls ──────────────────────────────────────────────────────────────
     def _build_control_row(self):
@@ -678,6 +675,7 @@ class DocumentaryTab(ctk.CTkFrame):
     def _on_run(self):
         if self.pipeline_running:
             return
+        self._refresh_doc_aspect_lbl()
 
         topic = self._topic_entry.get().strip() if not self._auto_var.get() else None
 
@@ -694,8 +692,10 @@ class DocumentaryTab(ctk.CTkFrame):
         config.set("tts.backend", voice_backend)
 
         self._reset_steps()
+        ar = str(config.get("aspect_ratio", "9:16"))
         self._append_log(
-            f"🎬 Documentary pipeline started — mode={self._doc_mode}, duration={dur}s",
+            f"🎬 Documentary pipeline started — mode={self._doc_mode}, "
+            f"duration={dur}s, aspect={ar}",
             "INFO",
         )
 

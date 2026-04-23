@@ -44,7 +44,16 @@ logger = logging.getLogger("ghost.tts.omnivoice")
 MAX_RETRIES  = 2
 RETRY_DELAY  = 5
 CHUNK_SIZE   = 220
-CHUNK_TIMEOUT = 10800  # 3 hours — covers even 40-min video TTS generation
+# Default HTTP read timeout (seconds) for each OmniVoice server request. Long
+# scripts on CPU can exceed 5–10+ minutes per chunk; 3h is a safe ceiling.
+CHUNK_TIMEOUT = 10800
+_CONNECT_TIMEOUT = 30.0
+_MIN_READ_TIMEOUT = 120.0
+
+# Match OmniVoice `webui.py` reference trim (mono, resample, cap length).
+REF_TRIM_THRESHOLD_SEC = 10.0
+REF_TARGET_MAX_SEC = 8.0
+REF_MIN_WARN_SEC = 3.0
 
 # ── Package-mode globals ──────────────────────────────────────────────────────
 _model = None
@@ -97,11 +106,35 @@ def _ref_audio_path() -> Path:
     return p.resolve()
 
 
-def _ref_transcript() -> str:
-    return (
-        config.get("tts.omnivoice_ref_transcript", "").strip()
-        or "Transcription of the reference audio."
-    )
+def _manual_ref_transcript() -> str:
+    """Exact words in the reference WAV (only used when auto-transcribe is off)."""
+    return (config.get("tts.omnivoice_ref_transcript", "") or "").strip()
+
+
+def _use_auto_transcribe_ref() -> bool:
+    v = config.get("tts.omnivoice_auto_transcribe_ref", 1)
+    if isinstance(v, bool):
+        return v
+    try:
+        return int(v) != 0
+    except (TypeError, ValueError):
+        return True
+
+
+def _normalize_chunking_text(text: str) -> str:
+    """Hindi / Sanskrit danda → period+space so model chunking splits like WebUI."""
+    if not text:
+        return text
+    t = text.replace("\u0965", ". ")  # ॥
+    t = t.replace("\u0964", ". ")  # ।
+    return t
+
+
+def _is_hindi_language_hint(language: str | None) -> bool:
+    if not language:
+        return False
+    s = language.strip().lower()
+    return "hindi" in s or s in ("hi", "hin")
 
 
 def _model_id() -> str:
@@ -181,6 +214,132 @@ def _design_voice_speed_override(voice_profile_raw: str | None) -> float | None:
     return float(sp) if isinstance(sp, (int, float)) else None
 
 
+def _unwrap_gen_container(x, max_depth: int = 8):
+    t = x
+    d = 0
+    while d < max_depth and isinstance(t, (list, tuple)) and len(t) == 1:
+        t = t[0]
+        d += 1
+    return t
+
+
+def _coerce_model_generate_out(gout) -> object:
+    if gout is None:
+        raise ValueError("Model returned no audio")
+    if isinstance(gout, (list, tuple)) and len(gout) == 0:
+        raise ValueError("Model returned empty audio")
+    o = gout[0] if isinstance(gout, (list, tuple)) else gout
+    if o is None:
+        raise ValueError("Model returned no audio")
+    return _unwrap_gen_container(o)
+
+
+def _preprocess_reference_wav(in_path: str, out_path: str, target_sr: int) -> tuple[list[str], float]:
+    import torchaudio
+    from omnivoice.utils.audio import trim_long_audio
+
+    warnings: list[str] = []
+    w, sr = torchaudio.load(in_path)
+    if w.dim() == 1:
+        w = w.unsqueeze(0)
+    if w.size(0) > 1:
+        w = w.mean(dim=0, keepdim=True)
+    if sr != target_sr:
+        w = torchaudio.functional.resample(w, sr, target_sr)
+    dur = w.shape[1] / float(target_sr)
+    if dur < REF_MIN_WARN_SEC:
+        warnings.append(
+            f"Reference audio is only {dur:.1f}s; 3–10s of clear speech is recommended."
+        )
+    w = trim_long_audio(
+        w,
+        target_sr,
+        max_duration=REF_TARGET_MAX_SEC,
+        min_duration=2.0,
+        trim_threshold=REF_TRIM_THRESHOLD_SEC,
+    )
+    torchaudio.save(out_path, w, target_sr)
+    return warnings, w.shape[1] / float(target_sr)
+
+
+def _clone_target_duration_seconds(model, ref_text: str, text: str, ref_wav_path: str) -> float | None:
+    import torchaudio
+
+    ref_sec: float | None = None
+    try:
+        w, sr = torchaudio.load(ref_wav_path)
+        if w.dim() > 1 and w.size(0) > 1:
+            w = w.mean(dim=0, keepdim=True)
+        ref_sec = w.shape[1] / float(sr)
+    except (OSError, RuntimeError):
+        try:
+            import wave as _wave
+            with _wave.open(ref_wav_path, "rb") as _wf:
+                ref_sec = _wf.getnframes() / float(_wf.getframerate())
+        except Exception:
+            return None
+    if ref_sec is None or ref_sec <= 0.05:
+        return None
+
+    est = model.duration_estimator
+    rw = float(est.calculate_total_weight(ref_text.strip()))
+    tw = float(est.calculate_total_weight(text.strip()))
+    if tw <= 0:
+        return None
+    min_rw = max(12.0, ref_sec * 7.0)
+    rw_eff = max(rw, min_rw)
+    pred_sec = ref_sec * (tw / rw_eff)
+    pred_sec = max(0.35, min(pred_sec, 600.0))
+    return float(pred_sec)
+
+
+def _ensure_whisper_pipeline(model) -> None:
+    if getattr(model, "_asr_pipe", None) is not None:
+        return
+    mid = (os.environ.get("OMNIVOICE_WHISPER_MODEL") or "").strip() or "openai/whisper-large-v3-turbo"
+    model.load_asr_model(model_name=mid)
+
+
+def _gen_out_to_chw_tensor(audio) -> "torch.Tensor":
+    """Single chunk waveform → 1xN float tensor for torch.cat."""
+    import numpy as np
+    import torch
+
+    o = _coerce_model_generate_out(audio)
+    if isinstance(o, np.ndarray):
+        t = torch.from_numpy(np.asarray(o, dtype=np.float32).ravel())
+        t = t.clamp(-1.0, 1.0).float()
+    elif hasattr(o, "detach"):
+        t = o.detach()
+        if t.dim() > 1:
+            t = t.mean(dim=0) if t.size(0) > 1 else t.squeeze(0)
+        t = t.clamp(-1.0, 1.0).float().cpu()
+    else:
+        t = torch.as_tensor(o, dtype=torch.float32).ravel()
+    if t.dim() == 0:
+        t = t.view(1)
+    return t.unsqueeze(0) if t.dim() == 1 else t
+
+
+def _http_read_timeout_sec() -> float:
+    """
+    Per-request read timeout (seconds) for OmniVoice HTTP calls.
+    Config `tts.omnivoice_http_read_timeout` overrides; each chunk must finish
+    within this window (separate from total multi-chunk work).
+    """
+    v = config.get("tts.omnivoice_http_read_timeout", None)
+    if v is None:
+        return float(CHUNK_TIMEOUT)
+    try:
+        return max(_MIN_READ_TIMEOUT, float(v))
+    except (TypeError, ValueError):
+        return float(CHUNK_TIMEOUT)
+
+
+def _http_timeout() -> tuple[float, float]:
+    return (_CONNECT_TIMEOUT, _http_read_timeout_sec())
+
+
 def _build_design_params(mode: str, language: str) -> dict:
     style = config.get("tts.omnivoice_speaking_style", "default")
     quality = config.get("tts.omnivoice_quality_preset", "balanced")
@@ -212,6 +371,16 @@ def _build_design_params(mode: str, language: str) -> dict:
         out["language"] = language_hint
     elif language and language.lower() not in ("auto", "none", "default"):
         out["language"] = language
+    # WebUI `generate-design` only: Hindi → slightly slower pacing
+    if mode != "clone":
+        _lang = out.get("language") or language
+        ls = _lang if isinstance(_lang, str) else str(_lang or "")
+        if _is_hindi_language_hint(ls):
+            sp = out.get("speed")
+            if sp is not None:
+                out["speed"] = float(sp) * 0.88
+            else:
+                out["speed"] = 0.88
     return out
 
 
@@ -355,11 +524,42 @@ class OmniVoiceTTS(TTSBackend):
     # ── Text splitting ────────────────────────────────────────────────────
 
     @staticmethod
+    def _hard_split_oversize(text: str, max_chars: int) -> list[str]:
+        """Split a segment that exceeds max_chars (no sentence breaks)."""
+        t = text.strip()
+        if not t:
+            return []
+        if len(t) <= max_chars:
+            return [t]
+        out: list[str] = []
+        i = 0
+        n = len(t)
+        while i < n:
+            j = min(i + max_chars, n)
+            if j < n:
+                window = t[i:j]
+                sp = window.rfind(" ")
+                if sp > max(8, max_chars // 8):
+                    j = i + sp
+            piece = t[i:j].strip()
+            if piece:
+                out.append(piece)
+            if j <= i:
+                j = i + 1
+            i = j
+        return out
+
+    @staticmethod
     def _split_text(text: str, max_chars: int = CHUNK_SIZE) -> list[str]:
-        sentences = re.split(r"(?<=[।.!?])\s+", text.strip())
+        raw = (text or "").strip()
+        if not raw:
+            return [""]
+        sentences = re.split(r"(?<=[।.!?])\s+", raw)
         chunks: list[str] = []
         current = ""
         for sent in sentences:
+            if not sent or not str(sent).strip():
+                continue
             if current and len(current) + len(sent) + 1 > max_chars:
                 chunks.append(current.strip())
                 current = sent
@@ -367,7 +567,17 @@ class OmniVoiceTTS(TTSBackend):
                 current = f"{current} {sent}" if current else sent
         if current.strip():
             chunks.append(current.strip())
-        return chunks if chunks else [text]
+        if not chunks:
+            chunks = [raw]
+
+        # Long single lines without `।.!?` must not stay as one huge request.
+        out: list[str] = []
+        for ch in chunks:
+            if len(ch) <= max_chars:
+                out.append(ch)
+            else:
+                out.extend(OmniVoiceTTS._hard_split_oversize(ch, max_chars))
+        return out if out else [raw]
 
     # ── Progress helper ───────────────────────────────────────────────────
 
@@ -450,20 +660,25 @@ class OmniVoiceTTS(TTSBackend):
             ref_path = Path(ref_audio)
             if not ref_path.is_absolute():
                 ref_path = get_base_dir() / ref_path
-            ref_text = _ref_transcript()
+            auto = _use_auto_transcribe_ref()
+            data = {
+                "text": text,
+                "speaking_style": speaking_style,
+                "quality_preset": quality_preset,
+                "voice_gender": voice_gender,
+            }
+            if auto:
+                # WebUI default: Whisper transcript + duration (same as checked "Auto-transcribe")
+                data["auto_transcribe_ref"] = "1"
+            else:
+                data["ref_text"] = _manual_ref_transcript()
 
             with open(str(ref_path), "rb") as wav_f:
                 resp = requests.post(
                     f"{_server_url()}/generate",
                     files={"ref_audio": ("ref.wav", wav_f, "audio/wav")},
-                    data={
-                        "text":           text,
-                        "ref_text":       ref_text,
-                        "speaking_style": speaking_style,
-                        "quality_preset": quality_preset,
-                        "voice_gender":   voice_gender,
-                    },
-                    timeout=CHUNK_TIMEOUT,
+                    data=data,
+                    timeout=_http_timeout(),
                 )
         else:
             # design mode
@@ -488,7 +703,7 @@ class OmniVoiceTTS(TTSBackend):
             resp = requests.post(
                 f"{_server_url()}/generate-design",
                 data=form,
-                timeout=CHUNK_TIMEOUT,
+                timeout=_http_timeout(),
             )
 
         if not resp.ok:
@@ -515,24 +730,42 @@ class OmniVoiceTTS(TTSBackend):
                 "Server console window mein error check karo."
             )
 
+        text = _normalize_chunking_text((text or "").strip())
         mode = _omnivoice_mode()
-        self._cb(f"🎙️ Voice generate ho raha hai (mode={mode}, {len(text)} chars) …")
-
-        # 3. Generate — retry on transient errors
-        last_exc: Exception | None = None
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                if attempt > 1:
-                    self._cb(f"  🔄 Retry attempt {attempt} …")
-                audio = self._http_generate(text, language, mode)
-                break
-            except Exception as exc:
-                last_exc = exc
-                self._cb(f"  ⚠️ Attempt {attempt} failed: {exc}")
-                if attempt < MAX_RETRIES:
-                    time.sleep(RETRY_DELAY)
+        chunks = self._split_text(text)
+        n = len(chunks)
+        if n > 1:
+            self._cb(
+                f"🎙️ Voice generate ho raha hai (mode={mode}, {len(text)} chars, "
+                f"{n} chunks — lambi script server pe piece-by-piece) …"
+            )
         else:
-            raise RuntimeError(f"OmniVoice synthesis failed: {last_exc}") from last_exc
+            self._cb(f"🎙️ Voice generate ho raha hai (mode={mode}, {len(text)} chars) …")
+
+        def _synth_one_chunk(chunk: str, idx: int) -> AudioSegment:
+            last_exc: Exception | None = None
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    if attempt > 1:
+                        self._cb(f"  🔄 Chunk {idx}/{n} retry {attempt} …")
+                    return self._http_generate(chunk, language, mode)
+                except Exception as exc:
+                    last_exc = exc
+                    self._cb(f"  ⚠️ Chunk {idx}/{n} try {attempt} failed: {exc}")
+                    if attempt < MAX_RETRIES:
+                        time.sleep(RETRY_DELAY)
+            raise RuntimeError(
+                f"OmniVoice chunk {idx}/{n} failed after {MAX_RETRIES} tries: {last_exc}"
+            ) from last_exc
+
+        audio: AudioSegment | None = None
+        for i, ch in enumerate(chunks, start=1):
+            if n > 1 and (i == 1 or i % 4 == 0 or i == n):
+                self._cb(f"  🎵 Chunk {i}/{n} ({len(ch)} chars) …")
+            seg = _synth_one_chunk(ch, i)
+            audio = seg if audio is None else (audio + seg)
+        if audio is None:
+            raise RuntimeError("OmniVoice: no audio produced (empty text?)")
 
         # 4. Export WAV → MP3
         audio.export(output_path, format="mp3")
@@ -547,8 +780,9 @@ class OmniVoiceTTS(TTSBackend):
 
     # ── Package mode: direct synthesis ────────────────────────────────────
 
-    def _synthesize_chunk_pkg(self, chunk: str, call_kw: dict, idx: int, total: int):
-        last_exc = None
+    def _synthesize_chunk_pkg(self, call_kw: dict, idx: int, total: int) -> "torch.Tensor":
+        last_exc: Exception | None = None
+        chunk = (call_kw.get("text") or "")
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 logger.info(
@@ -558,8 +792,8 @@ class OmniVoiceTTS(TTSBackend):
                 with _load_lock:
                     if _model is None:
                         raise RuntimeError("OmniVoice model not loaded")
-                    audio = _model.generate(text=chunk, **call_kw)
-                return audio[0]
+                    audio = _model.generate(**call_kw)
+                return _gen_out_to_chw_tensor(audio)
             except Exception as exc:
                 last_exc = exc
                 logger.warning("  Chunk %s failed (try %s): %s", idx, attempt, exc)
@@ -568,40 +802,119 @@ class OmniVoiceTTS(TTSBackend):
         raise RuntimeError(f"OmniVoice chunk {idx} failed: {last_exc}") from last_exc
 
     def _synthesize_package(self, text: str, language: str, output_path: str) -> str:
-        """Direct synthesis via omnivoice pip package."""
+        """Direct synthesis via omnivoice pip package (WebUI-matched clone/design)."""
         import torch
         import torchaudio
 
+        text = _normalize_chunking_text((text or "").strip())
         mode = _omnivoice_mode()
-        call_kw = _build_design_params(mode, language)
-        if mode == "clone":
-            call_kw["ref_audio"] = str(_ref_audio_path())
-            call_kw["ref_text"] = _ref_transcript()
-
         os.makedirs(str(Path(output_path).resolve().parent), exist_ok=True)
-
         _ensure_model_loaded()
+        if _model is None:
+            raise RuntimeError("OmniVoice model failed to load")
+        m = _model
+        sr = int(getattr(m, "sampling_rate", None) or 24000)
 
+        style = config.get("tts.omnivoice_speaking_style", "default")
+        quality = config.get("tts.omnivoice_quality_preset", "balanced")
+        gender = config.get("tts.omnivoice_voice_gender", "")
+        gen_kw, speed_style = _resolve_style_and_quality(style, quality)
+        clone_instruct = _instruct_for_clone(style, gender)
+        ref_for_dur: str | None = None
+        vcp: object | None = None
+        tmp_proc: str | None = None
+        pre_warnings: list[str] = []
+        if mode == "clone":
+            raw_ref = str(_ref_audio_path())
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+            tmp_proc = tmp.name
+            tmp.close()
+            try:
+                pre_warnings, _ = _preprocess_reference_wav(raw_ref, tmp_proc, sr)
+            except Exception as exc:
+                for p in (tmp_proc,):
+                    try:
+                        if p:
+                            os.unlink(p)
+                    except OSError:
+                        pass
+                raise RuntimeError(
+                    f"Reference WAV preprocess failed ({raw_ref}): {exc}"
+                ) from exc
+            for w in pre_warnings:
+                logger.warning("OmniVoice ref: %s", w)
+            if _use_auto_transcribe_ref():
+                with _load_lock:
+                    _ensure_whisper_pipeline(m)
+                    vcp = m.create_voice_clone_prompt(
+                        ref_audio=tmp_proc,
+                        ref_text=None,
+                        preprocess_prompt=True,
+                    )
+                ref_for_dur = vcp.ref_text
+                if ref_for_dur:
+                    logger.info("OmniVoice auto ref transcript: %s…", ref_for_dur[:80])
+            else:
+                man = _manual_ref_transcript()
+                if not man:
+                    try:
+                        if tmp_proc:
+                            os.unlink(tmp_proc)
+                    except OSError:
+                        pass
+                    raise RuntimeError(
+                        "Manual reference transcript khali hai — Settings → Auto-transcribe ON karo "
+                        "ya REF TRANSCRIPT mein WAV ke exact shabd likho."
+                    )
+                ref_for_dur = man
+
+        design_base: dict | None = _build_design_params(mode, language) if mode == "design" else None
         chunks = self._split_text(text)
+        ref_label = (
+            Path(_ref_audio_path()).name
+            if mode == "clone"
+            else "none"
+        )
         logger.info(
             "OmniVoice [package:%s]: %s chars → %s chunk(s), ref=%s",
-            mode, len(text), len(chunks), Path(call_kw["ref_audio"]).name if mode == "clone" else "none",
+            mode, len(text), len(chunks), ref_label,
         )
 
         tensors: list = []
         try:
             for i, chunk in enumerate(chunks, start=1):
-                t = self._synthesize_chunk_pkg(chunk, call_kw, i, len(chunks))
-                t = t.detach().cpu().float()
-                if t.dim() == 1:
-                    t = t.unsqueeze(0)
+                if mode == "design":
+                    assert design_base is not None
+                    ckw: dict = {**design_base, "text": chunk}
+                else:
+                    assert tmp_proc is not None
+                    ckw = {**gen_kw, "text": chunk}
+                    if clone_instruct:
+                        ckw["instruct"] = clone_instruct
+                    if vcp is not None:
+                        ckw["voice_clone_prompt"] = vcp
+                    else:
+                        ckw["ref_audio"] = tmp_proc
+                        ckw["ref_text"] = _manual_ref_transcript()
+                    if ref_for_dur:
+                        est = _clone_target_duration_seconds(
+                            m, ref_for_dur, chunk, tmp_proc
+                        )
+                        if est is not None:
+                            ckw["duration"] = est
+                        elif speed_style is not None:
+                            ckw["speed"] = speed_style
+                    elif speed_style is not None:
+                        ckw["speed"] = speed_style
+
+                t = self._synthesize_chunk_pkg(ckw, i, len(chunks))
                 tensors.append(t)
             full = torch.cat(tensors, dim=-1)
 
             tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
             tmp_wav.close()
             try:
-                torchaudio.save(tmp_wav.name, full, 24000)
+                torchaudio.save(tmp_wav.name, full, sr)
                 combined = AudioSegment.from_wav(tmp_wav.name)
                 combined.export(output_path, format="mp3")
             finally:
@@ -609,13 +922,17 @@ class OmniVoiceTTS(TTSBackend):
                     os.unlink(tmp_wav.name)
                 except OSError:
                     pass
-
             size_kb = os.path.getsize(output_path) / 1024
             logger.info(
                 "Voiceover saved → %s (%.1f KB, %dms)",
                 output_path, size_kb, len(combined),
             )
         finally:
+            if tmp_proc and os.path.isfile(tmp_proc):
+                try:
+                    os.unlink(tmp_proc)
+                except OSError:
+                    pass
             _unload_model()
 
         return output_path
@@ -634,6 +951,12 @@ class OmniVoiceTTS(TTSBackend):
     def validate_config(self, config_data: dict) -> tuple[bool, str]:
         mode = _omnivoice_mode()
         bat = _server_path()
+        if mode == "clone" and (not _use_auto_transcribe_ref()) and not _manual_ref_transcript():
+            return (
+                False,
+                "Reference transcript khali hai jab 'Auto-transcribe reference' OFF hai.\n"
+                "Settings → auto-transcribe ON karo (WebUI jaisa) ya REF TRANSCRIPT bharo.",
+            )
         if bat is not None:
             # Server mode: check run.bat exists
             if not bat.exists():

@@ -41,9 +41,13 @@ DEFAULT_CONFIG: dict = {
         "backend": "omnivoice",
         "omnivoice_url": "http://127.0.0.1:8765",
         "omnivoice_mode": "clone",
+        # Max seconds to wait for one OmniVoice HTTP generate call (per chunk). CPU runs may need 10800+.
+        "omnivoice_http_read_timeout": 10800,
         "reference_audio": "my_voice_reference.wav",
         "omnivoice_model_id": "k2-fsa/OmniVoice",
-        "omnivoice_ref_transcript": "Transcription of the reference audio.",
+        # 1 = WebUI jaisa: reference WAV pe Whisper (auto) — default transcript text mat bhejo
+        "omnivoice_auto_transcribe_ref": 1,
+        "omnivoice_ref_transcript": "",
         "omnivoice_design_voice": "custom",
         "omnivoice_speaking_style": "default",
         "omnivoice_quality_preset": "balanced",
@@ -54,6 +58,14 @@ DEFAULT_CONFIG: dict = {
         "elevenlabs_stability": 0.30,
         "elevenlabs_similarity_boost": 0.85,
         "elevenlabs_style": 0.45,
+        # FFmpeg: HPF + silenceremove + loudnorm (applies to all TTS after synthesis + pace)
+        "voice_post_process": 1,
+        "voice_post_target_lufs": -16.0,
+        # Silence: only gaps longer than stop_duration (sec) are trimmed; stop_silence = gap kept (natural)
+        "voice_post_silence_trim": 1,
+        "voice_post_silence_min_internal": 0.42,
+        "voice_post_silence_keep": 0.22,
+        "voice_post_silence_threshold_db": -46.0,
     },
     "image": {
         "backend": "comfyui",
@@ -84,7 +96,8 @@ DEFAULT_CONFIG: dict = {
     "documentary.voice_backend": "omnivoice",
     "documentary.short_duration": 60,
     "documentary.long_duration": 600,
-    "documentary.segments": 0,          # 0 = auto (1 per ~25s of duration)
+    "documentary.segments": 0,          # 0 = auto (~1 per 12s, max 100); else fixed clip count
+    "documentary.playback_speed": 1.2,  # final doc video+audio; 1.0 = normal
     "img2video_enabled": False,
     "img2video_backend": "kling_standard",
     "img2video_duration": "5",
@@ -118,6 +131,7 @@ ENV_LOCAL_MAP: dict[str, tuple[str, type]] = {
     # TTS
     "TTS_BACKEND":                ("tts.backend",                        str),
     "OMNIVOICE_URL":              ("tts.omnivoice_url",                  str),
+    "OMNIVOICE_HTTP_READ_TIMEOUT": ("tts.omnivoice_http_read_timeout",  int),
     "OMNIVOICE_MODE":             ("tts.omnivoice_mode",                 str),
     "REFERENCE_AUDIO":            ("tts.reference_audio",                str),
     "OMNIVOICE_MODEL_ID":         ("tts.omnivoice_model_id",             str),
@@ -129,6 +143,12 @@ ENV_LOCAL_MAP: dict[str, tuple[str, type]] = {
     "OMNIVOICE_EXTRA_INSTRUCT":   ("tts.omnivoice_extra_instruct",       str),
     "OMNIVOICE_LANGUAGE_HINT":    ("tts.omnivoice_language_hint",        str),
     "ELEVENLABS_VOICE_ID":        ("tts.elevenlabs_voice_id",            str),
+    "VOICE_POST_PROCESS":         ("tts.voice_post_process",             int),
+    "VOICE_POST_TARGET_LUFS":     ("tts.voice_post_target_lufs",         float),
+    "VOICE_POST_SILENCE_TRIM":    ("tts.voice_post_silence_trim",         int),
+    "VOICE_POST_SILENCE_MIN":     ("tts.voice_post_silence_min_internal", float),
+    "VOICE_POST_SILENCE_KEEP":    ("tts.voice_post_silence_keep",        float),
+    "VOICE_POST_SILENCE_THR":     ("tts.voice_post_silence_threshold_db", float),
     # Image
     "IMAGE_BACKEND":              ("image.backend",                      str),
     "COMFYUI_URL":                ("image.comfyui_url",                  str),
@@ -191,6 +211,9 @@ TTS_BACKEND={TTS_BACKEND}
 # OmniVoice local server URL (when using server mode)
 OMNIVOICE_URL={OMNIVOICE_URL}
 
+# Seconds — one HTTP generate request (per text chunk) may take a long time on CPU
+OMNIVOICE_HTTP_READ_TIMEOUT={OMNIVOICE_HTTP_READ_TIMEOUT}
+
 # OmniVoice generation mode: clone | design
 OMNIVOICE_MODE={OMNIVOICE_MODE}
 
@@ -202,6 +225,16 @@ OMNIVOICE_MODEL_ID={OMNIVOICE_MODEL_ID}
 
 # What is spoken in the reference clip (for zero-shot clone)
 OMNIVOICE_REF_TRANSCRIPT={OMNIVOICE_REF_TRANSCRIPT}
+
+# 1 = after TTS, run FFmpeg speech cleanup (loudnorm + high-pass) on voiceover
+VOICE_POST_PROCESS={VOICE_POST_PROCESS}
+# Target integrated loudness in LUFS (typical speech: -16 to -18)
+VOICE_POST_TARGET_LUFS={VOICE_POST_TARGET_LUFS}
+# 1 = trim long silences; min_internal sec = only collapse gaps longer than this; keep = gap to leave
+VOICE_POST_SILENCE_TRIM={VOICE_POST_SILENCE_TRIM}
+VOICE_POST_SILENCE_MIN={VOICE_POST_SILENCE_MIN}
+VOICE_POST_SILENCE_KEEP={VOICE_POST_SILENCE_KEEP}
+VOICE_POST_SILENCE_THR={VOICE_POST_SILENCE_THR}
 
 # ElevenLabs voice ID (from https://elevenlabs.io/voice-lab)
 ELEVENLABS_VOICE_ID={ELEVENLABS_VOICE_ID}

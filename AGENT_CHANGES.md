@@ -417,3 +417,97 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
 - Changes:
   - `build.bat`: Post-build notes me `playwright install chromium` hata kar clarify kiya — `modules/uploader.py` `channel="chrome"` use karta hai (system Google Chrome), isliye end users ko Python / `playwright install` ki zaroorat nahi sirf upload ke liye; Chrome install ka short note.
 - Reason: Pehle wala message galat expectation deta tha; codebase bundled Chromium se upload nahi karti.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: OmniVoice local server — read timeout on long scripts (CPU)
+- Changes:
+  - `backends/tts/omnivoice_tts.py`: server mode ab poori script ek hi HTTP request mein nahi bhejta; package mode jaisa text chunking + per-chunk retry + `AudioSegment` join; oversize bina-viram sentences ke liye hard split; HTTP `timeout=(connect, read)` jahan read `tts.omnivoice_http_read_timeout` se aata hai (min 120s).
+  - `core/config_manager.py`: default + env `OMNIVOICE_HTTP_READ_TIMEOUT` / `tts.omnivoice_http_read_timeout` (default 10800) add.
+- Reason: Lambe voiceover (jaise 8000+ chars) CPU pe ek hi request mein 300s+ lag rahe the aur `Read timed out` se pipeline fail; chhote requests + lamba per-chunk read timeout is fix karta hai.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: Script prompt — plain voiceover (no emotion flags / symbols)
+- Changes:
+  - `modules/scripter.py`: `_omnivoice_emotion_rules` hata kar `_voiceover_plain_format_rules` add — Gemini ko continuous spoken prose (shorts style) likhne ko kehta hai; `voiceover_text`/segment `voiceover` me koi [flag], emoji, ya extra markup nahi; documentary + main JSON prompt dono me apply; `tts_backend` ab `_build_prompt` / `_build_documentary_prompt` me use nahi (dead param hata diye).
+- Reason: User sample jaisa clean Hindi TTS chahiye tha; purana OmniVoice per-sentence [excited] etc. wala rule models ko galat output deta tha.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: Documentary — more auto clips on long video + 1.2× final pace
+- Changes:
+  - `modules/scripter.py`: auto segment count ab `target_duration / 12` (pehle `/25`), cap `50` (pehle `20`) — lambe target par zyada transitions; `DOC_AUTO_SEG_EVERY_S` / `DOC_SEG_MAX` constants.
+  - `modules/documentary_assembler.py`: `playback_speed` param; `1.0` par purana copy-mux; warna `setpts` + `atempo` se video + voice dono same factor (0.5–2.0 clamp).
+  - `core/pipeline_runner.py`: `documentary.playback_speed` config se `assemble_documentary` ko pass (default 1.2).
+  - `core/config_manager.py`: `documentary.playback_speed` default `1.2`.
+  - `gui/tabs/documentary_tab.py`: Clips menu me `25`–`50` options; short/long card copy update.
+- Reason: Lambe documentary me zyada clip cuts chahiye the; final output slow lag raha tha — 1.2× synced speed se pace tez.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: Script review — 25+ scenes; UI only showed 15
+- Changes:
+  - `gui/components/script_review.py`: hardcoded `_display_cap = 15` hata diya; ab saare `image_prompts` rows scrollable list me; approve par tail-merge logic hata (ab har row editable/reviewable).
+- Reason: User ne 25 clips select kiye the par Step 2 me sirf pehle 15 scenes dikh rahe the.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: OmniVoice TTS — Ghost ka output WebUI jaisa (clone quality)
+- Changes:
+  - `backends/tts/omnivoice_tts.py`: HTTP clone ab `auto_transcribe_ref=1` (Whisper) default, static galat default transcript nahi; Hindi danda normalization; design me Hindi pacing (WebUI `generate-design`); package clone: ref preprocess + `voice_clone_prompt` + `duration` estimate + stable `generate` output handling (WebUI helpers).
+  - `core/config_manager.py`: `tts.omnivoice_auto_transcribe_ref` default `1`; `omnivoice_ref_transcript` default `""`.
+  - `gui/tabs/settings_tab.py`: Auto-transcribe checkbox + transcript hint.
+- Reason: Standalone `webui.py` reference text ASR + duration se sahi clone deta tha; Ghost static placeholder transcript bhejta tha — ratio/duration kharab.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: Voiceover — automatic FFmpeg post-process (no manual tuning)
+- Changes:
+  - `modules/voicer.py`: `run_voiceover` ab pace ke baad `_apply_voice_post_process` — `highpass=f=80` + EBU R128 `loudnorm` (configurable LUFS); fail par original audio.
+  - `core/config_manager.py`: `tts.voice_post_process` (default 1), `tts.voice_post_target_lufs` (default -16); env `VOICE_POST_PROCESS` / `VOICE_POST_TARGET_LUFS`; template lines.
+  - `gui/tabs/settings_tab.py`: TTS section me post-process checkbox.
+- Reason: User ne bina human touch TTS output aur improve karne ko kaha; sab backends par same last-step polish.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: Voice post — smart silence (gap preserve + long dead-air trim)
+- Changes:
+  - `modules/voicer.py`: FFmpeg `silenceremove` — `stop_duration` = sirf itni se zyada lambi chup hat-ti hai (default 0.42s); `stop_silence` = wahan ~0.22s natural gap rehta hai; shuru/end trim + `loudnorm`; fallback chain: full → edges-only → hpf+loudnorm.
+  - `core/config_manager.py`: `tts.voice_post_silence_*` keys + .env `VOICE_POST_SILENCE_*`.
+  - `gui/tabs/settings_tab.py`: “Smart silence” checkbox + hint.
+- Reason: User ko silence detect/cut chahiye tha, lekin word/sentence beech ka spacing zyada tight ya loose na ho.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: Settings tab — shorter scroll, foldable blocks, lean copy
+- Changes:
+  - `gui/tabs/settings_tab.py`: `_add_foldable()` helper; Quick start banner collapsible (default band); API keys me sirf Gemini upar, baaki 7 “More API keys (optional)” fold; TTS: post-process + smart silence upar, OmniVoice block fold (default khol), Edge/Eleven fold (default band); ComfyUI URL fold; `TTS_DESCRIPTIONS` / `IMG_DESCRIPTIONS` chhote; desc labels chhota font / wrap.
+- Reason: User ne settings bahut lamba + UI improve; scroll kam, power users expand kar sakte hain.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: Documentary — clips count cap 100
+- Changes:
+  - `modules/scripter.py`: `DOC_SEG_MAX` 50 → 100 (auto + manual cap).
+  - `gui/tabs/documentary_tab.py`: Clips dropdown 60–100; help text "up to 100".
+  - `core/config_manager.py`: default comment `max 100`.
+- Reason: User ne Documentary Clips max 100 chaha.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: Aspect ratio — single place in UI + apply on tap (Pexels portrait/landscape)
+- Changes:
+  - `gui/tabs/settings_tab.py`: `CTkSegmentedButton` (9:16 / 16:9) ab `command=_on_aspect_segment_change` se turant `config.set("aspect_ratio", ...)` + `config.save()`; hint copy update — [ SAVE CONFIG ] pe depend nahi.
+  - `gui/tabs/documentary_tab.py`: Footage se duplicate 9:16/16:9 buttons hata ke ek readout (Settings se source + Pexels portrait/landscape); SHORT form card se “YouTube Shorts” wali zabardasti vertical imply hata; run log + `_refresh_doc_aspect_lbl` se current value dikhe.
+- Reason: Teen jagah ratio + Settings par change bina [ SAVE CONFIG ] ke pipeline 9:16 use karti thi; Pexels `video_fetcher` me orientation config se aata hai — config turant sahi rakhna + ek hi controlling UI.

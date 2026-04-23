@@ -32,12 +32,8 @@ class ScriptReviewWindow(ctk.CTkToplevel):
         self.configure(fg_color=BG_MAIN)
         self.resizable(True, True)
 
-        self._original_prompts_full = list(script_data.get("image_prompts") or [])
-        prompts = list(self._original_prompts_full)
+        prompts = list(script_data.get("image_prompts") or [])
         self._total_prompts = len(prompts)
-        self._display_cap = 15
-        if len(prompts) > self._display_cap:
-            prompts = prompts[: self._display_cap]
 
         # ── Button row — packed FIRST so it is always visible at bottom ───
         btn_row = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
@@ -175,13 +171,10 @@ class ScriptReviewWindow(ctk.CTkToplevel):
         )
         self.word_count_label.pack(anchor="w", pady=(2, 14))
 
-        # IMAGE PROMPTS
-        cap_note = ""
-        if self._total_prompts > self._display_cap:
-            cap_note = f"  (showing first {self._display_cap} of {self._total_prompts})"
+        # IMAGE PROMPTS (all scenes — scrollable; was capped at 15, broke 25+ clip review)
         ctk.CTkLabel(
             scroll_area,
-            text=f"IMAGE PROMPTS  —  {self._total_prompts} scenes{cap_note}",
+            text=f"IMAGE PROMPTS  —  {self._total_prompts} scene{'s' if self._total_prompts != 1 else ''}",
             font=("Segoe UI", 11, "bold"),
             text_color=TEXT_SEC,
         ).pack(anchor="w", pady=(0, 6))
@@ -300,12 +293,7 @@ class ScriptReviewWindow(ctk.CTkToplevel):
     def _on_approve_click(self):
         title = self.title_entry.get().strip()
         voiceover = self.voiceover_box.get("1.0", "end").strip()
-        image_prompts = [e.get().strip() for e in self.prompt_entries]
-
-        merged_prompts = list(image_prompts)
-        if self._total_prompts > self._display_cap:
-            tail = self._original_prompts_full[self._display_cap:]
-            merged_prompts = list(image_prompts) + [str(x) for x in tail]
+        merged_prompts = [e.get().strip() for e in self.prompt_entries]
 
         if not voiceover:
             messagebox.showwarning("Validation", "Voiceover script cannot be empty.", parent=self)

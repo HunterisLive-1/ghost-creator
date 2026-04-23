@@ -28,6 +28,10 @@ from core.config_manager import config
 
 log = get_logger("scripter")
 
+# Documentary: auto segment count = round(target_sec / DOC_AUTO_SEG_EVERY_S); clamped 3..DOC_SEG_MAX
+DOC_AUTO_SEG_EVERY_S = 12.0
+DOC_SEG_MAX = 100
+
 # ISO 639-1 code → (Gemini display name, script instruction for voiceover/title)
 VOICEOVER_LANG_META: dict[str, tuple[str, str]] = {
     "hi": (
@@ -62,17 +66,20 @@ def _lang_display_and_script(lang: str) -> tuple[str, str]:
     return (code.upper(), "Use the correct native writing system for this language.")
 
 
-def _omnivoice_emotion_rules(tts_backend: str) -> str:
-    backend = (tts_backend or "").strip().lower()
-    if backend != "omnivoice":
-        return ""
+def _voiceover_plain_format_rules() -> str:
+    """
+    Force Gemini (and any provider using this prompt) to output TTS-friendly voiceover:
+    continuous prose, no [emotion] flags or markup — matches how creators actually speak in shorts.
+    """
     return (
-        '\nOMNIVOICE EMOTION FLAGS (MANDATORY for "voiceover_text"):\n'
-        "- Prefix each sentence with one emotion flag.\n"
-        "- Allowed flags only: [neutral], [excited], [serious], [curious], [urgent], [dramatic], [calm]\n"
-        "- Format example: [excited] यह सच जानकर आप चौंक जाएंगे।\n"
-        "- Keep one flag per sentence and vary naturally by context.\n"
-        "- Do not use emojis. Do not invent new flags."
+        '\nVOICEOVER — PLAIN SPOKEN FORMAT (MANDATORY for "voiceover_text" and each segment "voiceover"):\n'
+        "- Write a continuous, natural monologue: short–medium sentences; end each thought with a full stop or question mark, "
+        "then a single space before the next sentence (standard typing).\n"
+        "- Style: like a YouTube/Instagram/shorts host explaining the topic in plain language — flow from hook to details to CTA, "
+        "same spirit as: informal but clear sentences in a row, no list formatting in the speech.\n"
+        "- Do NOT use emotion tags, square brackets, hashtags, emojis, asterisks, bullet symbols, or stage directions in the spoken text.\n"
+        "- Do NOT prefix lines with [neutral], [excited], or any [label]. No SFX:/MUSIC: lines.\n"
+        "- Avoid decorative typing: no repeated !!!, ellipsis spam ………, or ALL CAPS for fake emphasis; convey energy with words only.\n"
     )
 
 
@@ -86,7 +93,6 @@ def _build_prompt(
     target_words: int,
     video_type: str,
     composition_hint: str,
-    tts_backend: str,
 ) -> str:
     """
     Build the full Gemini prompt for the given topic and voiceover language.
@@ -96,7 +102,7 @@ def _build_prompt(
     metadata.description / tags → in English (for YouTube SEO)
     """
     lang_display, script_rule = _lang_display_and_script(lang)
-    omnivoice_emotion_rules = _omnivoice_emotion_rules(tts_backend)
+    voiceover_plain_rules = _voiceover_plain_format_rules()
     duration_guidance = (
         "Keep it short, concise, and high-energy."
         if target_duration <= 90
@@ -124,7 +130,7 @@ IMPORTANT LANGUAGE RULES:
 - "image_prompts" MUST always be in English (for Stable Diffusion quality).
 - "title" MUST be in {lang_display}.
 - "description" and "tags" MUST be in English (for YouTube SEO).
-{omnivoice_emotion_rules}
+{voiceover_plain_rules}
 
 Output ONLY a valid JSON object. No markdown fences, no extra text.
 
@@ -177,7 +183,7 @@ Rules for voiceover_text:
 - End: short YouTube-style CTA in {lang_display} (subscribe / bell / follow)
 - Target: approximately {target_words} words
 - Write as if a real {lang_display}-speaking creator is talking — natural rhythm, not robotic
-- If OMNIVOICE emotion flags are enabled above, every sentence must start with one allowed flag
+- Follow VOICEOVER — PLAIN SPOKEN FORMAT above: no bracket tags, no emojis, no extra symbols in the spoken line
 
 Rules for english_subtitle_text:
 - Direct English translation of voiceover_text
@@ -509,7 +515,6 @@ def generate_script(
     target_words = int((target_duration / 60) * 130)
     video_type = "YouTube Short" if target_duration <= 90 else "YouTube video"
     composition_hint = "vertical portrait" if aspect_ratio == "9:16" else "wide cinematic landscape"
-    tts_backend = cfg.get("tts_backend") or config.get("tts.backend", "omnivoice")
 
     provider = cfg.get("script_provider") or config.get("script_provider", "gemini")
     log.info(f"Generating script: topic={topic!r}  lang={language!r}  provider={provider!r}")
@@ -522,7 +527,6 @@ def generate_script(
         target_words=target_words,
         video_type=video_type,
         composition_hint=composition_hint,
-        tts_backend=tts_backend,
     )
 
     if provider == "openai":
@@ -549,10 +553,9 @@ def _build_documentary_prompt(
     lang: str,
     target_duration: int,
     num_segments: int,
-    tts_backend: str,
 ) -> str:
     lang_display, script_rule = _lang_display_and_script(lang)
-    omnivoice_rules = _omnivoice_emotion_rules(tts_backend)
+    voiceover_plain = _voiceover_plain_format_rules()
     _min = target_duration // 60
     _sec = target_duration % 60
     duration_label = f"{_min} minute{'s' if _min != 1 else ''}" + (f" {_sec}s" if _sec else "")
@@ -572,7 +575,7 @@ LANGUAGE RULES:
 - "video_query" fields MUST be in English (for YouTube search).
 - "title" MUST be in {lang_display}.
 - "description" and "tags" MUST be in English (YouTube SEO).
-{omnivoice_rules}
+{voiceover_plain}
 
 Output ONLY valid JSON. No markdown fences, no extra text.
 
@@ -619,6 +622,7 @@ SEGMENT RULES:
 - First segment: shocking hook directly about "{topic}".
 - Last segment: short CTA in {lang_display} (like/subscribe/comment).
 - Each "voiceover" must be self-contained — listener can understand without context.
+- Spoken text only — follow VOICEOVER — PLAIN SPOKEN FORMAT (no [flags], no emojis, no markup).
 - Sum of all duration_hint values must equal {target_duration}.
 
 Generate the JSON now:"""
@@ -663,12 +667,14 @@ def generate_documentary_script(
     """
     cfg = script_config or {}
     language = (lang or "hi").lower().strip()
-    # Use explicit count if given, otherwise auto: 1 segment per ~25 s (min 3, max 20)
+    # Explicit count, or auto: more segments for longer target → more clip transitions
     if n_segments and n_segments > 0:
-        num_segments = max(3, min(20, n_segments))
+        num_segments = max(3, min(DOC_SEG_MAX, n_segments))
     else:
-        num_segments = max(3, min(20, round(target_duration / 25)))
-    tts_backend = cfg.get("tts_backend") or config.get("tts.backend", "omnivoice")
+        num_segments = max(
+            3,
+            min(DOC_SEG_MAX, round(target_duration / DOC_AUTO_SEG_EVERY_S)),
+        )
     provider = cfg.get("script_provider") or config.get("script_provider", "gemini")
 
     log.info(
@@ -676,7 +682,7 @@ def generate_documentary_script(
         topic, language, provider, num_segments,
     )
 
-    prompt = _build_documentary_prompt(topic, language, target_duration, num_segments, tts_backend)
+    prompt = _build_documentary_prompt(topic, language, target_duration, num_segments)
 
     if provider == "openai":
         raw = _generate_raw_openai(prompt, cfg)

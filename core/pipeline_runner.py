@@ -710,6 +710,7 @@ class PipelineRunner:
             self._emit(5, msg, "INFO")
 
         _output_filename = f"documentary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        _pb_speed = float(config.get("documentary.playback_speed", 1.2))
         video_path = assemble_documentary(
             clips=clips,
             audio_path=audio_path,
@@ -718,6 +719,7 @@ class PipelineRunner:
             output_filename=_output_filename,
             aspect_ratio=aspect_ratio,
             progress_callback=_asm_progress,
+            playback_speed=_pb_speed,
         )
         self._emit(5, f"Documentary rendered: {video_path}", "SUCCESS")
 
