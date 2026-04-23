@@ -350,7 +350,11 @@ class DocumentaryTab(ctk.CTkFrame):
                      ).pack(side="left")
 
         _engines = [
-            ("omnivoice",  "🔊 OmniVoice",  "Local AI — zero-shot voice clone/design"),
+            (
+                "omnivoice",
+                "🔊 OmniVoice",
+                "Local AI — zero-shot clone · TTS: पहले sentence/viram, फिर ~800 chars pack; Settings → timeout/chunk",
+            ),
             ("elevenlabs", "⚡ ElevenLabs",  "Cloud — ultra-realistic (API key required)"),
             ("edge_tts",   "🆓 Edge TTS",    "Free Microsoft neural TTS"),
         ]
@@ -763,10 +767,14 @@ class DocumentaryTab(ctk.CTkFrame):
     # ── Video Preview ─────────────────────────────────────────────────────────
     def _check_for_video_preview(self):
         if not self.pipeline_running:
+            self._doc_preview_open = False
             return
         if self.runner and getattr(self.runner, "waiting_for_video_preview", False):
-            self._show_video_preview_window()
-            return
+            if not getattr(self, "_doc_preview_open", False):
+                self._doc_preview_open = True
+                self._show_video_preview_window()
+        else:
+            self._doc_preview_open = False
         self.after(500, self._check_for_video_preview)
 
     def _show_video_preview_window(self):
@@ -785,8 +793,87 @@ class DocumentaryTab(ctk.CTkFrame):
         def on_cancel():
             self.runner.cancel_from_video_preview()
             self._on_stop()
+            self._doc_preview_open = False
 
-        VideoPreviewWindow(self.winfo_toplevel(), video_path, on_approve, on_cancel)
+        def on_regen_audio():
+            self._doc_preview_open = False
+            self.runner.set_video_preview_decision("regen_audio")
+            self._append_log("[INFO] Regenerating audio (uses current plan & Settings)…", "INFO")
+            self.after(500, self._check_for_video_preview)
+
+        def on_regen_video():
+            self._doc_preview_open = False
+            self.runner.set_video_preview_decision("regen_video")
+            self._append_log("[INFO] Regenerating footage (current voice + plan & Settings)…", "INFO")
+            self.after(500, self._check_for_video_preview)
+
+        def on_edit_plan():
+            self._doc_preview_open = False
+            ctx = getattr(self.runner, "_doc_regen_ctx", None) if self.runner else None
+            if not ctx or not isinstance(ctx.get("script"), dict):
+                self._append_log("[WARN] No documentary plan loaded to edit.", "WARNING")
+                self.after(500, self._check_for_video_preview)
+                return
+            d_script = ctx["script"]
+            segs = d_script.get("segments") or []
+            title = d_script.get("title") or d_script.get("metadata", {}).get("title", "")
+            script_data = {
+                "title": title,
+                "voiceover": d_script.get("voiceover_text", ""),
+                "image_prompts": [s.get("video_query", "") for s in segs],
+            }
+            from gui.components.script_review import ScriptReviewWindow
+
+            def on_plan_save(approved: dict) -> None:
+                ok = (
+                    self.runner.apply_documentary_preview_script(approved)
+                    if self.runner
+                    else False
+                )
+                if ok:
+                    self._append_log(
+                        "[OK] Plan updated — use Regenerate audio or Regenerate video when ready.",
+                        "SUCCESS",
+                    )
+                else:
+                    self._append_log(
+                        "[ERR] Could not apply plan (empty text or scene / prompt count mismatch).",
+                        "ERROR",
+                    )
+                self.after(500, self._check_for_video_preview)
+
+            def on_plan_regen_dummy() -> None:
+                pass
+
+            def on_plan_close() -> None:
+                self._append_log("[INFO] Edit plan closed.", "INFO")
+                self.after(500, self._check_for_video_preview)
+
+            ScriptReviewWindow(
+                self.winfo_toplevel(),
+                script_data,
+                on_plan_save,
+                on_plan_regen_dummy,
+                on_plan_close,
+                show_regenerate_from_llm=False,
+                window_title="📝 Edit plan & narration (documentary)",
+                step_label="After preview",
+                top_hint=(
+                    "Change voiceover and scene search terms, then save. Return to the preview and "
+                    "use Regenerate audio and/or Regenerate video."
+                ),
+                approve_button_text="✅  Save & close",
+            )
+
+        VideoPreviewWindow(
+            self.winfo_toplevel(),
+            video_path,
+            on_approve,
+            on_cancel,
+            on_regen_audio=on_regen_audio,
+            on_regen_video=on_regen_video,
+            on_edit_plan=on_edit_plan,
+        )
 
     # ── Queue polling ─────────────────────────────────────────────────────────
     def _poll_queue(self):

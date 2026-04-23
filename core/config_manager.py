@@ -41,8 +41,10 @@ DEFAULT_CONFIG: dict = {
         "backend": "omnivoice",
         "omnivoice_url": "http://127.0.0.1:8765",
         "omnivoice_mode": "clone",
-        # Max seconds to wait for one OmniVoice HTTP generate call (per chunk). CPU runs may need 10800+.
-        "omnivoice_http_read_timeout": 10800,
+        # Per sent-chunk char budget: sentence/phrase packing (120–800); default ~full-width sentences.
+        "omnivoice_text_chunk_chars": 800,
+        # Seconds per single OmniVoice HTTP generate (one chunk). Long CPU/40+ min audio: allow hours.
+        "omnivoice_http_read_timeout": 18000,
         "reference_audio": "my_voice_reference.wav",
         "omnivoice_model_id": "k2-fsa/OmniVoice",
         # 1 = WebUI jaisa: reference WAV pe Whisper (auto) — default transcript text mat bhejo
@@ -58,7 +60,7 @@ DEFAULT_CONFIG: dict = {
         "elevenlabs_stability": 0.30,
         "elevenlabs_similarity_boost": 0.85,
         "elevenlabs_style": 0.45,
-        # FFmpeg: HPF + silenceremove + loudnorm (applies to all TTS after synthesis + pace)
+        # FFmpeg: HPF + silenceremove + loudnorm (applies to all TTS after synthesis; no atempo)
         "voice_post_process": 1,
         "voice_post_target_lufs": -16.0,
         # Silence: only gaps longer than stop_duration (sec) are trimmed; stop_silence = gap kept (natural)
@@ -131,6 +133,7 @@ ENV_LOCAL_MAP: dict[str, tuple[str, type]] = {
     # TTS
     "TTS_BACKEND":                ("tts.backend",                        str),
     "OMNIVOICE_URL":              ("tts.omnivoice_url",                  str),
+    "OMNIVOICE_TEXT_CHUNK_CHARS": ("tts.omnivoice_text_chunk_chars",  int),
     "OMNIVOICE_HTTP_READ_TIMEOUT": ("tts.omnivoice_http_read_timeout",  int),
     "OMNIVOICE_MODE":             ("tts.omnivoice_mode",                 str),
     "REFERENCE_AUDIO":            ("tts.reference_audio",                str),

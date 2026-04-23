@@ -511,3 +511,63 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
   - `gui/tabs/settings_tab.py`: `CTkSegmentedButton` (9:16 / 16:9) ab `command=_on_aspect_segment_change` se turant `config.set("aspect_ratio", ...)` + `config.save()`; hint copy update — [ SAVE CONFIG ] pe depend nahi.
   - `gui/tabs/documentary_tab.py`: Footage se duplicate 9:16/16:9 buttons hata ke ek readout (Settings se source + Pexels portrait/landscape); SHORT form card se “YouTube Shorts” wali zabardasti vertical imply hata; run log + `_refresh_doc_aspect_lbl` se current value dikhe.
 - Reason: Teen jagah ratio + Settings par change bina [ SAVE CONFIG ] ke pipeline 9:16 use karti thi; Pexels `video_fetcher` me orientation config se aata hai — config turant sahi rakhna + ek hi controlling UI.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: `build.bat` — reliable one-click .exe build
+- Changes:
+  - `build.bat`: Har run pe `cd /d "%~dp0"`; `gui\app.py` + `venv\Scripts\activate.bat` check with clear errors; `python -m pip` / `python -m PyInstaller` (PATH-independent); `pyinstaller>=6.0` on first install; `--noconfirm` taaki repeat build prompt na roke.
+- Reason: User ne .exe build karna; script root/venv miss hone par pehle se fail + PyInstaller `python -m` se build stable.
+
+---
+
+- Date/Time: 2026-04-23
+- Task: Documentary — post-preview regen (audio / video) then save-upload
+- Changes:
+  - `core/pipeline_runner.py`: `set_video_preview_decision(approve|cancel|regen_audio|regen_video)`; `stop()` se preview wait wake; standard pipeline 5.5 ab action read; `_run_documentary` 5.5 loop + `_doc_regen_ctx` + `_documentary_regen_audio` / `_documentary_regen_video` (TTS+mux vs re-fetch+mux; config re-read).
+  - `gui/components/video_preview.py`: optional `on_regen_audio` + `on_regen_video` — documentary 2 naye buttons, taller window + copy.
+  - `gui/tabs/documentary_tab.py`: regen callables se `set_video_preview_decision`; `_doc_preview_open` guard taaki 500ms poll se modal stack na bane; cancel pe flag clear.
+- Reason: User ko preview ke baad sirf audio ya footage dubara, phir approve par upload/local; normal Pipeline approve/cancel same.
+
+---
+
+- Date/Time: 2026-04-24
+- Task: Documentary preview — edit plan / narration, then regen (improve before regenerate)
+- Changes:
+  - `core/pipeline_runner.py`: `_distribute_length_by_weights`, `_resync_segment_voiceovers`, `apply_documentary_preview_script()` — post-preview narration + `video_query` patch with proportional per-segment voiceover split; metadata title sync when present.
+  - `gui/components/script_review.py`: optional `show_regenerate_from_llm` (default True), `window_title` / `step_label` / `top_hint` / `approve_button_text` for post-preview “save plan” mode.
+  - `gui/components/video_preview.py`: optional `on_edit_plan` + “Edit plan / narration” button; documentary subtitle when edit is available.
+  - `gui/tabs/documentary_tab.py`: `on_edit_plan` opens `ScriptReviewWindow` from `_doc_regen_ctx`, applies via runner; `on_regen_*` + explicit `_check_for_video_preview` reschedule.
+- Reason: Regen with unchanged script/Pexels queries had little benefit; user can now fix narration and scene search terms, save, then regenerate audio and/or video.
+
+---
+
+- Date/Time: 2026-04-24
+- Task: Voicer — no FFmpeg atempo on TTS (natural speed)
+- Changes:
+  - `modules/voicer.py`: `_apply_pace_speed` + `PACE_ATEMPO` hata diya; TTS ke baad seedha `_apply_voice_post_process`.
+  - `core/config_manager.py`: TTS post-process comment se “pace” mention update.
+- Reason: User ne “Pace speed applied (1.18x)” sahi nahi; voice normal/unaltered speed, baaki (Pipeline **video** pace / Ken Burns) same.
+
+---
+
+- Date/Time: 2026-04-24
+- Task: OmniVoice — bade, smart text chunks (voiceover)
+- Changes:
+  - `backends/tts/omnivoice_tts.py`: `tts.omnivoice_text_chunk_chars` (clamp 120–800, default 400); blank-line paragraph split + single-newline → space; logs/progress mein `≤N chars`.
+  - `core/config_manager.py` + `ENV_LOCAL_MAP` (`OMNIVOICE_TEXT_CHUNK_CHARS`).
+  - `gui/tabs/settings_tab.py`: OmniVoice **TEXT CHUNK (chars)** OptionMenu (280–800).
+  - `gui/tabs/documentary_tab.py`: OmniVoice hint line — chunk Settings se.
+  - `modules/voicer.py`: docstring mein pointer.
+- Reason: Zyada chars per chunk = kam TTS pieces, better flow; abhi 220 tha, user ne bada + smart chaha.
+
+---
+
+- Date/Time: 2026-04-24
+- Task: OmniVoice — sentence/clause–first chunking, ~800 chars, 5h+ read timeout
+- Changes:
+  - `backends/tts/omnivoice_tts.py`: `_split_raw_sentences` / `_split_oversize_natural` (comma/`:—` se pehle) / `_pack_units` — ab character mid-sentence tabhi jab beech mein koi `।.!?` / comma break na mile; `CHUNK_SIZE_FALLBACK` 800; `CHUNK_TIMEOUT` 18000s, `_http_read_timeout_sec` max 24h cap.
+  - `core/config_manager.py`: `omnivoice_text_chunk_chars` 800, `omnivoice_http_read_timeout` 18000.
+  - `gui/tabs/settings_tab.py`: text-chunk / timeout hints; save fallback 800.
+- Reason: Alag-alag tone + pause issues char-wise split se; 40+ min job ke liye 3–4h+ per HTTP safe.

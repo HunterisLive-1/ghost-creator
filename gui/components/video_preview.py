@@ -45,17 +45,36 @@ class VideoPreviewWindow(ctk.CTkToplevel):
     ---------
     on_approve : callable — user clicked "Approve & Continue"
     on_cancel  : callable — user clicked "Cancel Pipeline"
+    on_regen_audio : callable | None — documentary only: re-TTS + remux
+    on_regen_video : callable | None — documentary only: re-fetch clips + remux
+    on_edit_plan : callable | None — documentary only: open script editor, then regen
     """
 
-    def __init__(self, parent, video_path: str, on_approve, on_cancel):
+    def __init__(
+        self,
+        parent,
+        video_path: str,
+        on_approve,
+        on_cancel,
+        on_regen_audio=None,
+        on_regen_video=None,
+        on_edit_plan=None,
+    ):
         super().__init__(parent)
         self._video_path = video_path
         self._on_approve = on_approve
-        self._on_cancel  = on_cancel
+        self._on_cancel = on_cancel
+        self._on_regen_audio = on_regen_audio
+        self._on_regen_video = on_regen_video
+        self._on_edit_plan = on_edit_plan
+        self._has_doc_regen = bool(on_regen_audio and on_regen_video)
+        self._has_edit_plan = bool(on_edit_plan)
 
         self.title("🎬 Video Preview — Step 5 of 6")
-        self.geometry("640x380")
-        self.minsize(560, 340)
+        _h = 520 if (self._has_doc_regen and self._has_edit_plan) else (480 if self._has_doc_regen else 380)
+        _mh = 440 if (self._has_doc_regen and self._has_edit_plan) else (400 if self._has_doc_regen else 340)
+        self.geometry(f"640x{_h}")
+        self.minsize(560, _mh)
         self.configure(fg_color=BG_MAIN)
         self.resizable(True, False)
         self.grab_set()
@@ -80,10 +99,24 @@ class VideoPreviewWindow(ctk.CTkToplevel):
             hdr, text="[ VIDEO PREVIEW ]",
             font=("Orbitron", 16, "bold"), text_color=ACCENT_PRI,
         ).pack(pady=(14, 2))
+        if self._has_doc_regen and self._has_edit_plan:
+            _sub = (
+                "Documentary: use Edit plan / narration to change voiceover and scene search terms, "
+                "then Regenerate audio and/or Regenerate video. You can also tweak max clip and playback in Settings. "
+                "Approve to save or upload — else cancel."
+            )
+        elif self._has_doc_regen:
+            _sub = (
+                "Documentary: tweak max clip / playback in Settings, then use regen. "
+                "When satisfied, Approve to save or upload — else cancel."
+            )
+        else:
+            _sub = "Review your video in the media player, then approve or cancel."
         ctk.CTkLabel(
             hdr,
-            text="Review your video in the media player, then approve or cancel.",
+            text=_sub,
             font=("Share Tech Mono", 11), text_color=TEXT_SEC,
+            wraplength=580,
         ).pack(pady=(0, 14))
 
         # ── File info card ────────────────────────────────────────────────
@@ -124,7 +157,53 @@ class VideoPreviewWindow(ctk.CTkToplevel):
             command=lambda: _open_in_player(self._video_path),
         ).pack(fill="x", padx=20, pady=(0, 4))
 
-        # ── Action buttons ────────────────────────────────────────────────
+        # ── Documentary: edit plan (then regen) ──────────────────────────
+        if self._on_edit_plan:
+            ctk.CTkButton(
+                self,
+                text="📝  EDIT PLAN / NARRATION…",
+                font=("Orbitron", 11, "bold"),
+                fg_color=BG_SEC,
+                hover_color=BG_CARD,
+                border_color=ACCENT_PRI,
+                border_width=1,
+                text_color=ACCENT_PRI,
+                height=40,
+                command=self._do_edit_plan,
+            ).pack(fill="x", padx=20, pady=(0, 4))
+
+        # ── Documentary: regen row (re-reads Settings) ────────────────────
+        if self._has_doc_regen:
+            regen_row = ctk.CTkFrame(self, fg_color="transparent")
+            regen_row.pack(fill="x", padx=20, pady=(4, 4))
+            regen_row.columnconfigure(0, weight=1)
+            regen_row.columnconfigure(1, weight=1)
+            ctk.CTkButton(
+                regen_row,
+                text="🎙  REGENERATE AUDIO",
+                font=("Orbitron", 11, "bold"),
+                fg_color=BG_CARD,
+                hover_color=BG_SEC,
+                border_color=ACCENT_SEC,
+                border_width=1,
+                text_color=ACCENT_SEC,
+                height=40,
+                command=self._do_regen_audio,
+            ).grid(row=0, column=0, padx=(0, 6), sticky="ew")
+            ctk.CTkButton(
+                regen_row,
+                text="🎥  REGENERATE VIDEO",
+                font=("Orbitron", 11, "bold"),
+                fg_color=BG_CARD,
+                hover_color=BG_SEC,
+                border_color=ACCENT_PRI,
+                border_width=1,
+                text_color=ACCENT_PRI,
+                height=40,
+                command=self._do_regen_video,
+            ).grid(row=0, column=1, padx=(6, 0), sticky="ew")
+
+        # ── Approve / Cancel ──────────────────────────────────────────────
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=(8, 20))
         btn_row.columnconfigure(0, weight=1)
@@ -163,3 +242,21 @@ class VideoPreviewWindow(ctk.CTkToplevel):
     def _do_cancel(self):
         self.destroy()
         self._on_cancel()
+
+    def _do_regen_audio(self):
+        if not self._on_regen_audio:
+            return
+        self.destroy()
+        self._on_regen_audio()
+
+    def _do_regen_video(self):
+        if not self._on_regen_video:
+            return
+        self.destroy()
+        self._on_regen_video()
+
+    def _do_edit_plan(self):
+        if not self._on_edit_plan:
+            return
+        self.destroy()
+        self._on_edit_plan()

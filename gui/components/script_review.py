@@ -19,14 +19,27 @@ ACCENT_GRN = "#00CC66"
 
 
 class ScriptReviewWindow(ctk.CTkToplevel):
-    def __init__(self, parent, script_data: dict, on_approve, on_regenerate, on_cancel):
+    def __init__(
+        self,
+        parent,
+        script_data: dict,
+        on_approve,
+        on_regenerate,
+        on_cancel,
+        *,
+        show_regenerate_from_llm: bool = True,
+        window_title: str | None = None,
+        step_label: str | None = None,
+        top_hint: str | None = None,
+        approve_button_text: str | None = None,
+    ):
         super().__init__(parent)
         self._on_approve = on_approve
         self._on_regenerate = on_regenerate
         self._on_cancel = on_cancel
         self._editing = False
 
-        self.title("📝 Script Review — Step 2 of 6")
+        self.title(window_title or "📝 Script Review — Step 2 of 6")
         self.geometry("800x700")
         self.minsize(700, 620)
         self.configure(fg_color=BG_MAIN)
@@ -56,7 +69,8 @@ class ScriptReviewWindow(ctk.CTkToplevel):
             corner_radius=6,
             command=self._on_regenerate_click,
         )
-        self.regen_btn.pack(side="left", padx=(0, 8))
+        if show_regenerate_from_llm:
+            self.regen_btn.pack(side="left", padx=(0, 8))
 
         self.edit_btn = ctk.CTkButton(
             btn_inner,
@@ -74,7 +88,7 @@ class ScriptReviewWindow(ctk.CTkToplevel):
 
         self.approve_btn = ctk.CTkButton(
             btn_inner,
-            text="✅  Approve & Continue",
+            text=approve_button_text or "✅  Approve & Continue",
             height=38,
             font=("Segoe UI", 14, "bold"),
             fg_color=ACCENT_GRN,
@@ -106,14 +120,15 @@ class ScriptReviewWindow(ctk.CTkToplevel):
         ).pack(side="left")
         ctk.CTkLabel(
             head,
-            text="Step 2 of 6",
+            text=step_label or "Step 2 of 6",
             font=("Segoe UI", 11),
             text_color=ACCENT_SEC,
         ).pack(side="right")
 
         ctk.CTkLabel(
             scroll_area,
-            text="Review your script. Click  ✏️ Edit Script  (below) to make changes.",
+            text=top_hint
+            or "Review your script. Click  ✏️ Edit Script  (below) to make changes.",
             font=("Segoe UI", 12),
             text_color=TEXT_HINT,
         ).pack(anchor="w", pady=(0, 12))

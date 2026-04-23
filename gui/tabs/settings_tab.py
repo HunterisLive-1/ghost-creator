@@ -631,6 +631,33 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_quality.set(OMNIVOICE_QUALITY_REV.get(cur_quality, "Balanced"))
         self._omnivoice_quality.pack(side="left", padx=5)
 
+        om_chunk_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
+        om_chunk_row.pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(om_chunk_row, text="TEXT CHUNK (chars):", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        _chunk_menu_vals = ["280", "360", "400", "480", "520", "640", "800"]
+        try:
+            _cur_chunk = int(config.get("tts.omnivoice_text_chunk_chars", 800))
+        except (TypeError, ValueError):
+            _cur_chunk = 800
+        _cur_chunk = max(120, min(800, _cur_chunk))
+        if str(_cur_chunk) not in _chunk_menu_vals:
+            _cur_chunk = min(_chunk_menu_vals, key=lambda s: abs(int(s) - _cur_chunk))
+        self._omnivoice_text_chunk = ctk.CTkOptionMenu(
+            om_chunk_row,
+            values=_chunk_menu_vals,
+            font=("Share Tech Mono", 12), text_color=TEXT_PRI,
+            fg_color=BG_SEC, button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI, corner_radius=0,
+            width=120,
+        )
+        self._omnivoice_text_chunk.set(str(_cur_chunk))
+        self._omnivoice_text_chunk.pack(side="left", padx=5)
+        self._hint(
+            omni_inner,
+            "TEXT CHUNK: pehle `।.!?` se sentences, phir comma/colon pe pause, phir char limit — alag-alag tone kam. Read timeout: Settings → 5h default (lamba generate).",
+        )
+
         om_gender_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_gender_row.pack(fill="x", pady=(4, 2))
         ctk.CTkLabel(om_gender_row, text="VOICE GENDER:", width=200, anchor="w",
@@ -1855,6 +1882,12 @@ class SettingsTab(ctk.CTkFrame):
             config.set("tts.omnivoice_speaking_style", OMNIVOICE_STYLE_OPTIONS.get(self._omnivoice_style.get(), "default"))
         if hasattr(self, "_omnivoice_quality"):
             config.set("tts.omnivoice_quality_preset", OMNIVOICE_QUALITY_OPTIONS.get(self._omnivoice_quality.get(), "balanced"))
+        if hasattr(self, "_omnivoice_text_chunk"):
+            try:
+                _cc = int(self._omnivoice_text_chunk.get().strip())
+            except (ValueError, AttributeError):
+                _cc = 800
+            config.set("tts.omnivoice_text_chunk_chars", max(120, min(800, _cc)))
         if hasattr(self, "_omnivoice_gender"):
             config.set("tts.omnivoice_voice_gender", OMNIVOICE_GENDER_OPTIONS.get(self._omnivoice_gender.get(), ""))
         if hasattr(self, "_omnivoice_instruct"):

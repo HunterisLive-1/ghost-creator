@@ -43,12 +43,14 @@ logger = logging.getLogger("ghost.tts.omnivoice")
 
 MAX_RETRIES  = 2
 RETRY_DELAY  = 5
-CHUNK_SIZE   = 220
-# Default HTTP read timeout (seconds) for each OmniVoice server request. Long
-# scripts on CPU can exceed 5–10+ minutes per chunk; 3h is a safe ceiling.
-CHUNK_TIMEOUT = 10800
+# Legacy default; effective size comes from `tts.omnivoice_text_chunk_chars` (see `_text_chunk_size_chars()`).
+CHUNK_SIZE_FALLBACK = 800
+# Per-request read timeout (seconds) for one OmniVoice HTTP / generate call. CPU or long
+# chunks (e.g. ~40 min of audio) can take many hours; default 5h, override via config.
+CHUNK_TIMEOUT = 18000
 _CONNECT_TIMEOUT = 30.0
 _MIN_READ_TIMEOUT = 120.0
+_HTTP_READ_TIMEOUT_MAX = 86400.0  # 24h cap when overridden in config
 
 # Match OmniVoice `webui.py` reference trim (mono, resample, cap length).
 REF_TRIM_THRESHOLD_SEC = 10.0
@@ -87,6 +89,22 @@ DESIGN_VOICE_PROFILES: dict[str, dict] = {
 
 
 # ── Config helpers ────────────────────────────────────────────────────────────
+
+# Target max chars *per sent chunk* after packing full sentences; splitting prefers
+# `।.!?` then commas — not arbitrary character windows (avoids tone/pause glitches between chunks).
+_OMNIVOICE_CHUNK_MIN = 120
+_OMNIVOICE_CHUNK_MAX = 800
+
+
+def _text_chunk_size_chars() -> int:
+    """Resolve `tts.omnivoice_text_chunk_chars` with a safe numeric clamp."""
+    raw = config.get("tts.omnivoice_text_chunk_chars", CHUNK_SIZE_FALLBACK)
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = int(CHUNK_SIZE_FALLBACK)
+    return max(_OMNIVOICE_CHUNK_MIN, min(_OMNIVOICE_CHUNK_MAX, n))
+
 
 def _server_path() -> Path | None:
     """Return run.bat Path when server mode is configured, else None."""
@@ -324,14 +342,14 @@ def _gen_out_to_chw_tensor(audio) -> "torch.Tensor":
 def _http_read_timeout_sec() -> float:
     """
     Per-request read timeout (seconds) for OmniVoice HTTP calls.
-    Config `tts.omnivoice_http_read_timeout` overrides; each chunk must finish
-    within this window (separate from total multi-chunk work).
+    Config `tts.omnivoice_http_read_timeout` overrides; each *single* generate call
+    (one text chunk) must finish within this window. Long CPU jobs may need several hours.
     """
     v = config.get("tts.omnivoice_http_read_timeout", None)
     if v is None:
         return float(CHUNK_TIMEOUT)
     try:
-        return max(_MIN_READ_TIMEOUT, float(v))
+        return max(_MIN_READ_TIMEOUT, min(_HTTP_READ_TIMEOUT_MAX, float(v)))
     except (TypeError, ValueError):
         return float(CHUNK_TIMEOUT)
 
@@ -525,7 +543,7 @@ class OmniVoiceTTS(TTSBackend):
 
     @staticmethod
     def _hard_split_oversize(text: str, max_chars: int) -> list[str]:
-        """Split a segment that exceeds max_chars (no sentence breaks)."""
+        """Last resort: length-based split (prefers word boundaries). No sentence delimiters left."""
         t = text.strip()
         if not t:
             return []
@@ -550,34 +568,86 @@ class OmniVoiceTTS(TTSBackend):
         return out
 
     @staticmethod
-    def _split_text(text: str, max_chars: int = CHUNK_SIZE) -> list[str]:
+    def _split_raw_sentences(work: str) -> list[str]:
+        """Split on `।` `।`-style danda, `.` `!` `?` `…` — keeps natural sentence boundaries."""
+        s = (work or "").strip()
+        if not s:
+            return []
+        return [p.strip() for p in re.split(r"(?<=[।.!?…\u0964\u0965])[\s\u00a0]+", s) if p.strip()]
+
+    @staticmethod
+    def _split_oversize_natural(text: str, max_chars: int) -> list[str]:
+        """
+        One *sentence* (no `।.!?` inside) is longer than max_chars: split on commas / colons
+        (natural pauses), pack into <= max_chars, then hard-split only if a clause is still too long.
+        """
+        t = text.strip()
+        if not t:
+            return []
+        if len(t) <= max_chars:
+            return [t]
+        # Clause boundaries: comma, semicolon, em/en dash, colon (common in Hinglish lists / dialogue)
+        parts = re.split(r"(?<=[,;:，；—–])[\s\u00a0]+", t)
+        parts = [p.strip() for p in parts if p.strip()]
+        if len(parts) <= 1:
+            return OmniVoiceTTS._hard_split_oversize(t, max_chars)
+        return OmniVoiceTTS._pack_units(parts, max_chars)
+
+    @staticmethod
+    def _pack_units(units: list[str], max_chars: int) -> list[str]:
+        """Greedy pack text units (sentences or clauses) into runs of at most `max_chars`."""
+        out: list[str] = []
+        cur = ""
+        for u in units:
+            u = (u or "").strip()
+            if not u:
+                continue
+            if len(u) > max_chars:
+                if cur:
+                    out.append(cur.strip())
+                    cur = ""
+                out.extend(OmniVoiceTTS._split_oversize_natural(u, max_chars))
+                continue
+            joiner = f"{cur} {u}" if cur else u
+            if cur and len(joiner) > max_chars:
+                out.append(cur.strip())
+                cur = u
+            else:
+                cur = joiner
+        if cur.strip():
+            out.append(cur.strip())
+        return out if out else [""]
+
+    @staticmethod
+    def _split_text(text: str, max_chars: int | None = None) -> list[str]:
+        if max_chars is None:
+            max_chars = _text_chunk_size_chars()
         raw = (text or "").strip()
         if not raw:
             return [""]
-        sentences = re.split(r"(?<=[।.!?])\s+", raw)
-        chunks: list[str] = []
-        current = ""
+        if "\n" in raw:
+            parts = re.split(r"\n\s*\n+", raw)
+            if len(parts) > 1:
+                out_para: list[str] = []
+                for para in parts:
+                    p = (para or "").strip()
+                    if not p:
+                        continue
+                    out_para.extend(OmniVoiceTTS._split_text(p, max_chars))
+                return out_para if out_para else [raw]
+        work = re.sub(r"[\n\r]+", " ", raw).strip()
+        sentences = OmniVoiceTTS._split_raw_sentences(work)
+        if not sentences:
+            sentences = [work]
+        # Atomic units: full sentences, or clause splits only when a sentence is huge
+        units: list[str] = []
         for sent in sentences:
-            if not sent or not str(sent).strip():
-                continue
-            if current and len(current) + len(sent) + 1 > max_chars:
-                chunks.append(current.strip())
-                current = sent
+            if len(sent) <= max_chars:
+                units.append(sent)
             else:
-                current = f"{current} {sent}" if current else sent
-        if current.strip():
-            chunks.append(current.strip())
-        if not chunks:
-            chunks = [raw]
-
-        # Long single lines without `।.!?` must not stay as one huge request.
-        out: list[str] = []
-        for ch in chunks:
-            if len(ch) <= max_chars:
-                out.append(ch)
-            else:
-                out.extend(OmniVoiceTTS._hard_split_oversize(ch, max_chars))
-        return out if out else [raw]
+                units.extend(OmniVoiceTTS._split_oversize_natural(sent, max_chars))
+        merged = OmniVoiceTTS._pack_units(units, max_chars)
+        return merged if merged and merged != [""] else [work]
 
     # ── Progress helper ───────────────────────────────────────────────────
 
@@ -732,15 +802,19 @@ class OmniVoiceTTS(TTSBackend):
 
         text = _normalize_chunking_text((text or "").strip())
         mode = _omnivoice_mode()
+        cmax = _text_chunk_size_chars()
         chunks = self._split_text(text)
         n = len(chunks)
         if n > 1:
             self._cb(
                 f"🎙️ Voice generate ho raha hai (mode={mode}, {len(text)} chars, "
-                f"{n} chunks — lambi script server pe piece-by-piece) …"
+                f"{n} chunk(s) @ ≤{cmax} chars) …"
             )
         else:
-            self._cb(f"🎙️ Voice generate ho raha hai (mode={mode}, {len(text)} chars) …")
+            self._cb(
+                f"🎙️ Voice generate ho raha hai (mode={mode}, {len(text)} chars, "
+                f"1 chunk @ ≤{cmax} chars) …"
+            )
 
         def _synth_one_chunk(chunk: str, idx: int) -> AudioSegment:
             last_exc: Exception | None = None
@@ -869,6 +943,7 @@ class OmniVoiceTTS(TTSBackend):
                 ref_for_dur = man
 
         design_base: dict | None = _build_design_params(mode, language) if mode == "design" else None
+        cmax = _text_chunk_size_chars()
         chunks = self._split_text(text)
         ref_label = (
             Path(_ref_audio_path()).name
@@ -876,8 +951,8 @@ class OmniVoiceTTS(TTSBackend):
             else "none"
         )
         logger.info(
-            "OmniVoice [package:%s]: %s chars → %s chunk(s), ref=%s",
-            mode, len(text), len(chunks), ref_label,
+            "OmniVoice [package:%s]: %s chars → %s chunk(s) (≤%s chars each), ref=%s",
+            mode, len(text), len(chunks), cmax, ref_label,
         )
 
         tensors: list = []

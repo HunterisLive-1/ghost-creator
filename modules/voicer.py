@@ -2,7 +2,8 @@
 modules/voicer.py — TTS Dispatcher (Thin Wrapper)
 ===================================================
 Routes voiceover synthesis to the configured TTS backend.
-All backend-specific logic lives in backends/tts/*.py.
+All backend-specific logic lives in backends/tts/*.py
+(OmniVoice: sentence/clause–first text split + `tts.omnivoice_text_chunk_chars` / `omnivoice_http_read_timeout` in `backends/tts/omnivoice_tts.py`).
 
 Usage:
     from modules.voicer import run_voiceover, ensure_tts_ready
@@ -24,13 +25,6 @@ _FFMPEG = get_ffmpeg_executable()
 
 # Suppress CMD window flash on Windows for all subprocess calls
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-
-# Pace → atempo multiplier (FFmpeg atempo: 0.5–2.0)
-PACE_ATEMPO = {
-    "slow":   0.85,   # ~15% slower speech
-    "medium": 1.0,    # no change
-    "fast":   1.18,   # ~18% faster speech
-}
 
 log = get_logger("voicer")
 
@@ -152,57 +146,11 @@ def run_voiceover(
     result = asyncio.run(backend.synthesize(text, language, voiceover_path))
 
     result_path = Path(result).resolve()
-    # ── Pace (video_pace) then automatic speech post-process (loudness + HPF) ──
-    result_path = _apply_pace_speed(result_path)
+    # ── Post-process: loudness + HPF (+ optional silence), no atempo (natural TTS speed) ──
     result_path = _apply_voice_post_process(result_path)
 
     log.info(f"Voiceover saved → {result_path}")
     return result_path
-
-
-def _apply_pace_speed(audio_path: Path) -> Path:
-    """
-    Re-encode the audio with FFmpeg atempo filter to match the selected video_pace.
-    Pace mapping: slow=0.85x  medium=1.0x  fast=1.18x
-    Returns the same path (in-place replacement).
-    """
-    pace = config.get("video_pace", "medium")
-    atempo = PACE_ATEMPO.get(pace, 1.0)
-
-    if abs(atempo - 1.0) < 0.01:
-        log.debug("Pace=medium — skipping atempo (no speed change needed)")
-        return audio_path
-
-    log.info(f"Applying pace speed: {pace!r} → atempo={atempo}x on {audio_path.name}")
-
-    tmp_path = audio_path.with_name(audio_path.stem + "_paced" + audio_path.suffix)
-    cmd = [
-        _FFMPEG, "-y",
-        "-i", str(audio_path),
-        "-filter:a", f"atempo={atempo}",
-        "-vn",
-        "-c:a", "libmp3lame", "-q:a", "2",
-        str(tmp_path),
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, creationflags=_NO_WINDOW)
-    except FileNotFoundError as exc:
-        log.error(
-            "FFmpeg not found (needed for video pace). Install FFmpeg and add it to PATH, "
-            "or place ffmpeg.exe + ffprobe.exe in an ffmpeg folder next to the app."
-        )
-        raise RuntimeError(
-            "FFmpeg is required for pace/speed adjustment but was not found. "
-            "Install FFmpeg or bundle ffmpeg/ffmpeg.exe next to the application."
-        ) from exc
-    if result.returncode != 0:
-        log.warning(f"atempo filter failed (will use original): {result.stderr[-200:]}")
-        return audio_path
-
-    # Replace original with paced version
-    tmp_path.replace(audio_path)
-    log.info(f"Pace speed applied ({atempo}x) → {audio_path.name}")
-    return audio_path
 
 
 def _voice_post_enabled() -> bool:
