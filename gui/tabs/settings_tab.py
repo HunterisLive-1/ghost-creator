@@ -528,29 +528,31 @@ class SettingsTab(ctk.CTkFrame):
                       fg_color="transparent", hover_color=BG_CARD,
                       border_color=BORDER, border_width=1, corner_radius=0,
                       command=self._browse_ref_audio).pack(side="left", padx=5)
-        self._hint(omni_inner, "Chhota clear WAV — jis voice ko clone karna hai (project root ya full path)")
-
-        _auto_raw = config.get("tts.omnivoice_auto_transcribe_ref", 1)
-        if isinstance(_auto_raw, bool):
-            _auto_on = _auto_raw
-        else:
-            try:
-                _auto_on = bool(int(_auto_raw))
-            except (TypeError, ValueError):
-                _auto_on = True
-        self._omnivoice_auto_ref_var = ctk.BooleanVar(value=_auto_on)
-        ctk.CTkCheckBox(
-            omni_inner,
-            text="Auto-transcribe reference (Whisper — OmniVoice WebUI default, recommended)",
-            variable=self._omnivoice_auto_ref_var,
-            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC,
-            fg_color=BG_MAIN, border_color=BORDER,
-            hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
-        ).pack(anchor="w", padx=10, pady=(6, 2))
         self._hint(
             omni_inner,
-            "ON = reference clip ka exact text model khud nikaalega (WebUI jaisa). "
-            "OFF = neeche manual transcript (exact words) zaroori.",
+            "Chhota clear WAV (max ~15s, WebUI jaisa) — jis voice ko clone karna hai. "
+            "Transcript neeche zaroori (WebUI ne Whisper hata diya).",
+        )
+
+        om_vn_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
+        om_vn_row.pack(fill="x", pady=(6, 2))
+        ctk.CTkLabel(om_vn_row, text="REF VOICE NAME (opt):", width=200, anchor="w",
+                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
+        self._omnivoice_ref_voice_name = ctk.CTkEntry(om_vn_row, width=400, font=("Share Tech Mono", 12),
+                                                       fg_color=BG_MAIN, border_color=BORDER,
+                                                       text_color=TEXT_PRI, corner_radius=0)
+        self._omnivoice_ref_voice_name.insert(0, config.get("tts.omnivoice_ref_voice_name", ""))
+        self._omnivoice_ref_voice_name.pack(side="left", padx=5, fill="x", expand=True)
+        self._omnivoice_ref_voice_name.bind(
+            "<FocusIn>", lambda e: self._omnivoice_ref_voice_name.configure(border_width=2, border_color=ACCENT_PRI)
+        )
+        self._omnivoice_ref_voice_name.bind(
+            "<FocusOut>", lambda e: self._omnivoice_ref_voice_name.configure(border_width=1, border_color=BORDER)
+        )
+        self._hint(
+            omni_inner,
+            "Optional — WebUI `reference_voices.json` ke liye (jaise mom, narrator_h1). "
+            "Khali = WAV filename se match.",
         )
 
         om_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
@@ -564,7 +566,10 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_transcript.pack(side="left", padx=5, fill="x", expand=True)
         self._omnivoice_transcript.bind("<FocusIn>",  lambda e: self._omnivoice_transcript.configure(border_width=2, border_color=ACCENT_PRI))
         self._omnivoice_transcript.bind("<FocusOut>", lambda e: self._omnivoice_transcript.configure(border_width=1, border_color=BORDER))
-        self._hint(omni_inner, "Sirf jab 'Auto-transcribe' band ho: reference WAV ke exact shabd likho. Khali rehne par auto-ON use karo.")
+        self._hint(
+            omni_inner,
+            "Zaroori: reference WAV mein jo bole gaye hon wahi exact text (OmniVoice WebUI jaisa).",
+        )
 
         om_model_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_model_row.pack(fill="x", pady=(8, 2))
@@ -1870,8 +1875,8 @@ class SettingsTab(ctk.CTkFrame):
             config.set("tts.omnivoice_autostart", bool(self._omnivoice_autostart_var.get()))
         if hasattr(self, "_omnivoice_mode"):
             config.set("tts.omnivoice_mode", OMNIVOICE_MODE_OPTIONS.get(self._omnivoice_mode.get(), "clone"))
-        if hasattr(self, "_omnivoice_auto_ref_var"):
-            config.set("tts.omnivoice_auto_transcribe_ref", 1 if self._omnivoice_auto_ref_var.get() else 0)
+        if hasattr(self, "_omnivoice_ref_voice_name"):
+            config.set("tts.omnivoice_ref_voice_name", self._omnivoice_ref_voice_name.get().strip()[:120])
         if hasattr(self, "_omnivoice_transcript"):
             config.set("tts.omnivoice_ref_transcript", self._omnivoice_transcript.get().strip())
         if hasattr(self, "_omnivoice_model"):

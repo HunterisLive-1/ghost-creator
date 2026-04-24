@@ -47,9 +47,9 @@ DEFAULT_CONFIG: dict = {
         "omnivoice_http_read_timeout": 18000,
         "reference_audio": "my_voice_reference.wav",
         "omnivoice_model_id": "k2-fsa/OmniVoice",
-        # 1 = WebUI jaisa: reference WAV pe Whisper (auto) — default transcript text mat bhejo
-        "omnivoice_auto_transcribe_ref": 1,
         "omnivoice_ref_transcript": "",
+        # Optional label for OmniVoice WebUI reference_voices.json (same as WebUI voice name).
+        "omnivoice_ref_voice_name": "",
         "omnivoice_design_voice": "custom",
         "omnivoice_speaking_style": "default",
         "omnivoice_quality_preset": "balanced",

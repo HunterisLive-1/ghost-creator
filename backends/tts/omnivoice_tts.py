@@ -6,7 +6,9 @@ Supports two modes based on whether `tts.omnivoice_server_path` is configured:
 SERVER MODE  (recommended)
   - `tts.omnivoice_server_path` points to OmniVoice's run.bat
   - Backend auto-starts the server, waits for it to come online, then calls
-    the HTTP /tts endpoint.
+    the WebUI HTTP /generate or /generate-design endpoints.
+  - Matches current WebUI: reference transcript required (no Whisper); GPU weights
+    load only on first HTTP /generate*, and /api/status always reports defer_load.
   - Server is killed after synthesis to free VRAM for image generation.
 
 PACKAGE MODE  (fallback)
@@ -41,6 +43,9 @@ _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 logger = logging.getLogger("ghost.tts.omnivoice")
 
+# Match OmniVoice WebUI: CPU NumPy/PyTorch interop fix (tensor .astype errors).
+_omnivoice_audio_utils_patched = False
+
 MAX_RETRIES  = 2
 RETRY_DELAY  = 5
 # Legacy default; effective size comes from `tts.omnivoice_text_chunk_chars` (see `_text_chunk_size_chars()`).
@@ -52,9 +57,8 @@ _CONNECT_TIMEOUT = 30.0
 _MIN_READ_TIMEOUT = 120.0
 _HTTP_READ_TIMEOUT_MAX = 86400.0  # 24h cap when overridden in config
 
-# Match OmniVoice `webui.py` reference trim (mono, resample, cap length).
-REF_TRIM_THRESHOLD_SEC = 10.0
-REF_TARGET_MAX_SEC = 8.0
+# Match OmniVoice `webui.py`: mono + resample only; max reference length (seconds).
+REF_AUDIO_MAX_DURATION_SEC = 15.0
 REF_MIN_WARN_SEC = 3.0
 
 # ── Package-mode globals ──────────────────────────────────────────────────────
@@ -72,7 +76,7 @@ SPEAKING_STYLE_PRESETS: dict[str, dict] = {
 }
 
 QUALITY_PRESETS: dict[str, dict] = {
-    "fast": {"gen": {"num_step": 24, "audio_chunk_duration": 18.0, "audio_chunk_threshold": 40.0}},
+    "fast": {"gen": {"num_step": 16, "audio_chunk_duration": 18.0, "audio_chunk_threshold": 40.0}},
     "balanced": {"gen": {}},
     "high": {"gen": {"num_step": 46, "guidance_scale": 2.35, "audio_chunk_duration": 12.0, "audio_chunk_threshold": 22.0}},
 }
@@ -125,18 +129,13 @@ def _ref_audio_path() -> Path:
 
 
 def _manual_ref_transcript() -> str:
-    """Exact words in the reference WAV (only used when auto-transcribe is off)."""
+    """Exact words spoken in the reference WAV (required — WebUI no longer uses Whisper)."""
     return (config.get("tts.omnivoice_ref_transcript", "") or "").strip()
 
 
-def _use_auto_transcribe_ref() -> bool:
-    v = config.get("tts.omnivoice_auto_transcribe_ref", 1)
-    if isinstance(v, bool):
-        return v
-    try:
-        return int(v) != 0
-    except (TypeError, ValueError):
-        return True
+def _ref_voice_name_config() -> str:
+    """Optional label for WebUI reference_voices.json / transcript memory."""
+    return (config.get("tts.omnivoice_ref_voice_name", "") or "").strip()[:120]
 
 
 def _normalize_chunking_text(text: str) -> str:
@@ -148,6 +147,117 @@ def _normalize_chunking_text(text: str) -> str:
     return t
 
 
+def _reference_wav_duration_sec(path: str) -> float | None:
+    import wave
+
+    try:
+        with wave.open(path, "rb") as wf:
+            r = wf.getframerate()
+            n = wf.getnframes()
+            if r > 0 and n >= 0:
+                return n / float(r)
+    except (wave.Error, OSError, EOFError):
+        pass
+    try:
+        import torchaudio
+
+        w, sr = torchaudio.load(path)
+        if sr <= 0:
+            return None
+        return w.shape[-1] / float(sr)
+    except (RuntimeError, OSError):
+        return None
+
+
+def _reject_clone_ref_too_long(path: str) -> None:
+    d = _reference_wav_duration_sec(path)
+    if d is None:
+        raise RuntimeError(
+            f"Could not read reference WAV duration: {path}. Use a standard PCM .wav file."
+        )
+    if d > REF_AUDIO_MAX_DURATION_SEC:
+        raise RuntimeError(
+            f"Reference audio too long ({d:.1f}s). Maximum {REF_AUDIO_MAX_DURATION_SEC:g}s "
+            f"(same as OmniVoice WebUI). Trim the file: {path}"
+        )
+
+
+def _patch_omnivoice_audio_utils() -> None:
+    """Same monkey-patch as OmniVoice WebUI — avoids Tensor.astype on some Windows/CPU stacks."""
+    global _omnivoice_audio_utils_patched
+    if _omnivoice_audio_utils_patched:
+        return
+    import numpy as np
+    import torch
+    import torchaudio
+    from pydub import AudioSegment
+
+    import omnivoice.utils.audio as ov_audio
+
+    def tensor_to_audiosegment(tensor: torch.Tensor, sample_rate: int):
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError("tensor_to_audiosegment expects a torch.Tensor")
+        buf = tensor.detach().cpu().float().contiguous().numpy()
+        audio_np = np.asarray(buf, dtype=np.float64)
+        audio_np = np.clip(
+            np.rint(audio_np * 32768.0),
+            -32768,
+            32767,
+        ).astype(np.int16)
+        if audio_np.shape[0] > 1:
+            audio_np = audio_np.transpose(1, 0).flatten()
+        audio_bytes = audio_np.tobytes()
+        return AudioSegment(
+            data=audio_bytes,
+            sample_width=2,
+            frame_rate=sample_rate,
+            channels=tensor.shape[0],
+        )
+
+    def audiosegment_to_tensor(aseg: AudioSegment) -> torch.Tensor:
+        raw = np.array(aseg.get_array_of_samples(), dtype=np.float64, copy=True)
+        audio_data = (raw / 32768.0).astype(np.float32)
+        if aseg.channels == 1:
+            return torch.from_numpy(audio_data).unsqueeze(0)
+        return torch.from_numpy(audio_data.reshape(-1, aseg.channels).T)
+
+    def load_audio(audio_path: str, sampling_rate: int) -> torch.Tensor:
+        try:
+            waveform, prompt_sampling_rate = torchaudio.load(
+                audio_path, backend="soundfile"
+            )
+        except (RuntimeError, OSError):
+            aseg = AudioSegment.from_file(audio_path)
+            raw = np.array(aseg.get_array_of_samples(), dtype=np.float64, copy=True)
+            audio_data = (raw / 32768.0).astype(np.float32)
+            if aseg.channels == 1:
+                waveform = torch.from_numpy(audio_data).unsqueeze(0)
+            else:
+                waveform = torch.from_numpy(
+                    audio_data.reshape(-1, aseg.channels).T
+                )
+            prompt_sampling_rate = aseg.frame_rate
+
+        if prompt_sampling_rate != sampling_rate:
+            waveform = torchaudio.functional.resample(
+                waveform,
+                orig_freq=prompt_sampling_rate,
+                new_freq=sampling_rate,
+            )
+        if waveform.shape[0] > 1:
+            waveform = torch.mean(waveform, dim=0, keepdim=True)
+
+        return waveform
+
+    ov_audio.tensor_to_audiosegment = tensor_to_audiosegment  # type: ignore[method-assign]
+    ov_audio.audiosegment_to_tensor = audiosegment_to_tensor  # type: ignore[method-assign]
+    ov_audio.load_audio = load_audio  # type: ignore[method-assign]
+    _omnivoice_audio_utils_patched = True
+    logger.info(
+        "Patched omnivoice.utils.audio (tensor<->pydub) for CPU NumPy/PyTorch interop."
+    )
+
+
 def _is_hindi_language_hint(language: str | None) -> bool:
     if not language:
         return False
@@ -156,6 +266,10 @@ def _is_hindi_language_hint(language: str | None) -> bool:
 
 
 def _model_id() -> str:
+    for key in ("OMNIVOICE_MODEL_ID", "OMNIVOICE_HUB_MODEL"):
+        v = (os.environ.get(key) or "").strip()
+        if v:
+            return v
     return config.get("tts.omnivoice_model_id", "k2-fsa/OmniVoice").strip() or "k2-fsa/OmniVoice"
 
 
@@ -253,8 +367,8 @@ def _coerce_model_generate_out(gout) -> object:
 
 
 def _preprocess_reference_wav(in_path: str, out_path: str, target_sr: int) -> tuple[list[str], float]:
+    """Mono, resample to model rate (WebUI-aligned — no pydub silence trim)."""
     import torchaudio
-    from omnivoice.utils.audio import trim_long_audio
 
     warnings: list[str] = []
     w, sr = torchaudio.load(in_path)
@@ -267,17 +381,10 @@ def _preprocess_reference_wav(in_path: str, out_path: str, target_sr: int) -> tu
     dur = w.shape[1] / float(target_sr)
     if dur < REF_MIN_WARN_SEC:
         warnings.append(
-            f"Reference audio is only {dur:.1f}s; 3–10s of clear speech is recommended."
+            f"Reference audio is only {dur:.1f}s; 3–15s of clear speech is recommended."
         )
-    w = trim_long_audio(
-        w,
-        target_sr,
-        max_duration=REF_TARGET_MAX_SEC,
-        min_duration=2.0,
-        trim_threshold=REF_TRIM_THRESHOLD_SEC,
-    )
     torchaudio.save(out_path, w, target_sr)
-    return warnings, w.shape[1] / float(target_sr)
+    return warnings, dur
 
 
 def _clone_target_duration_seconds(model, ref_text: str, text: str, ref_wav_path: str) -> float | None:
@@ -311,11 +418,28 @@ def _clone_target_duration_seconds(model, ref_text: str, text: str, ref_wav_path
     return float(pred_sec)
 
 
-def _ensure_whisper_pipeline(model) -> None:
-    if getattr(model, "_asr_pipe", None) is not None:
-        return
-    mid = (os.environ.get("OMNIVOICE_WHISPER_MODEL") or "").strip() or "openai/whisper-large-v3-turbo"
-    model.load_asr_model(model_name=mid)
+def _wall_clock_estimate_for_progress(
+    predicted_output_sec: float | None,
+    device_info: str,
+    *,
+    num_step: int | None = None,
+) -> float | None:
+    """Match OmniVoice ``webui.py::_wall_clock_estimate_for_progress`` (keep factors in sync)."""
+    if predicted_output_sec is None or predicted_output_sec < 0.05:
+        return None
+    p = float(predicted_output_sec)
+    di = (device_info or "").lower()
+    if "cpu" in di and "cuda" not in di:
+        mult = 16.0
+        floor = 20.0
+    else:
+        mult = 1.12
+        floor = 6.0
+    w = max(floor, p * mult)
+    ns = int(num_step) if num_step is not None else 32
+    if ns > 0:
+        w *= float(ns) / 32.0
+    return min(w, 1200.0)
 
 
 def _gen_out_to_chw_tensor(audio) -> "torch.Tensor":
@@ -495,6 +619,7 @@ def _ensure_model_loaded() -> None:
     with _load_lock:
         if _model is not None:
             return
+        _patch_omnivoice_audio_utils()
         import torch
         from omnivoice import OmniVoice
 
@@ -688,27 +813,33 @@ class OmniVoiceTTS(TTSBackend):
     # ── Server mode: model-ready check ───────────────────────────────────
 
     def _wait_for_model_ready(self, timeout_sec: int = 300) -> bool:
-        """Poll /api/status until the model is loaded (up to timeout_sec)."""
-        self._cb("⏳ OmniVoice model load ho raha hai, wait karo …")
+        """Poll /api/status until WebUI responds OK (model loads on first /generate only)."""
+        self._cb("⏳ OmniVoice WebUI /api/status check …")
         start = time.time()
         while time.time() - start < timeout_sec:
             try:
                 resp = requests.get(f"{_server_url()}/api/status", timeout=5)
                 data = resp.json()
                 if data.get("error"):
-                    self._cb("❌ OmniVoice model load error — server console window check karo.")
+                    self._cb("❌ OmniVoice load error — server console check karo.")
                     return False
+                # Current WebUI: always defer_load; weights load on first Generate in browser or first POST here.
+                if data.get("defer_load"):
+                    self._cb(
+                        "✅ OmniVoice server ready — GPU pehle HTTP generate par load hoga."
+                    )
+                    return True
                 if data.get("ready"):
                     device = data.get("device", "")
-                    self._cb(f"✅ OmniVoice model ready! ({device})")
+                    self._cb(f"✅ OmniVoice model already in memory ({device})")
                     return True
                 device = data.get("device", "")
                 if device:
-                    self._cb(f"  ⏳ Model load ho raha hai … Device: {device}")
+                    self._cb(f"  ⏳ Status… Device: {device}")
             except Exception:
                 pass
             time.sleep(5)
-        self._cb(f"❌ OmniVoice model {timeout_sec}s mein ready nahi hua.")
+        self._cb(f"❌ OmniVoice server {timeout_sec}s tak respond nahi kiya.")
         return False
 
     # ── Server mode: HTTP synthesis ───────────────────────────────────────
@@ -730,18 +861,22 @@ class OmniVoiceTTS(TTSBackend):
             ref_path = Path(ref_audio)
             if not ref_path.is_absolute():
                 ref_path = get_base_dir() / ref_path
-            auto = _use_auto_transcribe_ref()
+            ref_tx = _manual_ref_transcript()
+            if not ref_tx:
+                raise RuntimeError(
+                    "OmniVoice WebUI ab reference transcript maangta hai (Whisper hata diya). "
+                    "Settings → tts.omnivoice_ref_transcript mein WAV ke exact shabd likho."
+                )
             data = {
                 "text": text,
                 "speaking_style": speaking_style,
                 "quality_preset": quality_preset,
                 "voice_gender": voice_gender,
+                "ref_text": ref_tx,
             }
-            if auto:
-                # WebUI default: Whisper transcript + duration (same as checked "Auto-transcribe")
-                data["auto_transcribe_ref"] = "1"
-            else:
-                data["ref_text"] = _manual_ref_transcript()
+            vn = _ref_voice_name_config()
+            if vn:
+                data["ref_voice_name"] = vn
 
             with open(str(ref_path), "rb") as wav_f:
                 resp = requests.post(
@@ -855,14 +990,41 @@ class OmniVoiceTTS(TTSBackend):
     # ── Package mode: direct synthesis ────────────────────────────────────
 
     def _synthesize_chunk_pkg(self, call_kw: dict, idx: int, total: int) -> "torch.Tensor":
+        import torch
+
         last_exc: Exception | None = None
         chunk = (call_kw.get("text") or "")
+        _di = (
+            str(torch.cuda.get_device_name(0))
+            if torch.cuda.is_available()
+            else "cpu"
+        )
+        _dev_info = f"GPU: {_di}" if torch.cuda.is_available() else "cpu"
+        _dur = call_kw.get("duration")
+        _ns = int(call_kw.get("num_step") or 32)
+        _wall = None
+        if isinstance(_dur, (int, float)) and float(_dur) > 0.05:
+            _wall = _wall_clock_estimate_for_progress(
+                float(_dur), _dev_info, num_step=_ns
+            )
+        if _wall is not None and isinstance(_dur, (int, float)):
+            logger.info(
+                "  [PKG] Chunk %s/%s — %s chars · audio ~%.0fs out · ~%.0fs compute est.",
+                idx,
+                total,
+                len(chunk),
+                float(_dur),
+                _wall,
+            )
+        else:
+            logger.info(
+                "  [PKG] Chunk %s/%s — %s chars",
+                idx,
+                total,
+                len(chunk),
+            )
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                logger.info(
-                    "  [PKG] Chunk %s/%s (try %s) — %s chars",
-                    idx, total, attempt, len(chunk),
-                )
                 with _load_lock:
                     if _model is None:
                         raise RuntimeError("OmniVoice model not loaded")
@@ -895,11 +1057,18 @@ class OmniVoiceTTS(TTSBackend):
         gen_kw, speed_style = _resolve_style_and_quality(style, quality)
         clone_instruct = _instruct_for_clone(style, gender)
         ref_for_dur: str | None = None
-        vcp: object | None = None
         tmp_proc: str | None = None
         pre_warnings: list[str] = []
         if mode == "clone":
             raw_ref = str(_ref_audio_path())
+            _reject_clone_ref_too_long(raw_ref)
+            man = _manual_ref_transcript()
+            if not man:
+                raise RuntimeError(
+                    "Reference transcript khali hai — Settings → tts.omnivoice_ref_transcript mein "
+                    "WAV ke exact shabd likho (WebUI jaisa, Whisper nahi)."
+                )
+            ref_for_dur = man
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
             tmp_proc = tmp.name
             tmp.close()
@@ -917,30 +1086,6 @@ class OmniVoiceTTS(TTSBackend):
                 ) from exc
             for w in pre_warnings:
                 logger.warning("OmniVoice ref: %s", w)
-            if _use_auto_transcribe_ref():
-                with _load_lock:
-                    _ensure_whisper_pipeline(m)
-                    vcp = m.create_voice_clone_prompt(
-                        ref_audio=tmp_proc,
-                        ref_text=None,
-                        preprocess_prompt=True,
-                    )
-                ref_for_dur = vcp.ref_text
-                if ref_for_dur:
-                    logger.info("OmniVoice auto ref transcript: %s…", ref_for_dur[:80])
-            else:
-                man = _manual_ref_transcript()
-                if not man:
-                    try:
-                        if tmp_proc:
-                            os.unlink(tmp_proc)
-                    except OSError:
-                        pass
-                    raise RuntimeError(
-                        "Manual reference transcript khali hai — Settings → Auto-transcribe ON karo "
-                        "ya REF TRANSCRIPT mein WAV ke exact shabd likho."
-                    )
-                ref_for_dur = man
 
         design_base: dict | None = _build_design_params(mode, language) if mode == "design" else None
         cmax = _text_chunk_size_chars()
@@ -966,11 +1111,8 @@ class OmniVoiceTTS(TTSBackend):
                     ckw = {**gen_kw, "text": chunk}
                     if clone_instruct:
                         ckw["instruct"] = clone_instruct
-                    if vcp is not None:
-                        ckw["voice_clone_prompt"] = vcp
-                    else:
-                        ckw["ref_audio"] = tmp_proc
-                        ckw["ref_text"] = _manual_ref_transcript()
+                    ckw["ref_audio"] = tmp_proc
+                    ckw["ref_text"] = _manual_ref_transcript()
                     if ref_for_dur:
                         est = _clone_target_duration_seconds(
                             m, ref_for_dur, chunk, tmp_proc
@@ -1026,11 +1168,12 @@ class OmniVoiceTTS(TTSBackend):
     def validate_config(self, config_data: dict) -> tuple[bool, str]:
         mode = _omnivoice_mode()
         bat = _server_path()
-        if mode == "clone" and (not _use_auto_transcribe_ref()) and not _manual_ref_transcript():
+        if mode == "clone" and not _manual_ref_transcript():
             return (
                 False,
-                "Reference transcript khali hai jab 'Auto-transcribe reference' OFF hai.\n"
-                "Settings → auto-transcribe ON karo (WebUI jaisa) ya REF TRANSCRIPT bharo.",
+                "OmniVoice clone ke liye reference transcript zaroori hai (WebUI mein Whisper hata diya).\n"
+                "Settings → tts.omnivoice_ref_transcript mein WAV ke exact shabd likho.\n"
+                "Optional: tts.omnivoice_ref_voice_name — WebUI transcript memory ke liye.",
             )
         if bat is not None:
             # Server mode: check run.bat exists

@@ -460,8 +460,8 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
 - Date/Time: 2026-04-23
 - Task: OmniVoice TTS — Ghost ka output WebUI jaisa (clone quality)
 - Changes:
-  - `backends/tts/omnivoice_tts.py`: HTTP clone ab `auto_transcribe_ref=1` (Whisper) default, static galat default transcript nahi; Hindi danda normalization; design me Hindi pacing (WebUI `generate-design`); package clone: ref preprocess + `voice_clone_prompt` + `duration` estimate + stable `generate` output handling (WebUI helpers).
-  - `core/config_manager.py`: `tts.omnivoice_auto_transcribe_ref` default `1`; `omnivoice_ref_transcript` default `""`.
+  - `backends/tts/omnivoice_tts.py`: WebUI-aligned — manual `ref_text` only (no Whisper); `/api/status` `defer_load`; fast `num_step` 16; optional `omnivoice_ref_voice_name`.
+  - `core/config_manager.py`: `omnivoice_ref_transcript` + `omnivoice_ref_voice_name` (no auto-transcribe key).
   - `gui/tabs/settings_tab.py`: Auto-transcribe checkbox + transcript hint.
 - Reason: Standalone `webui.py` reference text ASR + duration se sahi clone deta tha; Ghost static placeholder transcript bhejta tha — ratio/duration kharab.
 
