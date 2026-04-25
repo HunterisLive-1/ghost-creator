@@ -672,7 +672,7 @@ class PipelineRunner:
     def _documentary_regen_audio(self, config, ctx: dict) -> Path:
         """Re-TTS with same script text, same clips, new MP4. Updates ctx['audio_path']."""
         from modules.voicer import run_voiceover
-        from modules.documentary_assembler import assemble_documentary
+        from modules.documentary_assembler import assemble_documentary, wants_burned_subtitles
 
         def _v(msg: str) -> None:
             self._emit(3, msg, "INFO")
@@ -694,7 +694,8 @@ class PipelineRunner:
             return Path(ctx["last_video_path"])
         ctx["audio_path"] = ap
         _output_filename = f"documentary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-        _pb_speed = float(config.get("documentary.playback_speed", 1.2))
+        _pb_speed = float(config.get("documentary.playback_speed", 1.0))
+        _burn = wants_burned_subtitles(config)
         ar = str(config.get("aspect_ratio", ctx.get("aspect_ratio", "9:16")))
         vp = assemble_documentary(
             clips=ctx["clips"],
@@ -705,13 +706,14 @@ class PipelineRunner:
             aspect_ratio=ar,
             progress_callback=_a,
             playback_speed=_pb_speed,
+            burn_subtitles=_burn,
         )
         return vp
 
     def _documentary_regen_video(self, config, ctx: dict) -> Path:
         """Re-fetch footage, then mux with current voiceover. Updates ctx['clips']."""
         from modules.video_fetcher import fetch_clips
-        from modules.documentary_assembler import assemble_documentary
+        from modules.documentary_assembler import assemble_documentary, wants_burned_subtitles
 
         def _f(msg: str) -> None:
             self._emit(4, msg, "INFO")
@@ -735,7 +737,8 @@ class PipelineRunner:
             return Path(ctx["last_video_path"])
         ap = Path(ctx["audio_path"])
         _output_filename = f"documentary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-        _pb_speed = float(config.get("documentary.playback_speed", 1.2))
+        _pb_speed = float(config.get("documentary.playback_speed", 1.0))
+        _burn = wants_burned_subtitles(config)
         ar = str(config.get("aspect_ratio", ctx.get("aspect_ratio", "9:16")))
         vp = assemble_documentary(
             clips=clips,
@@ -746,6 +749,7 @@ class PipelineRunner:
             aspect_ratio=ar,
             progress_callback=_a,
             playback_speed=_pb_speed,
+            burn_subtitles=_burn,
         )
         return vp
 
@@ -757,7 +761,7 @@ class PipelineRunner:
           Step 2 → Script with video queries (Gemini)
           Step 3 → Voiceover (OmniVoice)
           Step 4 → Download footage clips (yt-dlp)
-          Step 5 → Assemble video (FFmpeg: clips + audio, no subtitles)
+          Step 5 → Assemble video (FFmpeg: clips + audio; optional burned-in subs for long form)
           Step 5.5 → Optional video preview
           Step 6 → Upload (optional)
         """
@@ -886,13 +890,14 @@ class PipelineRunner:
         if not self.running:
             return
         self._emit(5, "🎬 Assembling documentary with FFmpeg …", "INFO")
-        from modules.documentary_assembler import assemble_documentary
+        from modules.documentary_assembler import assemble_documentary, wants_burned_subtitles
 
         def _asm_progress(msg: str) -> None:
             self._emit(5, msg, "INFO")
 
         _output_filename = f"documentary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-        _pb_speed = float(config.get("documentary.playback_speed", 1.2))
+        _pb_speed = float(config.get("documentary.playback_speed", 1.0))
+        _burn = wants_burned_subtitles(config)
         video_path = assemble_documentary(
             clips=clips,
             audio_path=audio_path,
@@ -902,6 +907,7 @@ class PipelineRunner:
             aspect_ratio=aspect_ratio,
             progress_callback=_asm_progress,
             playback_speed=_pb_speed,
+            burn_subtitles=_burn,
         )
         self._emit(5, f"Documentary rendered: {video_path}", "SUCCESS")
 

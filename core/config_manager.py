@@ -41,9 +41,7 @@ DEFAULT_CONFIG: dict = {
         "backend": "omnivoice",
         "omnivoice_url": "http://127.0.0.1:8765",
         "omnivoice_mode": "clone",
-        # Per sent-chunk char budget: sentence/phrase packing (120–800); default ~full-width sentences.
-        "omnivoice_text_chunk_chars": 800,
-        # Seconds per single OmniVoice HTTP generate (one chunk). Long CPU/40+ min audio: allow hours.
+        # Seconds for one full-script HTTP / package generate (long CPU jobs).
         "omnivoice_http_read_timeout": 18000,
         "reference_audio": "my_voice_reference.wav",
         "omnivoice_model_id": "k2-fsa/OmniVoice",
@@ -99,7 +97,8 @@ DEFAULT_CONFIG: dict = {
     "documentary.short_duration": 60,
     "documentary.long_duration": 600,
     "documentary.segments": 0,          # 0 = auto (~1 per 12s, max 100); else fixed clip count
-    "documentary.playback_speed": 1.2,  # final doc video+audio; 1.0 = normal
+    "documentary.playback_speed": 1.0,  # final doc: 1.0 = normal speed (video + voice in sync)
+    "documentary.burn_subtitles": False,  # long-form only: hardcoded white bold subs at bottom
     "img2video_enabled": False,
     "img2video_backend": "kling_standard",
     "img2video_duration": "5",
@@ -133,7 +132,6 @@ ENV_LOCAL_MAP: dict[str, tuple[str, type]] = {
     # TTS
     "TTS_BACKEND":                ("tts.backend",                        str),
     "OMNIVOICE_URL":              ("tts.omnivoice_url",                  str),
-    "OMNIVOICE_TEXT_CHUNK_CHARS": ("tts.omnivoice_text_chunk_chars",  int),
     "OMNIVOICE_HTTP_READ_TIMEOUT": ("tts.omnivoice_http_read_timeout",  int),
     "OMNIVOICE_MODE":             ("tts.omnivoice_mode",                 str),
     "REFERENCE_AUDIO":            ("tts.reference_audio",                str),
@@ -214,7 +212,7 @@ TTS_BACKEND={TTS_BACKEND}
 # OmniVoice local server URL (when using server mode)
 OMNIVOICE_URL={OMNIVOICE_URL}
 
-# Seconds — one HTTP generate request (per text chunk) may take a long time on CPU
+# Seconds — one full-script OmniVoice HTTP generate may take a long time on CPU
 OMNIVOICE_HTTP_READ_TIMEOUT={OMNIVOICE_HTTP_READ_TIMEOUT}
 
 # OmniVoice generation mode: clone | design

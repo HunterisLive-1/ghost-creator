@@ -571,3 +571,51 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
   - `core/config_manager.py`: `omnivoice_text_chunk_chars` 800, `omnivoice_http_read_timeout` 18000.
   - `gui/tabs/settings_tab.py`: text-chunk / timeout hints; save fallback 800.
 - Reason: Alag-alag tone + pause issues char-wise split se; 40+ min job ke liye 3–4h+ per HTTP safe.
+
+---
+
+- Date/Time: 2026-04-24
+- Task: OmniVoice — no text chunking; no FFmpeg post on omnivoice
+- Changes:
+  - `backends/tts/omnivoice_tts.py`: server + package dono me poori script ek hi generate call; `_split_text` / chunk helpers hata; `_normalize_input_text` sirf danda normalize; `_synthesize_one_pkg` (pehle multi-chunk loop).
+  - `modules/voicer.py`: `tts.backend == omnivoice` par `_apply_voice_post_process` skip.
+  - `core/config_manager.py`: `tts.omnivoice_text_chunk_chars` + `OMNIVOICE_TEXT_CHUNK_CHARS` env map hata.
+  - `gui/tabs/settings_tab.py`: TEXT CHUNK (chars) row + save hata.
+  - `gui/tabs/documentary_tab.py`: OmniVoice hint line update.
+- Reason: User ne full audio single pass + post-process hatane + chunk settings hatane ko kaha.
+
+---
+
+- Date/Time: 2026-04-24
+- Task: Documentary — default playback 1× (no speed-up)
+- Changes:
+  - `core/config_manager.py`: `documentary.playback_speed` default `1.0` (pehle `1.2`).
+  - `core/pipeline_runner.py`: `config.get(..., 1.0)` fallback teen jagah.
+  - `modules/documentary_assembler.py`: docstring example 1.2 hata.
+- Reason: User ko final video + voice normal speed chahiye; optional ab bhi config se >1 set kar sakte hain.
+
+---
+
+- Date/Time: 2026-04-24
+- Task: Hindi script — cinematic monologue style + topic ke baad user story
+- Changes:
+  - `modules/scripter.py`: `_hindi_cinematic_monologue_block()` — `hi` mode par hook/anaphora/staccato closing; topic me separator ke baad wali line ko mandatory story maan kar end me weave; `[संगीत]` avoid (TTS); normal + documentary dono prompts me inject.
+- Reason: User ne sample monologue di thi + end me story pass karne ka flow chahiye tha.
+
+---
+
+- Date/Time: 2026-04-24
+- Task: Documentary long form — optional burned-in subtitles (UI + regen path)
+- Changes:
+  - `core/pipeline_runner.py`: `_documentary_regen_video` ab `wants_burned_subtitles` + `burn_subtitles` bhejta hai; docstring me assembly step update.
+  - `gui/tabs/documentary_tab.py`: Footage section — checkbox `documentary.burn_subtitles`, Long mode par hi enabled; save + Settings tab se mirror.
+  - `gui/tabs/settings_tab.py`: Video format section — Documentary (long) subsection + checkbox; `[ SAVE CONFIG ]` par bhi key save; change par Documentary tab var sync.
+- Reason: User ko long documentary output par white bold bottom subs optional chahiye; sirf documentary pipeline, short/long gate pehle se `wants_burned_subtitles` me tha.
+
+---
+
+- Date/Time: 2026-04-24
+- Task: YouTube upload — Hinglish SEO title + human description (Hindi pipeline)
+- Changes:
+  - `modules/scripter.py`: `_youtube_metadata_rules()` — Hindi voiceover par bhi **title** ab Hinglish (English SEO + Roman Hindi, Latin only); **description** mostly English + optional Hinglish hook; **tags** English + Hinglish search terms. `hinglish` / `en` / other langs ke liye alag bullets. `_build_prompt` + `_build_documentary_prompt` me purane "title same as voiceover language" hata kar yeh rules inject; JSON schema hints update.
+- Reason: Pure Devanagari titles search/CTR friendly nahi the; user ko readable Hinglish + SEO chahiye tha (upload metadata alag voiceover se).

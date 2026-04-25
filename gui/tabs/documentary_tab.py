@@ -203,6 +203,8 @@ class DocumentaryTab(ctk.CTkFrame):
                 self._on_dur_slider()
             if hasattr(self, "_dur_range_lbl"):
                 self._dur_range_lbl.configure(text="3 – 40 min")
+        if hasattr(self, "_refresh_burn_subs_state"):
+            self._refresh_burn_subs_state()
 
     # ── Topic ─────────────────────────────────────────────────────────────────
     def _build_topic_row(self):
@@ -353,7 +355,7 @@ class DocumentaryTab(ctk.CTkFrame):
             (
                 "omnivoice",
                 "🔊 OmniVoice",
-                "Local AI — zero-shot clone · TTS: पहले sentence/viram, फिर ~800 chars pack; Settings → timeout/chunk",
+                "Local AI — zero-shot clone · TTS: पूरी स्क्रिप्ट एक pass में; Settings → HTTP read timeout",
             ),
             ("elevenlabs", "⚡ ElevenLabs",  "Cloud — ultra-realistic (API key required)"),
             ("edge_tts",   "🆓 Edge TTS",    "Free Microsoft neural TTS"),
@@ -478,6 +480,43 @@ class DocumentaryTab(ctk.CTkFrame):
         )
         self._doc_aspect_lbl.pack(anchor="w", pady=(2, 0))
         self._refresh_doc_aspect_lbl()
+
+        row3 = ctk.CTkFrame(inner, fg_color="transparent")
+        row3.pack(fill="x", pady=(12, 0))
+        self._burn_subs_var = ctk.BooleanVar(
+            value=bool(config.get("documentary.burn_subtitles", False))
+        )
+        self._burn_subs_cb = ctk.CTkCheckBox(
+            row3,
+            text="Subtitles: burn into long output (white, bold, bottom) — Long mode only",
+            variable=self._burn_subs_var,
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=TEXT_SEC,
+            fg_color=BG_MAIN,
+            border_color=BORDER,
+            hover_color=BG_CARD,
+            checkmark_color=ACCENT_DOC,
+            corner_radius=0,
+            command=self._save_burn_subs,
+        )
+        self._burn_subs_cb.pack(anchor="w")
+        self._refresh_burn_subs_state()
+
+    def _save_burn_subs(self) -> None:
+        config.set("documentary.burn_subtitles", bool(self._burn_subs_var.get()))
+        try:
+            config.save()
+        except OSError:
+            pass
+        st = getattr(self.app_ref, "settings_tab", None)
+        if st and hasattr(st, "_doc_burn_subs_var"):
+            st._doc_burn_subs_var.set(self._burn_subs_var.get())
+
+    def _refresh_burn_subs_state(self) -> None:
+        if not hasattr(self, "_burn_subs_cb"):
+            return
+        is_long = getattr(self, "_doc_mode", "short") == "long"
+        self._burn_subs_cb.configure(state="normal" if is_long else "disabled")
 
     def _save_segments(self, val: str) -> None:
         try:

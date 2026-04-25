@@ -23,7 +23,6 @@ import gc
 import io
 import logging
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -48,10 +47,7 @@ _omnivoice_audio_utils_patched = False
 
 MAX_RETRIES  = 2
 RETRY_DELAY  = 5
-# Legacy default; effective size comes from `tts.omnivoice_text_chunk_chars` (see `_text_chunk_size_chars()`).
-CHUNK_SIZE_FALLBACK = 800
-# Per-request read timeout (seconds) for one OmniVoice HTTP / generate call. CPU or long
-# chunks (e.g. ~40 min of audio) can take many hours; default 5h, override via config.
+# Default per-request read timeout (seconds) for one full-script OmniVoice HTTP call.
 CHUNK_TIMEOUT = 18000
 _CONNECT_TIMEOUT = 30.0
 _MIN_READ_TIMEOUT = 120.0
@@ -94,22 +90,6 @@ DESIGN_VOICE_PROFILES: dict[str, dict] = {
 
 # ── Config helpers ────────────────────────────────────────────────────────────
 
-# Target max chars *per sent chunk* after packing full sentences; splitting prefers
-# `।.!?` then commas — not arbitrary character windows (avoids tone/pause glitches between chunks).
-_OMNIVOICE_CHUNK_MIN = 120
-_OMNIVOICE_CHUNK_MAX = 800
-
-
-def _text_chunk_size_chars() -> int:
-    """Resolve `tts.omnivoice_text_chunk_chars` with a safe numeric clamp."""
-    raw = config.get("tts.omnivoice_text_chunk_chars", CHUNK_SIZE_FALLBACK)
-    try:
-        n = int(raw)
-    except (TypeError, ValueError):
-        n = int(CHUNK_SIZE_FALLBACK)
-    return max(_OMNIVOICE_CHUNK_MIN, min(_OMNIVOICE_CHUNK_MAX, n))
-
-
 def _server_path() -> Path | None:
     """Return run.bat Path when server mode is configured, else None."""
     raw = config.get("tts.omnivoice_server_path", "").strip()
@@ -138,8 +118,8 @@ def _ref_voice_name_config() -> str:
     return (config.get("tts.omnivoice_ref_voice_name", "") or "").strip()[:120]
 
 
-def _normalize_chunking_text(text: str) -> str:
-    """Hindi / Sanskrit danda → period+space so model chunking splits like WebUI."""
+def _normalize_input_text(text: str) -> str:
+    """Hindi danda / double danda → period+space for consistent TTS input."""
     if not text:
         return text
     t = text.replace("\u0965", ". ")  # ॥
@@ -443,7 +423,7 @@ def _wall_clock_estimate_for_progress(
 
 
 def _gen_out_to_chw_tensor(audio) -> "torch.Tensor":
-    """Single chunk waveform → 1xN float tensor for torch.cat."""
+    """Model output waveform → 1xN float tensor for saving."""
     import numpy as np
     import torch
 
@@ -465,9 +445,8 @@ def _gen_out_to_chw_tensor(audio) -> "torch.Tensor":
 
 def _http_read_timeout_sec() -> float:
     """
-    Per-request read timeout (seconds) for OmniVoice HTTP calls.
-    Config `tts.omnivoice_http_read_timeout` overrides; each *single* generate call
-    (one text chunk) must finish within this window. Long CPU jobs may need several hours.
+    Per-request read timeout (seconds) for one full-script OmniVoice HTTP generate.
+    Config `tts.omnivoice_http_read_timeout` overrides. Long CPU jobs may need many hours.
     """
     v = config.get("tts.omnivoice_http_read_timeout", None)
     if v is None:
@@ -664,116 +643,6 @@ class OmniVoiceTTS(TTSBackend):
     def is_local(self) -> bool:
         return True
 
-    # ── Text splitting ────────────────────────────────────────────────────
-
-    @staticmethod
-    def _hard_split_oversize(text: str, max_chars: int) -> list[str]:
-        """Last resort: length-based split (prefers word boundaries). No sentence delimiters left."""
-        t = text.strip()
-        if not t:
-            return []
-        if len(t) <= max_chars:
-            return [t]
-        out: list[str] = []
-        i = 0
-        n = len(t)
-        while i < n:
-            j = min(i + max_chars, n)
-            if j < n:
-                window = t[i:j]
-                sp = window.rfind(" ")
-                if sp > max(8, max_chars // 8):
-                    j = i + sp
-            piece = t[i:j].strip()
-            if piece:
-                out.append(piece)
-            if j <= i:
-                j = i + 1
-            i = j
-        return out
-
-    @staticmethod
-    def _split_raw_sentences(work: str) -> list[str]:
-        """Split on `।` `।`-style danda, `.` `!` `?` `…` — keeps natural sentence boundaries."""
-        s = (work or "").strip()
-        if not s:
-            return []
-        return [p.strip() for p in re.split(r"(?<=[।.!?…\u0964\u0965])[\s\u00a0]+", s) if p.strip()]
-
-    @staticmethod
-    def _split_oversize_natural(text: str, max_chars: int) -> list[str]:
-        """
-        One *sentence* (no `।.!?` inside) is longer than max_chars: split on commas / colons
-        (natural pauses), pack into <= max_chars, then hard-split only if a clause is still too long.
-        """
-        t = text.strip()
-        if not t:
-            return []
-        if len(t) <= max_chars:
-            return [t]
-        # Clause boundaries: comma, semicolon, em/en dash, colon (common in Hinglish lists / dialogue)
-        parts = re.split(r"(?<=[,;:，；—–])[\s\u00a0]+", t)
-        parts = [p.strip() for p in parts if p.strip()]
-        if len(parts) <= 1:
-            return OmniVoiceTTS._hard_split_oversize(t, max_chars)
-        return OmniVoiceTTS._pack_units(parts, max_chars)
-
-    @staticmethod
-    def _pack_units(units: list[str], max_chars: int) -> list[str]:
-        """Greedy pack text units (sentences or clauses) into runs of at most `max_chars`."""
-        out: list[str] = []
-        cur = ""
-        for u in units:
-            u = (u or "").strip()
-            if not u:
-                continue
-            if len(u) > max_chars:
-                if cur:
-                    out.append(cur.strip())
-                    cur = ""
-                out.extend(OmniVoiceTTS._split_oversize_natural(u, max_chars))
-                continue
-            joiner = f"{cur} {u}" if cur else u
-            if cur and len(joiner) > max_chars:
-                out.append(cur.strip())
-                cur = u
-            else:
-                cur = joiner
-        if cur.strip():
-            out.append(cur.strip())
-        return out if out else [""]
-
-    @staticmethod
-    def _split_text(text: str, max_chars: int | None = None) -> list[str]:
-        if max_chars is None:
-            max_chars = _text_chunk_size_chars()
-        raw = (text or "").strip()
-        if not raw:
-            return [""]
-        if "\n" in raw:
-            parts = re.split(r"\n\s*\n+", raw)
-            if len(parts) > 1:
-                out_para: list[str] = []
-                for para in parts:
-                    p = (para or "").strip()
-                    if not p:
-                        continue
-                    out_para.extend(OmniVoiceTTS._split_text(p, max_chars))
-                return out_para if out_para else [raw]
-        work = re.sub(r"[\n\r]+", " ", raw).strip()
-        sentences = OmniVoiceTTS._split_raw_sentences(work)
-        if not sentences:
-            sentences = [work]
-        # Atomic units: full sentences, or clause splits only when a sentence is huge
-        units: list[str] = []
-        for sent in sentences:
-            if len(sent) <= max_chars:
-                units.append(sent)
-            else:
-                units.extend(OmniVoiceTTS._split_oversize_natural(sent, max_chars))
-        merged = OmniVoiceTTS._pack_units(units, max_chars)
-        return merged if merged and merged != [""] else [work]
-
     # ── Progress helper ───────────────────────────────────────────────────
 
     def _cb(self, msg: str) -> None:
@@ -918,9 +787,8 @@ class OmniVoiceTTS(TTSBackend):
         return AudioSegment.from_wav(io.BytesIO(resp.content))
 
     def _synthesize_server(self, text: str, language: str, output_path: str) -> str:
-        """HTTP-based synthesis via the OmniVoice WebUI server."""
+        """HTTP-based synthesis — full script in one WebUI /generate* request."""
 
-        # 1. Make sure server process is running
         if not self.ensure_running(language):
             raise RuntimeError(
                 "OmniVoice server could not be started. "
@@ -928,55 +796,37 @@ class OmniVoiceTTS(TTSBackend):
                 "ya manually server start karo."
             )
 
-        # 2. Wait for the model to finish loading
         if not self._wait_for_model_ready():
             raise RuntimeError(
                 "OmniVoice model load nahi hua. "
                 "Server console window mein error check karo."
             )
 
-        text = _normalize_chunking_text((text or "").strip())
+        text = _normalize_input_text((text or "").strip())
         mode = _omnivoice_mode()
-        cmax = _text_chunk_size_chars()
-        chunks = self._split_text(text)
-        n = len(chunks)
-        if n > 1:
-            self._cb(
-                f"🎙️ Voice generate ho raha hai (mode={mode}, {len(text)} chars, "
-                f"{n} chunk(s) @ ≤{cmax} chars) …"
-            )
-        else:
-            self._cb(
-                f"🎙️ Voice generate ho raha hai (mode={mode}, {len(text)} chars, "
-                f"1 chunk @ ≤{cmax} chars) …"
-            )
+        self._cb(
+            f"🎙️ Voice generate ho raha hai (mode={mode}, {len(text)} chars, single pass) …"
+        )
 
-        def _synth_one_chunk(chunk: str, idx: int) -> AudioSegment:
-            last_exc: Exception | None = None
-            for attempt in range(1, MAX_RETRIES + 1):
-                try:
-                    if attempt > 1:
-                        self._cb(f"  🔄 Chunk {idx}/{n} retry {attempt} …")
-                    return self._http_generate(chunk, language, mode)
-                except Exception as exc:
-                    last_exc = exc
-                    self._cb(f"  ⚠️ Chunk {idx}/{n} try {attempt} failed: {exc}")
-                    if attempt < MAX_RETRIES:
-                        time.sleep(RETRY_DELAY)
-            raise RuntimeError(
-                f"OmniVoice chunk {idx}/{n} failed after {MAX_RETRIES} tries: {last_exc}"
-            ) from last_exc
-
+        last_exc: Exception | None = None
         audio: AudioSegment | None = None
-        for i, ch in enumerate(chunks, start=1):
-            if n > 1 and (i == 1 or i % 4 == 0 or i == n):
-                self._cb(f"  🎵 Chunk {i}/{n} ({len(ch)} chars) …")
-            seg = _synth_one_chunk(ch, i)
-            audio = seg if audio is None else (audio + seg)
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                if attempt > 1:
+                    self._cb(f"  🔄 Retry attempt {attempt} …")
+                audio = self._http_generate(text, language, mode)
+                break
+            except Exception as exc:
+                last_exc = exc
+                self._cb(f"  ⚠️ Attempt {attempt} failed: {exc}")
+                if attempt < MAX_RETRIES:
+                    time.sleep(RETRY_DELAY)
+        else:
+            raise RuntimeError(f"OmniVoice synthesis failed: {last_exc}") from last_exc
+
         if audio is None:
             raise RuntimeError("OmniVoice: no audio produced (empty text?)")
 
-        # 4. Export WAV → MP3
         audio.export(output_path, format="mp3")
         size_kb = os.path.getsize(output_path) / 1024
         dur_s   = len(audio) // 1000
@@ -989,11 +839,12 @@ class OmniVoiceTTS(TTSBackend):
 
     # ── Package mode: direct synthesis ────────────────────────────────────
 
-    def _synthesize_chunk_pkg(self, call_kw: dict, idx: int, total: int) -> "torch.Tensor":
+    def _synthesize_one_pkg(self, call_kw: dict) -> "torch.Tensor":
+        """Single `model.generate` call (full text)."""
         import torch
 
         last_exc: Exception | None = None
-        chunk = (call_kw.get("text") or "")
+        ttxt = (call_kw.get("text") or "")
         _di = (
             str(torch.cuda.get_device_name(0))
             if torch.cuda.is_available()
@@ -1009,20 +860,13 @@ class OmniVoiceTTS(TTSBackend):
             )
         if _wall is not None and isinstance(_dur, (int, float)):
             logger.info(
-                "  [PKG] Chunk %s/%s — %s chars · audio ~%.0fs out · ~%.0fs compute est.",
-                idx,
-                total,
-                len(chunk),
+                "  [PKG] single pass — %s chars · audio ~%.0fs out · ~%.0fs compute est.",
+                len(ttxt),
                 float(_dur),
                 _wall,
             )
         else:
-            logger.info(
-                "  [PKG] Chunk %s/%s — %s chars",
-                idx,
-                total,
-                len(chunk),
-            )
+            logger.info("  [PKG] single pass — %s chars", len(ttxt))
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 with _load_lock:
@@ -1032,17 +876,16 @@ class OmniVoiceTTS(TTSBackend):
                 return _gen_out_to_chw_tensor(audio)
             except Exception as exc:
                 last_exc = exc
-                logger.warning("  Chunk %s failed (try %s): %s", idx, attempt, exc)
+                logger.warning("  Generate failed (try %s): %s", attempt, exc)
                 if attempt < MAX_RETRIES:
                     time.sleep(RETRY_DELAY)
-        raise RuntimeError(f"OmniVoice chunk {idx} failed: {last_exc}") from last_exc
+        raise RuntimeError(f"OmniVoice generate failed: {last_exc}") from last_exc
 
     def _synthesize_package(self, text: str, language: str, output_path: str) -> str:
         """Direct synthesis via omnivoice pip package (WebUI-matched clone/design)."""
-        import torch
         import torchaudio
 
-        text = _normalize_chunking_text((text or "").strip())
+        text = _normalize_input_text((text or "").strip())
         mode = _omnivoice_mode()
         os.makedirs(str(Path(output_path).resolve().parent), exist_ok=True)
         _ensure_model_loaded()
@@ -1088,45 +931,39 @@ class OmniVoiceTTS(TTSBackend):
                 logger.warning("OmniVoice ref: %s", w)
 
         design_base: dict | None = _build_design_params(mode, language) if mode == "design" else None
-        cmax = _text_chunk_size_chars()
-        chunks = self._split_text(text)
         ref_label = (
             Path(_ref_audio_path()).name
             if mode == "clone"
             else "none"
         )
         logger.info(
-            "OmniVoice [package:%s]: %s chars → %s chunk(s) (≤%s chars each), ref=%s",
-            mode, len(text), len(chunks), cmax, ref_label,
+            "OmniVoice [package:%s]: %s chars, single pass, ref=%s",
+            mode, len(text), ref_label,
         )
 
-        tensors: list = []
         try:
-            for i, chunk in enumerate(chunks, start=1):
-                if mode == "design":
-                    assert design_base is not None
-                    ckw: dict = {**design_base, "text": chunk}
-                else:
-                    assert tmp_proc is not None
-                    ckw = {**gen_kw, "text": chunk}
-                    if clone_instruct:
-                        ckw["instruct"] = clone_instruct
-                    ckw["ref_audio"] = tmp_proc
-                    ckw["ref_text"] = _manual_ref_transcript()
-                    if ref_for_dur:
-                        est = _clone_target_duration_seconds(
-                            m, ref_for_dur, chunk, tmp_proc
-                        )
-                        if est is not None:
-                            ckw["duration"] = est
-                        elif speed_style is not None:
-                            ckw["speed"] = speed_style
+            if mode == "design":
+                assert design_base is not None
+                ckw: dict = {**design_base, "text": text}
+            else:
+                assert tmp_proc is not None
+                ckw = {**gen_kw, "text": text}
+                if clone_instruct:
+                    ckw["instruct"] = clone_instruct
+                ckw["ref_audio"] = tmp_proc
+                ckw["ref_text"] = _manual_ref_transcript()
+                if ref_for_dur:
+                    est = _clone_target_duration_seconds(
+                        m, ref_for_dur, text, tmp_proc
+                    )
+                    if est is not None:
+                        ckw["duration"] = est
                     elif speed_style is not None:
                         ckw["speed"] = speed_style
+                elif speed_style is not None:
+                    ckw["speed"] = speed_style
 
-                t = self._synthesize_chunk_pkg(ckw, i, len(chunks))
-                tensors.append(t)
-            full = torch.cat(tensors, dim=-1)
+            full = self._synthesize_one_pkg(ckw)
 
             tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
             tmp_wav.close()

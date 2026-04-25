@@ -83,6 +83,66 @@ def _voiceover_plain_format_rules() -> str:
     )
 
 
+def _hindi_cinematic_monologue_block(lang: str) -> str:
+    """
+    When pipeline language is Hindi: match introspective, staccato monologue style and honor
+    user-supplied story appended after the main topic (after a separator in the topic string).
+    """
+    if (lang or "hi").lower().strip() != "hi":
+        return ""
+    return (
+        "\nHINDI CINEMATIC MONOLOGUE STYLE (only when writing Hindi voiceover — apply on top of rules above):\n"
+        "- Open with a **provocative hook**: e.g. what 'they' said vs what is really true; flip a common belief about the subject.\n"
+        "- **Short, spoken lines**: often one clear idea per sentence; full stop; then the next. Inner voice / hypnotic monologue, not long essay paragraphs.\n"
+        "- You may use **tight anaphora** in a run (e.g. several short sentences starting the same way) for emphasis, then pivot to a new beat.\n"
+        "- **Closing image**: end with a concrete, visual moment (e.g. someone doing something) rather than only abstract morals.\n"
+        "- **User story at end of topic**: If the TOPIC string contains extra material after a **separator** "
+        "(blank line, `---`, or a line starting with `कहानी:`, `कहानी -`, or `Story:`), treat the text **before** the first separator as the main subject "
+        "and the text **after** as the user's **mandatory** story/beat. Work that material into the **latter part** of the script in this same rhythm; do not drop or replace it with generic text.\n"
+        "- If there is no such appended story, still use this **tone and line-break rhythm** (provocative, intimate, staccato Devanagari).\n"
+        "- Do not use [संगीत] or any square-bracket music/SFX — TTS would read them aloud; use words for mood only.\n"
+    )
+
+
+def _youtube_metadata_rules(lang: str, lang_display: str) -> str:
+    """
+    YouTube title / description / tag instructions. Hindi voiceover uses Devanagari in
+    voiceover_text, but upload titles work better as Hinglish (English + Roman Hindi) for
+    SEO and readability — so we do not ask for the same script style as the title.
+    """
+    code = (lang or "en").lower().strip()
+    if code == "hi":
+        return (
+            "YOUTUBE METADATA (title / description / tags — for upload ONLY; do NOT use this for voiceover):\n"
+            '- "title" (and metadata "title") MUST be **Hinglish** — a natural mix of **English** (searchable words: topic, format: e.g. Shocking, Facts, Full Story, Explained) '
+            "and **Roman Hindi** in **Latin script only** (aap, kya, nahi, sabse, sach, dekho). "
+            "Sound like a real Indian YouTuber: **clickable, human, SEO-friendly**. "
+            "You may use `|`, `·`, or `—` to pair an English half with a Hinglish hook. "
+            "**Do not** use Devanagari in the title. **Do not** use full formal Hindi book-phrasing only; mix English for discoverability.\n"
+            "- metadata **description** MUST be mostly **plain English** (2–4 short paragraphs, natural SEO keywords, line breaks, readable). "
+            "Optional: **1–2 opening lines in Roman Hinglish** for vibe, then the rest English. No stiff machine-translation tone.\n"
+            "- metadata **tags** MUST include strong **English** search terms; add 1–3 Roman/Hinglish-style tags that Indian users type (e.g. \"hindi story\", \"full explain\"), no duplicates.\n"
+        )
+    if code == "hinglish":
+        return (
+            "YOUTUBE METADATA (for upload ONLY):\n"
+            '- "title" and metadata "title": **Hinglish** in **Latin script**; put the **strongest English SEO keywords in the first 50 characters**. '
+            "Catchy, like mobile search — not random Roman strings. Max ~100 characters.\n"
+            "- metadata **description** — **English** for SEO (2–4 paragraphs) + optional short Roman Hinglish intro; **tags** — English + Hinglish search phrases as needed.\n"
+        )
+    if code == "en":
+        return (
+            "YOUTUBE METADATA (for upload ONLY):\n"
+            '- "title" and metadata "title": **English** — clear, **keyword-rich**, human, max ~100 characters (best ~50–70 for Shorts), no clickbait spam, no all-caps.\n'
+            "- metadata **description** and **tags**: **English** for SEO, conversational, natural keywords, 2–4 short paragraphs in description.\n"
+        )
+    return (
+        f"YOUTUBE METADATA (for upload ONLY):\n"
+        f'- "title" and metadata "title" MUST be in {lang_display} but **readable**; add **English topic keywords** in the title when it helps YouTube search (mix is OK).\n'
+        "- metadata **description** and **tags** MUST be in **English** (YouTube SEO).\n"
+    )
+
+
 # ── Prompt Template ───────────────────────────────────────────────────────────
 def _build_prompt(
     topic: str,
@@ -98,11 +158,12 @@ def _build_prompt(
     Build the full Gemini prompt for the given topic and voiceover language.
     voiceover_text  → in `lang`  (Hindi, English, Hinglish, etc.)
     image_prompts   → ALWAYS in English (for best Stable Diffusion results)
-    metadata.title  → in `lang`
-    metadata.description / tags → in English (for YouTube SEO)
+    metadata.title  → Hinglish (hi/hinglish) or per _youtube_metadata_rules; description/tags per same
     """
     lang_display, script_rule = _lang_display_and_script(lang)
     voiceover_plain_rules = _voiceover_plain_format_rules()
+    hindi_style = _hindi_cinematic_monologue_block(lang)
+    youtube_meta_rules = _youtube_metadata_rules(lang, lang_display)
     duration_guidance = (
         "Keep it short, concise, and high-energy."
         if target_duration <= 90
@@ -128,9 +189,8 @@ IMPORTANT LANGUAGE RULES:
 - "voiceover_text" MUST be written in {lang_display}. {script_rule}
 - "english_subtitle_text" MUST be in plain English, no emojis, no special characters.
 - "image_prompts" MUST always be in English (for Stable Diffusion quality).
-- "title" MUST be in {lang_display}.
-- "description" and "tags" MUST be in English (for YouTube SEO).
-{voiceover_plain_rules}
+{youtube_meta_rules}
+{voiceover_plain_rules}{hindi_style}
 
 Output ONLY a valid JSON object. No markdown fences, no extra text.
 
@@ -167,8 +227,8 @@ JSON schema:
     "<scene {num_scenes}>"
   ],
   "metadata": {{
-    "title": "<viral {lang_display} title about '{topic}', max 70 chars>",
-    "description": "<compelling English description specifically about '{topic}', ~200 words, with SEO keywords>",
+    "title": "<YouTube title per YOUTUBE METADATA rules above — for Hindi: Hinglish Latin script, English SEO + Roman Hindi, max ~100 chars, about '{topic}'>",
+    "description": "<per YOUTUBE METADATA: mostly English SEO text about '{topic}', ~150-300 words, readable>",
     "tags": ["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]
   }}
 }}
@@ -556,6 +616,8 @@ def _build_documentary_prompt(
 ) -> str:
     lang_display, script_rule = _lang_display_and_script(lang)
     voiceover_plain = _voiceover_plain_format_rules()
+    hindi_style = _hindi_cinematic_monologue_block(lang)
+    youtube_meta_rules = _youtube_metadata_rules(lang, lang_display)
     _min = target_duration // 60
     _sec = target_duration % 60
     duration_label = f"{_min} minute{'s' if _min != 1 else ''}" + (f" {_sec}s" if _sec else "")
@@ -573,9 +635,9 @@ MUST be directly and specifically about this exact topic: "{topic}".
 LANGUAGE RULES:
 - "voiceover" fields MUST be in {lang_display}. {script_rule}
 - "video_query" fields MUST be in English (for YouTube search).
-- "title" MUST be in {lang_display}.
-- "description" and "tags" MUST be in English (YouTube SEO).
-{voiceover_plain}
+{youtube_meta_rules}
+- Top-level "title" and metadata "title" MUST be identical and follow YOUTUBE METADATA title rules above (Hindi voiceover still uses Devanagari only in "voiceover" fields).
+{voiceover_plain}{hindi_style}
 
 Output ONLY valid JSON. No markdown fences, no extra text.
 
@@ -598,7 +660,7 @@ VIDEO QUERY RULES (CRITICAL for good footage):
 
 JSON schema — produce EXACTLY this structure:
 {{
-  "title": "<{lang_display} documentary title about '{topic}', max 70 chars>",
+  "title": "<YouTube documentary title per YOUTUBE METADATA — for Hindi: Hinglish Latin, English keywords + Roman Hindi, max ~100 chars, about '{topic}'>",
   "voiceover_text": "<full combined narration — all segments joined — {target_words} words in {lang_display}>",
   "segments": [
     {{
@@ -609,8 +671,8 @@ JSON schema — produce EXACTLY this structure:
     /* repeat for all {num_segments} segments — total duration_hint must equal {target_duration} */
   ],
   "metadata": {{
-    "title": "<same as top-level title>",
-    "description": "<compelling English description ~200 words, SEO keywords for '{topic}'>",
+    "title": "<same as top-level title — same Hinglish/English rules>",
+    "description": "<mostly English SEO, 2–4 paragraphs, optional Roman Hinglish hook — about '{topic}'>",
     "tags": ["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]
   }}
 }}

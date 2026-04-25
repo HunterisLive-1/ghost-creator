@@ -10,10 +10,11 @@ Steps:
   4. Concatenate all clips
   5. Replace audio with the voiceover (strip original clip audio)
 
-No subtitles. No image generation. Pure footage + narration.
+Optional: burn Hindi (or any) voiceover as white bold text at the bottom (long-form only — see pipeline).
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -38,6 +39,7 @@ def _notify(fn: _CB, msg: str) -> None:
 
 
 def _ffmpeg(*args: str, timeout: int = 600) -> None:
+    """Run ffmpeg. Pass `timeout=` as keyword if the last positional args would conflict."""
     cmd = [get_ffmpeg_executable(), "-y"] + list(args)
     result = subprocess.run(
         cmd,
@@ -109,6 +111,138 @@ def _resolution(aspect_ratio: str) -> tuple[int, int]:
     return 1080, 1920
 
 
+def _normalized_segment_durations(segments: list[dict], total_out: float) -> list[float]:
+    """Split total output duration across segments by voiceover length; sum == total_out."""
+    n = len(segments)
+    if n == 0 or total_out <= 0:
+        return []
+    lengths = [max(1, len((seg.get("voiceover") or "").strip())) for seg in segments]
+    tot = sum(lengths)
+    if tot <= 0:
+        return [total_out / n] * n
+    raw = [total_out * (l / tot) for l in lengths]
+    if n == 1:
+        return [total_out]
+    s0 = sum(raw[:-1])
+    raw[-1] = max(0.05, total_out - s0)
+    return raw
+
+
+def _sec_to_ass_time(t: float) -> str:
+    """ASS timestamp 0:00:00.00 (centiseconds)."""
+    t = max(0.0, float(t))
+    cs_total = int(round(t * 100))
+    h = cs_total // 360000
+    rem = cs_total % 360000
+    m = rem // 6000
+    rem2 = rem % 6000
+    s = rem2 // 100
+    cs = rem2 % 100
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+
+def _ass_escape_line(text: str) -> str:
+    text = text.replace("\\", "\\\\")
+    return text.replace("{", r"\{").replace("}", r"\}")
+
+
+def _wrap_subtitle_text(text: str, max_chars: int) -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
+    words = text.split()
+    lines: list[str] = []
+    cur: list[str] = []
+    for w in words:
+        candidate = " ".join(cur + [w]).strip()
+        if len(candidate) <= max_chars:
+            cur.append(w)
+        else:
+            if cur:
+                lines.append(" ".join(cur))
+            cur = [w]
+    if cur:
+        lines.append(" ".join(cur))
+    joined = r"\N".join(_ass_escape_line(L) for L in lines)
+    return joined
+
+
+def _ass_fontname() -> str:
+    # Nirmala UI ships on modern Windows; Libre Noto on Linux — default to a common Indic-capable UI font
+    if sys.platform == "win32":
+        return "Nirmala UI"
+    return "Noto Sans Devanagari"
+
+
+def _write_documentary_ass(
+    segments: list[dict],
+    total_duration_sec: float,
+    ass_path: Path,
+    aspect_ratio: str,
+) -> int:
+    w, h = _resolution(aspect_ratio)
+    fs = 32 if h >= 1600 else 28
+    margin_v = 72 if h >= 1600 else 56
+    durs = _normalized_segment_durations(segments, total_duration_sec)
+    font = _ass_fontname()
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        "WrapStyle: 0\n"
+        "ScaledBorderAndShadow: yes\n"
+        "PlayResX: {w}\n"
+        "PlayResY: {h}\n"
+        "\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        "Style: DocSub,{font},{fs},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,2,20,20,{mv},1\n"
+        "\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    ).format(w=w, h=h, font=font, fs=fs, mv=margin_v)
+
+    max_chars = 40 if w >= 1080 else 34
+    t0 = 0.0
+    events: list[str] = []
+    for seg, dur in zip(segments, durs):
+        body = (seg.get("voiceover") or "").strip()
+        if not body:
+            t0 += dur
+            continue
+        t1 = t0 + dur
+        line = _wrap_subtitle_text(body, max_chars=max_chars)
+        if not line:
+            t0 = t1
+            continue
+        events.append(
+            f"Dialogue: 0,{_sec_to_ass_time(t0)},{_sec_to_ass_time(t1)},DocSub,,0,0,0,,{line}"
+        )
+        t0 = t1
+
+    ass_path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
+    return len(events)
+
+
+def _ffmpeg_ass_path(ass_p: Path) -> str:
+    """Path string for ffmpeg `ass=` filter on Windows (escape `C:`)."""
+    p = ass_p.resolve()
+    s = str(p).replace("\\", "/")
+    if sys.platform == "win32" and len(s) >= 2 and s[1] == ":":
+        s = s[0] + r"\:" + s[2:]
+    return s
+
+
+def wants_burned_subtitles(config) -> bool:
+    """True when user enabled burn-in and documentary run is long-form (not short pipeline)."""
+    if not bool(config.get("documentary.burn_subtitles", False)):
+        return False
+    if (config.get("documentary.length_mode", "short") or "short") != "long":
+        return False
+    return True
+
+
 def _trim_or_loop_clip(
     src: Path,
     dst: Path,
@@ -164,6 +298,7 @@ def assemble_documentary(
     aspect_ratio: str = "9:16",
     progress_callback: _CB = None,
     playback_speed: float = 1.0,
+    burn_subtitles: bool = False,
 ) -> Path:
     """
     Build the final documentary video:
@@ -176,7 +311,8 @@ def assemble_documentary(
         output_filename: e.g. "documentary_20260415_201527.mp4"
         aspect_ratio:    "9:16" (default) or "16:9"
         progress_callback: optional fn(str)
-        playback_speed:  1.0 = normal; >1.0 applies same factor to video + voice (e.g. 1.2 = snappier pace)
+        playback_speed:  1.0 = normal; other values scale video + voice together (same factor)
+        burn_subtitles:  if True, re-encode with burned-in ASS (white, bold, bottom)
 
     Returns:
         Path to assembled video
@@ -187,6 +323,7 @@ def assemble_documentary(
             clips, audio_path, segments, output_dir,
             output_filename, aspect_ratio, progress_callback, tmp_dir,
             playback_speed=playback_speed,
+            burn_subtitles=burn_subtitles,
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -196,6 +333,7 @@ def _assemble(
     clips, audio_path, segments, output_dir,
     output_filename, aspect_ratio, progress_callback, tmp_dir,
     playback_speed: float = 1.0,
+    burn_subtitles: bool = False,
 ) -> Path:
     tmp = Path(tmp_dir)
 
@@ -278,6 +416,31 @@ def _assemble(
             "-shortest",
             str(final),
         )
+
+    if burn_subtitles and segments:
+        d_out = _probe_duration(final)
+        if d_out > 0.2:
+            ass_p = tmp / "doc_subs.ass"
+            n_cues = _write_documentary_ass(segments, d_out, ass_p, aspect_ratio)
+            if n_cues > 0:
+                _notify(progress_callback, "  📝 Burning subtitles (bottom, white, bold) …")
+                vout = tmp / "subbed_out.mp4"
+                apf = _ffmpeg_ass_path(ass_p)
+                _ffmpeg(
+                    "-i", str(final),
+                    "-vf", f"ass={apf}",
+                    "-c:a", "copy",
+                    "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+                    str(vout),
+                    timeout=7200,
+                )
+                try:
+                    final.unlink()
+                except OSError:
+                    pass
+                shutil.move(str(vout), str(final))
+            else:
+                log.info("No subtitle cues — skipping burn-in.")
 
     size_mb = final.stat().st_size / (1024 * 1024)
     _notify(progress_callback, f"  ✅ Documentary ready: {final.name} ({size_mb:.1f} MB)")

@@ -636,33 +636,6 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_quality.set(OMNIVOICE_QUALITY_REV.get(cur_quality, "Balanced"))
         self._omnivoice_quality.pack(side="left", padx=5)
 
-        om_chunk_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
-        om_chunk_row.pack(fill="x", pady=(4, 2))
-        ctk.CTkLabel(om_chunk_row, text="TEXT CHUNK (chars):", width=200, anchor="w",
-                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left", padx=10)
-        _chunk_menu_vals = ["280", "360", "400", "480", "520", "640", "800"]
-        try:
-            _cur_chunk = int(config.get("tts.omnivoice_text_chunk_chars", 800))
-        except (TypeError, ValueError):
-            _cur_chunk = 800
-        _cur_chunk = max(120, min(800, _cur_chunk))
-        if str(_cur_chunk) not in _chunk_menu_vals:
-            _cur_chunk = min(_chunk_menu_vals, key=lambda s: abs(int(s) - _cur_chunk))
-        self._omnivoice_text_chunk = ctk.CTkOptionMenu(
-            om_chunk_row,
-            values=_chunk_menu_vals,
-            font=("Share Tech Mono", 12), text_color=TEXT_PRI,
-            fg_color=BG_SEC, button_color=BORDER, button_hover_color=ACCENT_PRI,
-            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI, corner_radius=0,
-            width=120,
-        )
-        self._omnivoice_text_chunk.set(str(_cur_chunk))
-        self._omnivoice_text_chunk.pack(side="left", padx=5)
-        self._hint(
-            omni_inner,
-            "TEXT CHUNK: pehle `।.!?` se sentences, phir comma/colon pe pause, phir char limit — alag-alag tone kam. Read timeout: Settings → 5h default (lamba generate).",
-        )
-
         om_gender_row = ctk.CTkFrame(omni_inner, fg_color="transparent")
         om_gender_row.pack(fill="x", pady=(4, 2))
         ctk.CTkLabel(om_gender_row, text="VOICE GENDER:", width=200, anchor="w",
@@ -939,6 +912,34 @@ class SettingsTab(ctk.CTkFrame):
             section,
             "9:16 = vertical Shorts  |  16:9 = landscape. Change = turant apply + disk save — "
             "[ SAVE CONFIG ] ab optional hai is ke liye.",
+        )
+
+        ctk.CTkLabel(
+            section,
+            text="─── Documentary (long form) ───────────────────────────",
+            font=("Share Tech Mono", 11),
+            text_color=TEXT_HINT,
+        ).pack(anchor="w", padx=10, pady=(14, 4))
+        self._doc_burn_subs_var = ctk.BooleanVar(
+            value=bool(config.get("documentary.burn_subtitles", False))
+        )
+        self._doc_burn_subs_cb = ctk.CTkCheckBox(
+            section,
+            text="Documentary: burn narration as subtitles (white, bold, bottom) — Long mode only",
+            variable=self._doc_burn_subs_var,
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=TEXT_SEC,
+            fg_color=BG_MAIN,
+            border_color=BORDER,
+            hover_color=BG_CARD,
+            checkmark_color=ACCENT_PRI,
+            corner_radius=0,
+            command=self._on_doc_burn_subs_change,
+        )
+        self._doc_burn_subs_cb.pack(anchor="w", padx=15, pady=(0, 4))
+        self._hint(
+            section,
+            "Only the Documentary pipeline; Short documentary ignores it. Main (shorts) pipeline unchanged.",
         )
 
         ce = config.get("cinematic_effects", {})
@@ -1856,6 +1857,16 @@ class SettingsTab(ctk.CTkFrame):
         except OSError:
             pass
 
+    def _on_doc_burn_subs_change(self) -> None:
+        config.set("documentary.burn_subtitles", bool(self._doc_burn_subs_var.get()))
+        try:
+            config.save()
+        except OSError:
+            pass
+        doc = getattr(self.app_ref, "documentary_tab", None)
+        if doc and hasattr(doc, "_burn_subs_var"):
+            doc._burn_subs_var.set(self._doc_burn_subs_var.get())
+
     # ── Save Action ───────────────────────────────────────────────────────
     def _save(self):
         self._save_btn.configure(fg_color=ACCENT_GRN, text_color=BG_MAIN, text="[ SAVED ✓ ]")
@@ -1887,12 +1898,6 @@ class SettingsTab(ctk.CTkFrame):
             config.set("tts.omnivoice_speaking_style", OMNIVOICE_STYLE_OPTIONS.get(self._omnivoice_style.get(), "default"))
         if hasattr(self, "_omnivoice_quality"):
             config.set("tts.omnivoice_quality_preset", OMNIVOICE_QUALITY_OPTIONS.get(self._omnivoice_quality.get(), "balanced"))
-        if hasattr(self, "_omnivoice_text_chunk"):
-            try:
-                _cc = int(self._omnivoice_text_chunk.get().strip())
-            except (ValueError, AttributeError):
-                _cc = 800
-            config.set("tts.omnivoice_text_chunk_chars", max(120, min(800, _cc)))
         if hasattr(self, "_omnivoice_gender"):
             config.set("tts.omnivoice_voice_gender", OMNIVOICE_GENDER_OPTIONS.get(self._omnivoice_gender.get(), ""))
         if hasattr(self, "_omnivoice_instruct"):
@@ -1933,6 +1938,9 @@ class SettingsTab(ctk.CTkFrame):
         aspect_label = self._aspect_seg.get()
         aspect_ratio = "16:9" if aspect_label == "16:9 YouTube" else "9:16"
         config.set("aspect_ratio", aspect_ratio)
+
+        if hasattr(self, "_doc_burn_subs_var"):
+            config.set("documentary.burn_subtitles", bool(self._doc_burn_subs_var.get()))
 
         ce = dict(config.get("cinematic_effects", {}))
         ce["intro"] = bool(self._ce_intro_var.get())

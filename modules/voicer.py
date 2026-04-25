@@ -3,7 +3,7 @@ modules/voicer.py — TTS Dispatcher (Thin Wrapper)
 ===================================================
 Routes voiceover synthesis to the configured TTS backend.
 All backend-specific logic lives in backends/tts/*.py
-(OmniVoice: sentence/clause–first text split + `tts.omnivoice_text_chunk_chars` / `omnivoice_http_read_timeout` in `backends/tts/omnivoice_tts.py`).
+(OmniVoice: full script in one generate; `omnivoice_http_read_timeout` in `backends/tts/omnivoice_tts.py`; no FFmpeg post-process when backend is omnivoice).
 
 Usage:
     from modules.voicer import run_voiceover, ensure_tts_ready
@@ -146,8 +146,9 @@ def run_voiceover(
     result = asyncio.run(backend.synthesize(text, language, voiceover_path))
 
     result_path = Path(result).resolve()
-    # ── Post-process: loudness + HPF (+ optional silence), no atempo (natural TTS speed) ──
-    result_path = _apply_voice_post_process(result_path)
+    # OmniVoice: raw model output only — no FFmpeg loudnorm / silence trim
+    if (config.get("tts.backend") or "omnivoice").strip().lower() != "omnivoice":
+        result_path = _apply_voice_post_process(result_path)
 
     log.info(f"Voiceover saved → {result_path}")
     return result_path
