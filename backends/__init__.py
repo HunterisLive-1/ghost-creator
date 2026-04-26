@@ -1,1 +1,1 @@
-# backends/ — Ghost Creator AI v2 backend implementations
+# backends/ — Ghost Creator AI v4.1 backend implementations

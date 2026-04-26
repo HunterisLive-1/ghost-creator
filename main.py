@@ -26,7 +26,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from config import get_logger, TEMP_DIR, OUTPUT_DIR
+from config import APP_VERSION, get_logger, TEMP_DIR, OUTPUT_DIR
 from core.config_manager import config
 
 from modules.researcher    import find_trending_topic
@@ -227,7 +227,7 @@ def _cleanup() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Ghost Creator AI — Automated YouTube Shorts Pipeline",
+        description=f"Ghost Creator AI v{APP_VERSION} — Automated YouTube Shorts Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -237,6 +237,11 @@ Examples:
   python main.py --from-video                # Upload existing final_short.mp4
   python main.py --from-video --video-file output/test_short.mp4
         """,
+    )
+    parser.add_argument(
+        "--version", "-V",
+        action="version",
+        version=f"Ghost Creator AI {APP_VERSION}",
     )
     parser.add_argument("--topic",       type=str, default=None,
                         help="Force a specific topic (full pipeline only)")

@@ -1,1 +1,1 @@
-# gui/ — Ghost Creator AI v2 GUI package
+# gui/ — Ghost Creator AI v4.1 GUI package

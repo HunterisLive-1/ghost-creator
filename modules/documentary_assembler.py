@@ -38,8 +38,12 @@ def _notify(fn: _CB, msg: str) -> None:
         fn(msg)
 
 
-def _ffmpeg(*args: str, timeout: int = 600) -> None:
-    """Run ffmpeg. Pass `timeout=` as keyword if the last positional args would conflict."""
+def _ffmpeg(
+    *args: str,
+    timeout: int = 600,
+    cwd: str | Path | None = None,
+) -> None:
+    """Run ffmpeg. Pass `timeout=` / `cwd=` as keyword if the last positional args would conflict."""
     cmd = [get_ffmpeg_executable(), "-y"] + list(args)
     result = subprocess.run(
         cmd,
@@ -49,9 +53,30 @@ def _ffmpeg(*args: str, timeout: int = 600) -> None:
         errors="replace",
         timeout=timeout,
         creationflags=_NO_WINDOW,
+        cwd=str(cwd) if cwd is not None else None,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg failed:\n{result.stderr[-2000:]}")
+        err = (result.stderr or "") + (result.stdout or "")
+        if len(err) > 6000:
+            lines = [L for L in err.splitlines() if any(
+                k in L for k in ("Error", "error", "Invalid", "invalid", "failed", "No such", "Could not", "not find")
+            )]
+            head = "\n".join(lines[:80]) if lines else err[:3000]
+            err = f"{head}\n--- stderr tail ---\n{err[-3500:]}"
+        raise RuntimeError(f"FFmpeg failed:\n{err}")
+
+
+def _path_needs_ffmpeg_workaround(p: Path) -> bool:
+    """
+    True when the file path is not pure ASCII. FFmpeg (libass) on Windows often fails
+    to open files whose path contains emoji / non-Latin characters (e.g. folder name with ✅),
+    so we re-stage inputs under the ASCII-only temp directory.
+    """
+    try:
+        str(Path(p).resolve()).encode("ascii")
+    except (UnicodeEncodeError, OSError, ValueError):
+        return True
+    return False
 
 
 def _probe_duration(path: Path) -> float:
@@ -84,18 +109,6 @@ def _audio_duration_sec(audio_path: Path) -> float:
         return AudioSegment.from_file(str(audio_path)).duration_seconds
     except Exception:
         return _probe_duration(audio_path)
-
-
-def _segment_durations(segments: list[dict], total_sec: float) -> list[float]:
-    """
-    Distribute total_sec among segments proportional to voiceover character count.
-    Minimum 2s per segment.
-    """
-    lengths = [max(10, len(seg.get("voiceover", ""))) for seg in segments]
-    total_len = sum(lengths)
-    raw = [total_sec * (l / total_len) for l in lengths]
-    # Enforce minimum 2s
-    return [max(2.0, d) for d in raw]
 
 
 def _vf_scale(aspect_ratio: str) -> str:
@@ -185,6 +198,7 @@ def _write_documentary_ass(
     margin_v = 72 if h >= 1600 else 56
     durs = _normalized_segment_durations(segments, total_duration_sec)
     font = _ass_fontname()
+    # "ScriptType: v4.00+" = ASS/SSA spec version (not Ghost Creator `APP_VERSION`).
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -341,8 +355,8 @@ def _assemble(
     total_sec = _audio_duration_sec(audio_path)
     _notify(progress_callback, f"  🕐 Voiceover: {total_sec:.1f}s total")
 
-    # ── 2. Per-segment allocations ───────────────────────────────────────
-    durations = _segment_durations(segments, total_sec)
+    # ── 2. Per-segment allocations (same weighting as subtitle cues: sums to total_sec) ─
+    durations = _normalized_segment_durations(segments, total_sec)
 
     vf = _vf_scale(aspect_ratio)
     w, h = _resolution(aspect_ratio)
@@ -426,14 +440,31 @@ def _assemble(
                 _notify(progress_callback, "  📝 Burning subtitles (bottom, white, bold) …")
                 vout = tmp / "subbed_out.mp4"
                 apf = _ffmpeg_ass_path(ass_p)
-                _ffmpeg(
-                    "-i", str(final),
-                    "-vf", f"ass={apf}",
-                    "-c:a", "copy",
-                    "-c:v", "libx264", "-crf", "22", "-preset", "fast",
-                    str(vout),
-                    timeout=7200,
-                )
+                # Windows FFmpeg + libass often break on paths with emoji/Unicode (e.g. "✅" in folder).
+                # Re-stage the muxed file next to the ASS under ASCII-only %TEMP% for this pass.
+                burn_src = final
+                if _path_needs_ffmpeg_workaround(final):
+                    _notify(
+                        progress_callback,
+                        "  📁 (subtitle pass: using temp folder — path has special characters) …",
+                    )
+                    burn_src = tmp / "_burn_input.mp4"
+                    shutil.copy2(final, burn_src)
+                try:
+                    _ffmpeg(
+                        "-i", str(burn_src),
+                        "-vf", f"ass={apf}",
+                        "-c:a", "copy",
+                        "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+                        str(vout),
+                        timeout=7200,
+                    )
+                finally:
+                    if burn_src is not final and burn_src.exists():
+                        try:
+                            burn_src.unlink()
+                        except OSError:
+                            pass
                 try:
                     final.unlink()
                 except OSError:

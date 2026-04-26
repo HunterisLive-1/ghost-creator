@@ -619,3 +619,25 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
 - Changes:
   - `modules/scripter.py`: `_youtube_metadata_rules()` — Hindi voiceover par bhi **title** ab Hinglish (English SEO + Roman Hindi, Latin only); **description** mostly English + optional Hinglish hook; **tags** English + Hinglish search terms. `hinglish` / `en` / other langs ke liye alag bullets. `_build_prompt` + `_build_documentary_prompt` me purane "title same as voiceover language" hata kar yeh rules inject; JSON schema hints update.
 - Reason: Pure Devanagari titles search/CTR friendly nahi the; user ko readable Hinglish + SEO chahiye tha (upload metadata alag voiceover se).
+
+---
+
+- Date/Time: 2026-04-24
+- Task: App version bump → 4.1 (branding + single `APP_VERSION`)
+- Changes:
+  - `config.py`: `APP_VERSION = "4.1"` (single source; comment to sync installer/README).
+  - `gui/app.py`: window title + badge `v{APP_VERSION}` from `config`.
+  - `installer_v4.iss`: `MyAppVersion` "4.1"; `OutputBaseFilename` `GhostCreatorAI_v4.1_Setup`.
+  - `main.py`: CLI `description` + `--version` / `-V` uses `APP_VERSION`.
+  - `README.md`: title, badge, ASCII demo line → v4.1; `setup.bat` window title.
+  - `gui/__init__.py`, `core/__init__.py`, `backends/__init__.py`: package comments v4.1.
+  - `modules/documentary_assembler.py`: comment only — ASS `ScriptType: v4.00+` subtitle spec unchanged (not app version).
+- Reason: User ne saari jagah version 4.1 chahiye tha; PyPI-style dependency versions (e.g. fal `0.4.0`) aur Gemini `imagen-4.0-*` APIs touch nahi kiye.
+
+---
+
+- Date/Time: 2026-04-25
+- Task: Documentary — assembly error at burn-in subs (100 clips + emoji output path)
+- Changes:
+  - `modules/documentary_assembler.py`: `ass` burn pass se pehle agar final MP4 path pure ASCII nahi, `temp` me copy karke `ffmpeg` input (libass/Windows Unicode issue); log line. `_ffmpeg` stderr ab useful lines + tail (purana sirf last 2000). Clip duration split ab `_normalized_segment_durations` — purane `_segment_durations` hata (min 2s per seg se sum>audio, 100+ clips par drift) taaki trim timing subtitles ke saath mile.
+- Reason: Screenshot me path `D:\maaya_ai ✅\...` tha; burn step par FFmpeg fail. Zyada segments par per-seg min-2s total ko blow up karta tha.
