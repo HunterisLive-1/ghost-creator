@@ -1,19 +1,12 @@
 """
-backends/tts/omnivoice_tts.py — OmniVoice TTS Backend
-=======================================================
-Supports two modes based on whether `tts.omnivoice_server_path` is configured:
+backends/tts/omnivoice_tts.py — OmniVoice TTS Backend (server-only)
+====================================================================
+OmniVoice works only in server mode:
 
-SERVER MODE  (recommended)
-  - `tts.omnivoice_server_path` points to OmniVoice's run.bat
-  - Backend auto-starts the server, waits for it to come online, then calls
-    the WebUI HTTP /generate or /generate-design endpoints.
-  - Matches current WebUI: reference transcript required (no Whisper); GPU weights
-    load only on first HTTP /generate*, and /api/status always reports defer_load.
-  - Server is killed after synthesis to free VRAM for image generation.
-
-PACKAGE MODE  (fallback)
-  - No server path set; uses the `omnivoice` pip package directly on GPU/CPU.
-  - Requires: pip install torch torchaudio omnivoice
+- `tts.omnivoice_server_path` must point to OmniVoice's run.bat
+- Backend auto-starts server, waits for readiness, then calls WebUI HTTP endpoints
+  `/generate` (clone) or `/generate-design` (design)
+- Reference transcript is required in clone mode (WebUI behavior; no Whisper)
 """
 
 from __future__ import annotations
@@ -627,8 +620,7 @@ def _unload_model() -> None:
 
 class OmniVoiceTTS(TTSBackend):
     """
-    OmniVoice TTS — server mode (auto-start run.bat) or package mode.
-    Mode is determined by whether `tts.omnivoice_server_path` is set.
+    OmniVoice TTS — server mode only (auto-start run.bat).
     """
 
     @property
@@ -658,7 +650,14 @@ class OmniVoiceTTS(TTSBackend):
         cb = getattr(self, "_progress_cb", None)
 
         if _server_path() is None:
-            return True
+            msg = (
+                "OmniVoice server path missing. "
+                "Settings → TTS → OMNIVOICE SERVER PATH mein run.bat set karo."
+            )
+            logger.warning(msg)
+            if cb:
+                cb(f"❌ {msg}")
+            return False
 
         if _check_server():
             self._cb("✅ OmniVoice server already running — reuse kar rahe hain.")
@@ -994,12 +993,13 @@ class OmniVoiceTTS(TTSBackend):
     # ── Public API ─────────────────────────────────────────────────────────
 
     async def synthesize(self, text: str, language: str, output_path: str) -> str:
-        if _server_path() is not None:
-            return await asyncio.to_thread(
-                self._synthesize_server, text, language, output_path
+        if _server_path() is None:
+            raise RuntimeError(
+                "OmniVoice server-only backend mein SERVER PATH required hai. "
+                "Settings → TTS → OmniVoice Server Path mein run.bat ka path set karo."
             )
         return await asyncio.to_thread(
-            self._synthesize_package, text, language, output_path
+            self._synthesize_server, text, language, output_path
         )
 
     def validate_config(self, config_data: dict) -> tuple[bool, str]:
@@ -1012,30 +1012,18 @@ class OmniVoiceTTS(TTSBackend):
                 "Settings → tts.omnivoice_ref_transcript mein WAV ke exact shabd likho.\n"
                 "Optional: tts.omnivoice_ref_voice_name — WebUI transcript memory ke liye.",
             )
-        if bat is not None:
-            # Server mode: check run.bat exists
-            if not bat.exists():
-                return (
-                    False,
-                    f"OmniVoice run.bat not found: {bat}\n"
-                    "Settings → TTS → OmniVoice Server Path mein sahi path daalo.",
-                )
-            if mode == "clone":
-                ref = _ref_audio_path()
-                if not ref.exists():
-                    return (False, f"Reference audio not found: {ref}")
-            return (True, "")
-
-        # Package mode: check omnivoice pip package + reference audio
-        try:
-            import omnivoice  # noqa: F401
-        except ImportError:
+        if bat is None:
             return (
                 False,
-                "OmniVoice server path configure nahi hai aur pip package "
-                "'omnivoice' bhi install nahi hai.\n"
-                "Settings → TTS → OMNIVOICE SERVER PATH mein run.bat ka path daalo, "
-                "ya: pip install torch torchaudio omnivoice",
+                "OmniVoice ab server-only hai.\n"
+                "Settings → TTS → OMNIVOICE SERVER PATH mein run.bat ka path daalo.",
+            )
+        # Server mode: check run.bat exists
+        if not bat.exists():
+            return (
+                False,
+                f"OmniVoice run.bat not found: {bat}\n"
+                "Settings → TTS → OmniVoice Server Path mein sahi path daalo.",
             )
         if mode == "clone":
             ref = _ref_audio_path()

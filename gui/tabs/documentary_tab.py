@@ -468,8 +468,27 @@ class DocumentaryTab(ctk.CTkFrame):
         row2.pack(fill="x", pady=(10, 0))
         ctk.CTkLabel(
             row2,
-            text="Output aspect: change in Settings → [ Video format & effects ] — "
-            "Pexels uses portrait (9:16) or landscape (16:9) to match. Current:",
+            text="Aspect ratio:",
+            font=("Share Tech Mono", 12), text_color=TEXT_SEC,
+        ).pack(side="left")
+        self._aspect_var = tk.StringVar(
+            value="16:9" if str(config.get("aspect_ratio", "9:16")) == "16:9" else "9:16"
+        )
+        ctk.CTkOptionMenu(
+            row2,
+            values=["9:16", "16:9"],
+            variable=self._aspect_var,
+            width=90,
+            font=("Share Tech Mono", 12),
+            fg_color=BG_MAIN, button_color=ACCENT_DOC,
+            button_hover_color=ACCENT_PRI, text_color=TEXT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
+            dropdown_hover_color=BG_MAIN, corner_radius=0,
+            command=self._save_aspect_ratio,
+        ).pack(side="left", padx=(8, 16))
+        ctk.CTkLabel(
+            row2,
+            text="Pexels uses portrait (9:16) or landscape (16:9) to match. Current:",
             font=("Share Tech Mono", 11), text_color=TEXT_SEC, justify="left", anchor="w",
             wraplength=900,
         ).pack(anchor="w")
@@ -528,6 +547,14 @@ class DocumentaryTab(ctk.CTkFrame):
         try:
             config.set("documentary.max_clip_duration", int(val))
         except ValueError:
+            pass
+
+    def _save_aspect_ratio(self, val: str) -> None:
+        config.set("aspect_ratio", "16:9" if val == "16:9" else "9:16")
+        self._refresh_doc_aspect_lbl()
+        try:
+            config.save()
+        except OSError:
             pass
 
     def _refresh_doc_aspect_lbl(self) -> None:
@@ -723,7 +750,6 @@ class DocumentaryTab(ctk.CTkFrame):
         topic = self._topic_entry.get().strip() if not self._auto_var.get() else None
 
         # Set documentary config
-        config.set("pipeline_mode", "documentary")
         config.set("documentary.length_mode", self._doc_mode)
 
         dur = int(self._dur_var.get())
@@ -978,6 +1004,9 @@ class DocumentaryTab(ctk.CTkFrame):
                 self.app_ref.set_system_state("ERROR")
 
         self._redraw_steps_and_bar()
+        # Scroll to bottom so the output panel / error status is visible
+        # without forcing the user to scroll up from the top.
+        self.after(100, lambda: self._scroll._parent_canvas.yview_moveto(1.0))
 
     # ── Helpers ───────────────────────────────────────────────────────────────
     def _reset_steps(self):
@@ -989,6 +1018,8 @@ class DocumentaryTab(ctk.CTkFrame):
         self._log_box.configure(state="disabled")
         self._output_frame.pack_forget()
         self._redraw_steps_and_bar()
+        # Scroll back to top so the user sees the progress from the beginning
+        self.after(50, lambda: self._scroll._parent_canvas.yview_moveto(0.0))
 
     def _append_log(self, text: str, level: str = "INFO"):
         ts = datetime.now().strftime("%H:%M:%S")

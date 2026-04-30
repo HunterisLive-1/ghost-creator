@@ -1,25 +1,16 @@
 """
-modules/thumbnail_maker.py — AI Thumbnail Generator (ratio-aware)
-==================================================================
-Generates a clickbait thumbnail in the SAME aspect ratio as the video:
-
-  • 16:9  → 1280 × 720   (YouTube landscape / long-form)
-  • 9:16  → 1080 × 1920  (YouTube Shorts portrait)
+modules/thumbnail_maker.py — AI Thumbnail Generator (16:9)
+===========================================================
+Generates a clickbait thumbnail at **1280 × 720 (16:9)** — YouTube standard.
+Video aspect ratio settings do not apply to thumbnails.
 
 Steps:
-  1. Resolve correct pixel dimensions from aspect_ratio.
-  2. Build a cinematic eye-catching image prompt from the video title.
-  3. Generate the background image via the configured image backend
-     (same one used for video frames, correct dimensions + ratio forced).
-  4. Composite with Pillow:
-       • Dark gradient overlay (bottom portion — text readability)
-       • Attention badge top-left  (e.g. "🔥 VIRAL")
-       • Large bold title text — Impact / Arial Bold, white + thick black outline
-       • Accent glow bar at very bottom
-  5. Save as  output/thumbnails/{safe_title}_{timestamp}_thumbnail.jpg
-     (unique per video — never overwritten).
+  1. Build a cinematic image prompt from the video title (Gemini Imagen).
+  2. Generate the background via `modules.image_gen` (Gemini only).
+  3. Composite with Pillow (gradient, badge, title, accent bar).
+  4. Save as  output/thumbnails/{safe_title}_16x9_{timestamp}_thumbnail.jpg
 
-Returns the absolute path string so the pipeline can pass it to uploader.
+Returns the absolute path string so callers can pass it to the uploader.
 """
 
 import asyncio
@@ -30,39 +21,31 @@ from pathlib import Path
 from typing import Optional
 
 from config import get_logger, OUTPUT_DIR, TEMP_DIR
-from core.config_manager import config
 
 log = get_logger("thumbnail")
 
-# ── Output folder ─────────────────────────────────────────────────────────────
 THUMB_DIR = OUTPUT_DIR / "thumbnails"
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Dimension map ─────────────────────────────────────────────────────────────
-# (width, height) per aspect ratio
-_DIMS: dict[str, tuple[int, int]] = {
-    "16:9": (1280, 720),
-    "9:16": (1080, 1920),
-}
+THUMB_W = 1280
+THUMB_H = 720
+THUMB_ASPECT = "16:9"
 
+# Shown in GUI progress / terminal when the Gemini key/plan cannot generate images (e.g. free tier).
+GEMINI_THUMBNAIL_SKIP_USER_MESSAGE = (
+    "Gemini image generation is not succeeded because the API doesn't support image generation."
+)
 
-def _thumb_dims(aspect_ratio: str) -> tuple[int, int]:
-    """Return (width, height) for the given aspect ratio string."""
-    return _DIMS.get(aspect_ratio, _DIMS["9:16"])
-
-
-# ── Windows font search paths (best → fallback) ───────────────────────────────
 _WIN_FONTS = [
-    r"C:\Windows\Fonts\impact.ttf",        # Impact — classic YT thumbnail font
-    r"C:\Windows\Fonts\arialbd.ttf",       # Arial Bold
-    r"C:\Windows\Fonts\ariblk.ttf",        # Arial Black
-    r"C:\Windows\Fonts\calibrib.ttf",      # Calibri Bold
-    r"C:\Windows\Fonts\trebucbd.ttf",      # Trebuchet Bold
-    r"C:\Windows\Fonts\verdanab.ttf",      # Verdana Bold
-    r"C:\Windows\Fonts\arial.ttf",         # Arial regular fallback
+    r"C:\Windows\Fonts\impact.ttf",
+    r"C:\Windows\Fonts\arialbd.ttf",
+    r"C:\Windows\Fonts\ariblk.ttf",
+    r"C:\Windows\Fonts\calibrib.ttf",
+    r"C:\Windows\Fonts\trebucbd.ttf",
+    r"C:\Windows\Fonts\verdanab.ttf",
+    r"C:\Windows\Fonts\arial.ttf",
 ]
 
-# Attention badge labels — one is chosen at random per video
 _BADGES = [
     "🔥 VIRAL",
     "⚠️ SHOCKING",
@@ -75,10 +58,8 @@ _BADGES = [
 ]
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
-def _safe_filename(title: str, timestamp: str, aspect_ratio: str) -> str:
-    """Convert title → filesystem-safe string, append ratio tag + timestamp."""
+def _safe_filename(title: str, timestamp: str) -> str:
+    """Convert title → filesystem-safe string, append 16x9 + timestamp."""
     safe = re.sub(
         r"[^\w\u0900-\u097F\u0A00-\u0A7F\u0B00-\u0B7F\u0B80-\u0BFF"
         r"\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0980-\u09FF -]",
@@ -86,12 +67,10 @@ def _safe_filename(title: str, timestamp: str, aspect_ratio: str) -> str:
         title,
     )
     safe = re.sub(r"\s+", "_", safe.strip()).strip("_") or "thumbnail"
-    ratio_tag = aspect_ratio.replace(":", "x")   # "16:9" → "16x9"
-    return f"{safe[:55]}_{ratio_tag}_{timestamp}_thumbnail.jpg"
+    return f"{safe[:55]}_16x9_{timestamp}_thumbnail.jpg"
 
 
 def _find_font(size: int):
-    """Return the best available ImageFont for the given pixel size."""
     from PIL import ImageFont
     for path in _WIN_FONTS:
         if Path(path).exists():
@@ -103,20 +82,16 @@ def _find_font(size: int):
     return ImageFont.load_default()
 
 
-def _build_thumbnail_prompt(title: str, topic: str, aspect_ratio: str) -> str:
-    """
-    Build a Stable-Diffusion / Imagen prompt for a clickbait thumbnail background.
-    All in English, no text/watermarks in image.
-    """
+def _build_thumbnail_prompt(title: str, topic: str) -> str:
+    """Build an Imagen-friendly prompt for the thumbnail background (no text in image)."""
     ascii_title = re.sub(r"[^\x00-\x7F]+", " ", title).strip() or topic
-    orient = "portrait vertical 9:16" if aspect_ratio == "9:16" else "landscape 16:9 wide"
     return (
         f"Ultra-dramatic YouTube thumbnail background about '{ascii_title}', "
-        f"{orient} composition, "
+        "landscape 16:9 wide composition, "
         "cinematic high-contrast lighting, vivid saturated colors, shocking dramatic scene, "
         "8K photorealistic, rule of thirds, deep shadows, vibrant color grading, "
         "eye-catching visual, no text, no watermark, no logo, no UI elements, "
-        "clickbait style, professional photography, DreamshaperXL style, ultra-realistic"
+        "clickbait style, professional photography, ultra-realistic"
     )
 
 
@@ -129,7 +104,6 @@ def _draw_text_with_outline(
     outline_color: tuple = (0, 0, 0, 255),
     outline_width: int = 5,
 ) -> None:
-    """Draw text with a thick outline (8-pass method) for maximum readability."""
     x, y = xy
     for dx in range(-outline_width, outline_width + 1):
         for dy in range(-outline_width, outline_width + 1):
@@ -139,17 +113,12 @@ def _draw_text_with_outline(
     draw.text((x, y), text, font=font, fill=fill)
 
 
-def _apply_gradient_overlay(img, aspect_ratio: str):
-    """
-    Apply a dark gradient overlay.
-    • 16:9 — starts at 38% height (text area at bottom ~62%)
-    • 9:16 — starts at 45% height (taller canvas; keep top clear for visual)
-    """
+def _apply_gradient_overlay(img):
+    """Dark gradient from ~38% height (text readability at bottom)."""
     from PIL import Image
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     w, h = img.size
-    start_frac = 0.45 if aspect_ratio == "9:16" else 0.38
-    start_y = int(h * start_frac)
+    start_y = int(h * 0.38)
 
     for y in range(start_y, h):
         alpha = int(215 * ((y - start_y) / (h - start_y)) ** 1.4)
@@ -165,27 +134,20 @@ def _composite_thumbnail(
     bg_path: str,
     title: str,
     topic: str,
-    aspect_ratio: str,
 ) -> str:
-    """
-    Load background image, apply overlays + text, save and return path.
-    All layout values scale with the canvas dimensions.
-    """
     import random
     from PIL import Image, ImageDraw
 
-    w, h = _thumb_dims(aspect_ratio)
+    w, h = THUMB_W, THUMB_H
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    out_path = THUMB_DIR / _safe_filename(title, timestamp, aspect_ratio)
+    out_path = THUMB_DIR / _safe_filename(title, timestamp)
 
-    # ── Load + resize background to exact thumbnail dimensions ────────────
     bg = Image.open(bg_path).convert("RGB")
     bg = bg.resize((w, h), Image.LANCZOS)
 
-    # ── Vignette (soft dark border) ───────────────────────────────────────
     vignette = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     vig_draw = ImageDraw.Draw(vignette)
-    border = int(min(w, h) * 0.07)       # ~7% of shorter edge
+    border = int(min(w, h) * 0.07)
     for i in range(border, 0, -1):
         alpha = int(140 * (1 - i / border) ** 2)
         vig_draw.rectangle(
@@ -195,20 +157,17 @@ def _composite_thumbnail(
     bg = bg.convert("RGBA")
     bg = Image.alpha_composite(bg, vignette)
 
-    # ── Gradient overlay ──────────────────────────────────────────────────
-    bg = _apply_gradient_overlay(bg, aspect_ratio)
+    bg = _apply_gradient_overlay(bg)
     draw = ImageDraw.Draw(bg)
 
-    # ── Scale factors relative to 16:9 base (1280×720) ───────────────────
-    scale = min(w / 1280, h / 720)       # uniform scale factor
+    scale = min(w / 1280, h / 720)
 
-    # ── 1. Attention badge (top-left) ─────────────────────────────────────
-    badge_text  = random.choice(_BADGES)
-    badge_fs    = max(20, int(32 * scale))
-    badge_font  = _find_font(badge_fs)
-    badge_pad   = max(8, int(14 * scale))
-    badge_x     = int(30 * scale)
-    badge_y     = int(30 * scale)
+    badge_text = random.choice(_BADGES)
+    badge_fs = max(20, int(32 * scale))
+    badge_font = _find_font(badge_fs)
+    badge_pad = max(8, int(14 * scale))
+    badge_x = int(30 * scale)
+    badge_y = int(30 * scale)
     try:
         bbox = draw.textbbox((0, 0), badge_text, font=badge_font)
         bw, bh = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -235,24 +194,16 @@ def _composite_thumbnail(
         outline_width=max(2, int(2 * scale)),
     )
 
-    # ── 2. Title text (bottom area) ───────────────────────────────────────
     ascii_title = re.sub(r"[^\x00-\x7F]+", " ", title).strip() or topic
-    max_text_w  = int(w * 0.90)
-
-    # Font size candidates — scaled per ratio
-    if aspect_ratio == "9:16":
-        # 9:16 is narrower (1080px) but very tall; use slightly larger sizes
-        font_sizes = [96, 84, 72, 62, 54, 46, 40]
-    else:
-        font_sizes = [88, 76, 66, 58, 50, 44, 38]
+    max_text_w = int(w * 0.90)
+    font_sizes = [88, 76, 66, 58, 50, 44, 38]
 
     title_font = _find_font(font_sizes[0])
-    font_size  = font_sizes[0]
+    font_size = font_sizes[0]
     chosen_lines: list[str] = []
 
     for fs in font_sizes:
         title_font = _find_font(fs)
-        # Estimate chars per line from pixel budget
         approx_char_w = max(1, int(fs * 0.54))
         chars_per_line = max(6, max_text_w // approx_char_w)
         wrapped = textwrap.fill(ascii_title, width=chars_per_line)
@@ -266,7 +217,6 @@ def _composite_thumbnail(
             chosen_lines = lines
             break
     else:
-        # Worst case: force 3 lines at smallest size
         fs = font_sizes[-1]
         title_font = _find_font(fs)
         approx_char_w = max(1, int(fs * 0.54))
@@ -282,7 +232,7 @@ def _composite_thumbnail(
         line_h = font_size + int(14 * scale)
 
     total_text_h = line_h * len(chosen_lines)
-    bottom_pad   = int(60 * scale)
+    bottom_pad = int(60 * scale)
     text_y_start = h - total_text_h - bottom_pad
 
     for i, line in enumerate(chosen_lines):
@@ -302,13 +252,12 @@ def _composite_thumbnail(
             outline_width=max(4, int(5 * scale)),
         )
 
-    # ── 3. Accent glow bar at very bottom ─────────────────────────────────
     bar_h = max(6, int(8 * scale))
     accent_palettes = [
-        [(255, 60, 60),  (255, 165, 0)],
-        [(0,  180, 255), (0,  80,  255)],
-        [(255, 200, 0),  (255, 80,  0)],
-        [(0,  220, 80),  (0,  150, 255)],
+        [(255, 60, 60), (255, 165, 0)],
+        [(0, 180, 255), (0, 80, 255)],
+        [(255, 200, 0), (255, 80, 0)],
+        [(0, 220, 80), (0, 150, 255)],
     ]
     c0, c1 = random.choice(accent_palettes)
     for px in range(w):
@@ -319,86 +268,81 @@ def _composite_thumbnail(
         for py in range(h - bar_h, h):
             draw.point((px, py), fill=(rr, gg, bb, 255))
 
-    # ── Save as JPEG ──────────────────────────────────────────────────────
     final = bg.convert("RGB")
     final.save(str(out_path), "JPEG", quality=95, optimize=True)
-    log.info(f"Thumbnail saved → {out_path}  [{w}×{h}, {aspect_ratio}]")
+    log.info(f"Thumbnail saved → {out_path}  [{w}×{h}, {THUMB_ASPECT}]")
     return str(out_path)
 
 
-# ── Fallback background ───────────────────────────────────────────────────────
-
 def _create_fallback_bg(out_path: str, w: int, h: int) -> None:
-    """Create a dark gradient background when AI generation fails."""
     from PIL import Image, ImageDraw
-    img  = Image.new("RGB", (w, h), (10, 10, 20))
+    img = Image.new("RGB", (w, h), (10, 10, 20))
     draw = ImageDraw.Draw(img)
     for y in range(h):
-        r = int(5  + 30 * (1 - y / h))
-        g = int(5  + 15 * (1 - y / h))
+        r = int(5 + 30 * (1 - y / h))
+        g = int(5 + 15 * (1 - y / h))
         b = int(20 + 60 * (1 - y / h))
         draw.line([(0, y), (w, y)], fill=(r, g, b))
     img.save(out_path, "PNG")
     log.info(f"Fallback thumbnail background saved: {out_path}  [{w}×{h}]")
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
-
 def generate_thumbnail(
     title: str,
     topic: str,
-    aspect_ratio: str = "9:16",
+    aspect_ratio: str = "16:9",
     image_prompts: Optional[list[str]] = None,
     progress_callback=None,
 ) -> str:
     """
-    Generate a clickbait YouTube thumbnail matching the video's aspect ratio.
+    Generate a 16:9 (1280×720) clickbait thumbnail via Gemini Imagen.
+
+    If the API key does not support image generation (common on free tier), returns
+    ``""`` after notifying via ``progress_callback`` — no exception, no fallback image.
 
     Parameters
     ----------
-    title : str
-        Video title (used for text overlay; may contain Devanagari/Unicode).
-    topic : str
-        Raw topic string (used to build the image generation prompt).
+    title, topic : str
+        Title (overlay text) and topic (prompt fallback).
     aspect_ratio : str
-        "9:16" (Shorts portrait) or "16:9" (landscape). Determines canvas size.
-    image_prompts : list[str], optional
-        Existing scene prompts — first one is extended for the thumbnail BG.
-        If None, a fresh prompt is built from the title/topic.
-    progress_callback : callable, optional
-        Called with status strings for pipeline GUI updates.
+        Ignored; thumbnails are always 16:9. Kept for call-site compatibility.
 
     Returns
     -------
     str
-        Absolute path to the saved thumbnail JPEG.
+        Path to the JPEG, or empty string if thumbnail generation was skipped.
     """
+    from backends.image.gemini_imagen import (
+        GeminiImageNotSupportedError,
+        is_gemini_image_unsupported,
+    )
+
+    _ = aspect_ratio
+    w, h = THUMB_W, THUMB_H
+    ar = THUMB_ASPECT
+
     _progress = progress_callback or (lambda m: log.info(f"[thumbnail] {m}"))
-    w, h = _thumb_dims(aspect_ratio)
+    log.info(f"Generating thumbnail: fixed canvas={w}×{h} ({ar})")
 
-    log.info(f"Generating thumbnail: aspect_ratio={aspect_ratio!r}, canvas={w}×{h}")
-
-    # ── Build image prompt ────────────────────────────────────────────────
-    orient_hint = "portrait vertical 9:16" if aspect_ratio == "9:16" else "landscape wide 16:9"
     if image_prompts:
         thumb_prompt = (
             f"{image_prompts[0]}, "
-            f"ultra-dramatic YouTube thumbnail style, {orient_hint}, "
+            "ultra-dramatic YouTube thumbnail style, landscape wide 16:9, "
             "extreme contrast, vivid colors, cinematic, eye-catching, "
             "no text, no watermarks, high detail"
         )
     else:
-        thumb_prompt = _build_thumbnail_prompt(title, topic, aspect_ratio)
+        thumb_prompt = _build_thumbnail_prompt(title, topic)
 
     log.debug(f"Thumbnail prompt: {thumb_prompt[:130]}…")
     _progress(f"Generating thumbnail background ({w}×{h}) …")
 
-    # ── Generate background image ─────────────────────────────────────────
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    bg_path   = str(TEMP_DIR / f"thumbnail_bg_{timestamp}.png")
+    bg_path = str(TEMP_DIR / f"thumbnail_bg_{timestamp}.png")
 
     try:
         from modules.image_gen import _get_backend
+
         backend = _get_backend()
         asyncio.run(
             backend.generate(
@@ -406,19 +350,29 @@ def generate_thumbnail(
                 output_path=bg_path,
                 width=w,
                 height=h,
-                aspect_ratio=aspect_ratio,
+                aspect_ratio=ar,
             )
         )
         log.debug(f"Thumbnail background saved: {bg_path}")
+    except GeminiImageNotSupportedError:
+        _progress(GEMINI_THUMBNAIL_SKIP_USER_MESSAGE)
+        log.info("Thumbnail skipped: Gemini image generation not supported for this API key.")
+        return ""
     except Exception as exc:
+        if is_gemini_image_unsupported(exc):
+            _progress(GEMINI_THUMBNAIL_SKIP_USER_MESSAGE)
+            log.info(
+                "Thumbnail skipped: Gemini image generation not supported (%s)",
+                exc,
+            )
+            return ""
         log.error(f"Thumbnail image generation failed: {exc} — using fallback background")
         _progress(f"Image gen failed ({exc}) — using fallback background")
         _create_fallback_bg(bg_path, w, h)
 
-    # ── Composite text overlay ────────────────────────────────────────────
     _progress("Compositing thumbnail text …")
     try:
-        out_path = _composite_thumbnail(bg_path, title, topic, aspect_ratio)
+        out_path = _composite_thumbnail(bg_path, title, topic)
     except Exception as exc:
         log.error(f"Thumbnail compositing failed: {exc}", exc_info=True)
         _progress(f"Thumbnail text overlay failed: {exc}")

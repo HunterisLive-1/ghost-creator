@@ -12,6 +12,66 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
 
 ---
 
+- Date/Time: 2026-04-30 16:28
+- Task: Settings GUI cleanup for documentary-only flow
+- Changes:
+  - `gui/tabs/settings_tab.py`: Script provider UI se OpenAI option/model/key controls remove kiye; provider ab Gemini + Ollama only.
+  - `gui/tabs/settings_tab.py`: Settings se aspect ratio selector remove kiya (resolution selection), target duration field remove kiya, aur documentary subtitle checkbox remove kiya.
+  - `gui/tabs/settings_tab.py`: TTS section se voice post-process + smart silence checkboxes remove kiye; save logic se unke config writes bhi hata diye.
+  - `gui/tabs/documentary_tab.py`: Footage settings me `aspect_ratio` selector (9:16 / 16:9) add kiya aur save flow wire kiya, taaki ratio control documentary page par hi rahe.
+- Reason:
+  - User requirement: OpenAI GUI se hatana; duration/resolution/subtitles/post-process controls Settings se remove karke documentary-centric UX rakhna.
+
+---
+
+- Date/Time: 2026-04-30 16:10
+- Task: Refresh build.bat for current documentary-only repo
+- Changes:
+  - `build.bat`: version banner/footer `v4.1` kiya.
+  - `build.bat`: PyInstaller hidden-import list se deleted modules/backends remove kiye (`pipeline_tab`, `image_review`, `image_prep`, `video_builder`, `img2video`, old image backends, `google_tts`).
+  - `build.bat`: removed package-level stale imports/collects (`google.cloud.texttospeech`, `fal_client`, `replicate`, `soundfile`, `tqdm`, `websocket`) and kept active ones only.
+  - `build.bat`: removed `%WORKFLOW_ARG%` and workflow var block usage from PyInstaller command.
+- Reason:
+  - User ne repo scan karke `build.bat` ko current codebase ke hisaab se update karne ko bola; old deleted modules ki wajah se build bloat/fail risk tha.
+
+---
+
+- Date/Time: 2026-04-30 16:03
+- Task: Remove OpenAI dependency from project requirements
+- Changes:
+  - `requirements.txt`: `openai>=1.0.0` remove kiya; scripting section label `Gemini + OpenAI` se `Gemini` kiya.
+- Reason:
+  - User ne confirm kiya ki OpenAI ab project mein required nahi hai.
+
+---
+
+- Date/Time: 2026-04-30 16:00
+- Task: Requirements cleanup for external OmniVoice server setup
+- Changes:
+  - `requirements.txt`: OmniVoice local stack remove kiya — `omnivoice`, `torch`, `torchaudio`, `soundfile` delete; TTS section comment update kiya ki OmniVoice external server path se run hota hai.
+- Reason:
+  - User architecture mein OmniVoice alag GitHub repo/environment mein install/run hota hai; is project mein local OmniVoice package dependencies unnecessary thi.
+
+---
+
+- Date/Time: 2026-04-30 15:56
+- Task: Requirements cleanup — remove unused dependency
+- Changes:
+  - `requirements.txt`: `tqdm>=4.66.0` remove kiya (repo-wide import/usage nahi mila).
+- Reason:
+  - User ne unused requirements cleanup bola tha; scan ke baad `tqdm` hi clearly unused nikla.
+
+---
+
+- Date/Time: 2026-04-30 15:50
+- Task: OmniVoice TTS server-only (remove package fallback)
+- Changes:
+  - `backends/tts/omnivoice_tts.py`: module docstring ko server-only banaya; `ensure_running()` mein missing `tts.omnivoice_server_path` par hard fail + user-facing message add kiya; `synthesize()` se package fallback path disable karke server path mandatory kiya; `validate_config()` se package-mode validation hata kar server-path-required validation enforce ki.
+- Reason:
+  - User requirement ke hisaab se OmniVoice ke liye package mode nahi chahiye tha; backend ko strictly server mode tak limit karna tha.
+
+---
+
 - Date/Time: 2026-04-15
 - Task: Hindi script output + OmniVoice emotion/design settings + agent logging rule
 - Changes:
@@ -641,3 +701,67 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
 - Changes:
   - `modules/documentary_assembler.py`: `ass` burn pass se pehle agar final MP4 path pure ASCII nahi, `temp` me copy karke `ffmpeg` input (libass/Windows Unicode issue); log line. `_ffmpeg` stderr ab useful lines + tail (purana sirf last 2000). Clip duration split ab `_normalized_segment_durations` — purane `_segment_durations` hata (min 2s per seg se sum>audio, 100+ clips par drift) taaki trim timing subtitles ke saath mile.
 - Reason: Screenshot me path `D:\maaya_ai ✅\...` tha; burn step par FFmpeg fail. Zyada segments par per-seg min-2s total ko blow up karta tha.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Documentary-only cleanup (remove shorts pipeline, Vision Matrix, Google Cloud TTS, img2video, image counts)
+- Changes:
+  - `gui/app.py`: PIPELINE tab hata kar sirf Documentary / Settings / History; footer me sirf `AUDIO_SUBROUTINE` (VISION_MATRIX hata).
+  - `gui/tabs/settings_tab.py`: Vision Matrix section + image API keys (Fal/Replicate/Horde/xAI/Google TTS path) + Google Cloud TTS button + img2video UI + image count + thumbnail toggle + cinematic intro/transitions hata; API keys ab Gemini/Eleven/Pexels; script-gen se image-to-video block hata; uplink status `documentary_tab` ko; copy documentary-focused.
+  - `gui/tabs/documentary_tab.py`: `pipeline_mode` set hata (runner ab hamesha documentary).
+  - `modules/voicer.py`: `google_tts` backend registry se hata.
+  - `core/config_manager.py`: `google_tts` legacy config → `edge_tts` migrate `_validate_v3_fields` me.
+  - `core/pipeline_runner.py`: normal shorts branch + image review machinery hata; research ke baad hamesha `_run_documentary`; `last_metadata.json` documentary run par bhi likho.
+  - `main.py`: CLI ab documentary unattended (script/video preview flags temporarily off) + `--from-video` upload; purana `generate_script`/images/video path hata.
+  - `GhostCreatorAI.spec`: dead hiddenimports + `google.cloud.texttospeech` / fal / replicate collect hata.
+  - `gui/tabs/pipeline_tab.py`: file delete.
+  - `gui/components/image_review.py`: file delete.
+- Reason: User ne app ko documentary-only banana tha; shorts AI images, img2video, Vision Matrix, Google Cloud TTS, image counts hatane the.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Remove dead shorts modules + unused image/TTS backend files (keep thumbnail stack)
+- Changes:
+  - `modules/img2video.py`, `modules/video_builder.py`, `modules/image_prep.py`: deleted (no longer imported).
+  - `backends/tts/google_tts.py`: deleted (TTS routing removed earlier).
+  - `backends/image/fal_ai.py`, `replicate.py`, `stable_horde.py`, `grok_image.py`: deleted.
+  - `modules/image_gen.py`: `BACKEND_MAP` ab sirf `comfyui`, `pollinations`, `gemini_imagen` (thumbnail / future use).
+  - `requirements.txt`: `google-cloud-texttospeech`, `fal-client`, `replicate`, `moviepy` hata (ab codebase me use nahi).
+- Reason: Documentary-only app; user ne unused files hataane ko kaha, `thumbnail_maker` + `image_gen` rakhna tha baad mein edit ke liye.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Thumbnails fixed 16:9; Gemini-only image backend; remove ComfyUI + Pollinations
+- Changes:
+  - `backends/image/comfyui.py`: deleted (local Comfy no longer supported).
+  - `backends/image/pollinations.py`: deleted (Pollinations removed per user).
+  - `modules/image_gen.py`: `BACKEND_MAP` ab sirf `gemini_imagen`; default backend `gemini_imagen`; duplicate local/cloud loop hata.
+  - `modules/thumbnail_maker.py`: hamesha 1280×720 / 16:9; 9:16 branches + ratio-aware doc hata; prompt se SD-specific wording hata.
+  - `core/config_manager.py`: default `image.backend` = `gemini_imagen`; `comfyui_url` / `pollinations_model` defaults + `COMFYUI_URL` / `POLLINATIONS_MODEL` env map + `.env.local` template lines hata; `_validate_v3_fields` me sirf `gemini_imagen` allowed (purana comfy/pollinations auto-migrate).
+  - `config.py`: `WORKFLOW_JSON` + `COMFYUI_URL` hata.
+  - `backends/base.py`: `ImageBackend` docstring cloud examples update.
+  - `requirements.txt`: `websocket-client` hata (Comfy WebSocket ke liye tha).
+  - `setup.bat`: `.env` template / migrate / next-steps se ComfyUI references hata.
+  - `installer_v4.iss`: `workflow_api.json` line comment update (legacy optional).
+- Reason: User ne kaha thumbnails sirf 16:9 chahiye, image gen sirf Gemini (Comfy/Pollinations nahi).
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Graceful thumbnail skip when Gemini API key does not support image generation
+- Changes:
+  - `backends/image/gemini_imagen.py`: `GeminiImageNotSupportedError` + `is_gemini_image_unsupported()`; unsupported/plan failures par `logger.error` ki jagah `GeminiImageNotSupportedError` (info log), quota/rate-limit alag.
+  - `modules/thumbnail_maker.py`: unsupported cases par fallback composite nahi; `progress_callback` par exact user message (`GEMINI_THUMBNAIL_SKIP_USER_MESSAGE`); return `""`; koi ERROR-level user message nahi.
+- Reason: Free-tier Gemini keys par image gen fail par pipeline calm rahe; GUI terminal me readable notice, process continue (upload/metadata empty thumbnail se).
+
+---
+
+- Date/Time: 2026-04-30
+- Task: YouTube uploader — wait for real 100% upload before wizard; safer browser close
+- Changes:
+  - `modules/uploader.py`: `_wait_for_upload_complete` ab purane broad selectors (`Checks complete`, early processing copy) hata kar `_upload_completion_pulse` use karta hai (Next enabled / narrow “Upload complete” / progress 100%); **do lagatar polls** (~3s) confirm hone par aage; **timeout par ab proceed nahi** — `RuntimeError` + screenshot taaki video Draft me adhoori upload se na phase. `pipeline.upload_complete_timeout_ms` use; `finally` me success par `post_publish_grace_ms` (default 12s), fail par 4s phir `browser.close()`.
+  - `core/config_manager.py` (agar pehle missing ho): `pipeline.upload_complete_timeout_ms` = 900_000, `pipeline.post_publish_grace_ms` = 12_000.
+- Reason: Browser jaldi band hone + “timeout par bhi continue” ki wajah se video poori upload hone se pehle publish flow chal jata tha; visibility Draft me chali jati thi. Ab partial upload par flow abort + retry; publish ke baad zyada grace taaki Studio requests complete ho saken.

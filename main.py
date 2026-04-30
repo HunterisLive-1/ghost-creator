@@ -1,49 +1,31 @@
 """
-main.py — Ghost Creator AI Orchestrator
-========================================
-Full pipeline with optional skip modes for reuse of existing assets.
+main.py — Ghost Creator AI (documentary + upload helpers)
+=========================================================
+Headless entry runs the same documentary pipeline as the GUI (no script review
+or video preview modals — those are forced off for the duration of the run).
 
 Usage:
-    python main.py                          # Full pipeline (auto-topic)
-    python main.py --topic "AI in India"   # Force a topic
+    python main.py                          # Auto-topic documentary
+    python main.py --topic "AI in India"   # Fixed subject
 
-    # --- Skip modes (reuse existing files) ---
-    python main.py --skip-images            # Skip steps 1-4, use existing
-                                            # output/scene_*.png + temp/voiceover.mp3
-                                            # → runs Video Build + Upload
-
-    python main.py --from-video             # Skip steps 1-5, use existing
-                                            # output/final_short.mp4
-                                            # → runs Upload only
-
-    python main.py --from-video --video-file output/test_short.mp4
-                                            # Upload a specific MP4 file
+    python main.py --from-video            # Upload existing MP4 (metadata from last run)
+    python main.py --from-video --video-file output/test.mp4
 """
 
 import argparse
 import json
-import shutil
+import queue
 import sys
 from pathlib import Path
 
-from config import APP_VERSION, get_logger, TEMP_DIR, OUTPUT_DIR
+from config import APP_VERSION, get_logger, OUTPUT_DIR
 from core.config_manager import config
 
-from modules.researcher    import find_trending_topic
-from modules.scripter      import generate_script
-from modules.voicer        import generate_voiceover, ensure_tts_ready
-from modules.image_gen     import generate_images
-from modules.video_builder import build_video
-from modules.uploader      import upload_to_youtube
+from modules.uploader import upload_to_youtube
 
 log = get_logger("main")
 
-# ── Saved metadata path (written by full run, read by skip modes) ─────────────
 METADATA_FILE = OUTPUT_DIR / "last_metadata.json"
-
-
-def _save_metadata(metadata: dict) -> None:
-    METADATA_FILE.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _load_metadata() -> dict:
@@ -51,145 +33,62 @@ def _load_metadata() -> dict:
         return json.loads(METADATA_FILE.read_text(encoding="utf-8"))
     log.warning("No last_metadata.json found — using placeholder metadata for upload.")
     return {
-        "title": "Ghost Creator AI Short",
-        "description": "Amazing AI and Tech content. Subscribe for more!",
-        "tags": ["AI", "Technology", "Shorts", "Viral"],
+        "title": "Ghost Creator AI Documentary",
+        "description": "Documentary content. Subscribe for more!",
+        "tags": ["Documentary", "AI", "Technology"],
     }
 
 
-# ── Pipeline modes ─────────────────────────────────────────────────────────────
+def run_documentary_cli(topic: str | None = None) -> None:
+    """Research → documentary script → voice → footage → assemble → optional upload (unattended)."""
+    from core.pipeline_runner import PipelineRunner
+    from modules.researcher import find_trending_topic
 
-def run_full(topic: str | None = None) -> None:
-    """Steps 1→6: Research → Script → Voice → Images → Video → Upload."""
-    log.info("Mode: FULL PIPELINE")
+    if topic is None:
+        topic = find_trending_topic()
+    dur = int(config.get("target_duration", 180) or 180)
+    config.set("target_duration", max(60, min(dur, 600)))
 
-    # Step 1 · Research
-    log.info("[1/6] Research …")
-    topic = topic or find_trending_topic()
-    log.info(f"      → Topic: {topic!r}")
+    prev_script_review = bool(config.get("script_review_enabled", True))
+    prev_video_preview = bool(config.get("video_preview_enabled", True))
+    config.set("script_review_enabled", False)
+    config.set("video_preview_enabled", False)
 
-    # Step 2 · Script
-    log.info("[2/6] Scripting via Gemini …")
-    language = config.get("pipeline.language", "hi")
-    target_duration = config.get("target_duration", 60)
-    aspect_ratio = config.get("aspect_ratio", "9:16")
-    script = generate_script(
-        topic,
-        lang=language,
-        target_duration=target_duration,
-        aspect_ratio=aspect_ratio,
-    )
-    log.info(
-        "      → Title: %r  |  num_scenes=%s  |  %ss  |  %s",
-        script["metadata"]["title"],
-        script.get("num_scenes"),
-        target_duration,
-        aspect_ratio,
-    )
-    _save_metadata(script["metadata"])
+    q: queue.Queue = queue.Queue()
+    runner = PipelineRunner(q, run_id=0)
 
-    # Step 3 · Voiceover (OmniVoice loads then unloads to free GPU for images)
-    if not ensure_tts_ready():
-        raise RuntimeError("TTS backend is not ready — check Settings and reference audio / API keys.")
-    log.info("[3/6] Voiceover (TTS) …")
-    audio_path = generate_voiceover(script["voiceover_text"])
-    log.info(f"      → Audio: {audio_path}")
-
-    # Step 4 · Images (TTS GPU memory released if local backend)
-    log.info("[4/6] Images via ComfyUI …")
-    num_scenes = int(script.get("num_scenes", len(script["image_prompts"])))
-    image_prompts = script["image_prompts"][:num_scenes]
-    if len(script["image_prompts"]) < num_scenes:
-        log.warning(
-            "      → Only %s prompt(s) from script (expected %s)",
-            len(script["image_prompts"]),
-            num_scenes,
-        )
-    image_paths = generate_images(image_prompts, aspect_ratio=aspect_ratio)
-    log.info(f"      → {len(image_paths)} images generated")
-
-    # Step 5 · Video
-    log.info("[5/6] Assembling video …")
-    video_path = build_video(
-        image_paths           = image_paths,
-        audio_path            = audio_path,
-        voiceover_text        = script["voiceover_text"],
-        english_subtitle_text = script.get("english_subtitle_text", script["voiceover_text"]),
-        title                 = script["metadata"]["title"],
-        aspect_ratio          = aspect_ratio,
-        cinematic_effects     = config.get("cinematic_effects", {}),
-        target_duration       = target_duration,
-    )
-    log.info(f"      → Video: {video_path}")
-
-    # Step 6 · Upload (optional)
-    if config.get("pipeline.upload_enabled", True):
-        log.info("[6/6] Uploading to YouTube Studio …")
-        upload_to_youtube(video_path=video_path, metadata=script["metadata"])
-        log.info("      → Upload complete!")
-    else:
-        log.info("[6/6] YouTube upload disabled — video kept locally only")
-        log.info(f"      → {video_path}")
-
-    _cleanup()
-
-
-def run_from_images() -> None:
-    """
-    Steps 5→6: Use existing output/scene_*.png + temp/voiceover.mp3
-    → Build video → Upload.
-    """
-    log.info("Mode: FROM IMAGES  (skipping Research/Script/Voice/ComfyUI)")
-
-    # Find existing images
-    image_paths = sorted(OUTPUT_DIR.glob("scene_*.png"))
-    if not image_paths:
-        raise FileNotFoundError(
-            f"No scene_*.png found in {OUTPUT_DIR}. Run the full pipeline first."
-        )
-
-    # Find existing audio
-    audio_path = TEMP_DIR / "voiceover.mp3"
-    if not audio_path.exists():
-        raise FileNotFoundError(
-            f"voiceover.mp3 not found in {TEMP_DIR}. Run the full pipeline first."
-        )
-
-    metadata = _load_metadata()
-    log.info(f"Using {len(image_paths)} images + audio ({audio_path.stat().st_size//1024} KB)")
-
-    # Step 5 · Video
-    log.info("[5/6] Assembling video …")
-    video_path = build_video(
-        image_paths           = image_paths,
-        audio_path            = audio_path,
-        voiceover_text        = metadata.get("description", "AI content for you."),
-        english_subtitle_text = metadata.get("english_subtitle_text", metadata.get("description", "AI content for you.")),
-        title                 = metadata.get("title", "Ghost Creator Short"),
-    )
-    log.info(f"      → Video: {video_path}")
-
-    # Step 6 · Upload (optional)
-    if config.get("pipeline.upload_enabled", True):
-        log.info("[6/6] Uploading to YouTube Studio …")
-        upload_to_youtube(video_path=video_path, metadata=metadata)
-        log.info("      → Upload complete!")
-    else:
-        log.info("[6/6] YouTube upload disabled — video kept locally only")
-        log.info(f"      → {video_path}")
+    try:
+        runner.start(topic=topic)
+        while True:
+            try:
+                evt = q.get(timeout=1.0)
+            except queue.Empty:
+                th = runner.thread
+                if th and not th.is_alive() and q.empty():
+                    raise RuntimeError("Pipeline thread ended without a completion event")
+                continue
+            msg = evt.get("message", "")
+            if evt.get("step"):
+                log.info("[step %s] %s", evt["step"], msg)
+            if evt.get("done"):
+                if evt.get("level") == "ERROR":
+                    raise RuntimeError(msg)
+                out = evt.get("output_path", "") or ""
+                if out:
+                    log.info("Done — %s", out)
+                break
+    finally:
+        config.set("script_review_enabled", prev_script_review)
+        config.set("video_preview_enabled", prev_video_preview)
 
 
 def run_from_video(video_file: Path | None = None) -> None:
-    """
-    Step 6 only: Upload an existing MP4 to YouTube Studio.
-    Defaults to output/final_short.mp4, or a custom --video-file path.
-    """
+    """Upload an existing MP4 to YouTube Studio."""
     log.info("Mode: FROM VIDEO  (upload only)")
 
     if video_file:
         video_path = Path(video_file)
     else:
-        # Try final_short.mp4 first, then test_short.mp4
         for candidate in ["final_short.mp4", "test_short.mp4"]:
             video_path = OUTPUT_DIR / candidate
             if video_path.exists():
@@ -212,58 +111,40 @@ def run_from_video(video_file: Path | None = None) -> None:
     log.info(f"Title: {metadata.get('title')!r}")
 
     upload_to_youtube(video_path=video_path, metadata=metadata)
-    log.info("Upload complete! 🚀")
+    log.info("Upload complete.")
 
-
-def _cleanup() -> None:
-    log.info("Cleaning up temp folder …")
-    if TEMP_DIR.exists():
-        shutil.rmtree(TEMP_DIR)
-        TEMP_DIR.mkdir()
-    log.info("Done — your Short is live! 🚀")
-
-
-# ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description=f"Ghost Creator AI v{APP_VERSION} — Automated YouTube Shorts Pipeline",
+        description=f"Ghost Creator AI v{APP_VERSION} — Documentary pipeline (CLI)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py                              # Auto-topic full pipeline
-  python main.py --topic "AI in 2025"        # Forced topic full pipeline
-  python main.py --skip-images               # Use existing images + audio
-  python main.py --from-video                # Upload existing final_short.mp4
-  python main.py --from-video --video-file output/test_short.mp4
+  python main.py                              # Auto-topic documentary
+  python main.py --topic "AI in 2026"       # Fixed subject
+  python main.py --from-video                # Upload existing MP4
+  python main.py --from-video --video-file output/film.mp4
         """,
     )
+    parser.add_argument("--version", "-V", action="version", version=f"Ghost Creator AI {APP_VERSION}")
+    parser.add_argument("--topic", type=str, default=None, help="Documentary subject (default: trending)")
     parser.add_argument(
-        "--version", "-V",
-        action="version",
-        version=f"Ghost Creator AI {APP_VERSION}",
+        "--from-video",
+        action="store_true",
+        help="Skip generation — upload an existing MP4",
     )
-    parser.add_argument("--topic",       type=str, default=None,
-                        help="Force a specific topic (full pipeline only)")
-    parser.add_argument("--skip-images", action="store_true",
-                        help="Skip Research/Script/Voice/Images — use existing files")
-    parser.add_argument("--from-video",  action="store_true",
-                        help="Skip everything — upload an existing MP4")
-    parser.add_argument("--video-file",  type=str, default=None,
-                        help="Path to MP4 to upload (for --from-video mode)")
+    parser.add_argument("--video-file", type=str, default=None, help="Path to MP4 (with --from-video)")
 
     args = parser.parse_args()
 
     try:
         if args.from_video:
-            run_from_video(video_file=args.video_file)
-        elif args.skip_images:
-            run_from_images()
+            run_from_video(video_file=Path(args.video_file) if args.video_file else None)
         else:
-            run_full(topic=args.topic)
+            run_documentary_cli(topic=args.topic)
     except KeyboardInterrupt:
         log.warning("Interrupted by user.")
         sys.exit(0)
     except Exception as exc:
-        log.critical(f"Pipeline failed: {exc}", exc_info=True)
+        log.critical("Run failed: %s", exc, exc_info=True)
         sys.exit(1)

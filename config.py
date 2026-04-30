@@ -32,8 +32,6 @@ def get_base_dir() -> Path:
 BASE_DIR    = Path(__file__).resolve().parent
 OUTPUT_DIR  = BASE_DIR / "output"
 TEMP_DIR    = BASE_DIR / "temp"
-WORKFLOW_JSON = BASE_DIR / "workflow_api.json"
-
 OUTPUT_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
 
@@ -82,9 +80,6 @@ def get_ffprobe_executable() -> str:
 
 # ── API Keys ───────────────────────────────────────────────────────────────────
 GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "")
-
-# ── ComfyUI ────────────────────────────────────────────────────────────────────
-COMFYUI_URL         = os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")
 
 # ── YouTube / Playwright ───────────────────────────────────────────────────────
 YT_PROFILE_DIR  = os.getenv("YT_PROFILE_DIR", "")

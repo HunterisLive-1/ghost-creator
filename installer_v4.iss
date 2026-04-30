@@ -49,7 +49,7 @@ Source: "dist\GhostCreatorAI.exe"; DestDir: "{app}"; DestName: "GhostCreatorAI.e
 ; App icon for shortcuts
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
-; ComfyUI Workflow API (optional — only bundled if file exists)
+; Optional legacy workflow file (unused; Gemini-only image pipeline)
 Source: "workflow_api.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; Note: FFmpeg is inside GhostCreatorAI.exe (build.bat runs ensure_ffmpeg.ps1 + PyInstaller --add-data)

@@ -68,10 +68,8 @@ DEFAULT_CONFIG: dict = {
         "voice_post_silence_threshold_db": -46.0,
     },
     "image": {
-        "backend": "comfyui",
-        "comfyui_url": "http://127.0.0.1:8188",
+        "backend": "gemini_imagen",
         "gemini_image_model": "nano_banana",
-        "pollinations_model": "dreamshaper",
         "fal_model": "fal-ai/fast-sdxl",
         "replicate_model": "stability-ai/sdxl",
         "image_count": 6,
@@ -117,6 +115,10 @@ DEFAULT_CONFIG: dict = {
         "gemini_model": "gemini-2.0-flash",
         "chrome_profiles": [],
         "active_profile_index": 0,
+        # YouTube uploader: max wait for file transfer 0→100% (ms); do not proceed if exceeded.
+        "upload_complete_timeout_ms": 900_000,
+        # After successful publish, wait before closing Chrome so Studio can finish requests.
+        "post_publish_grace_ms": 12_000,
     },
 }
 
@@ -152,9 +154,7 @@ ENV_LOCAL_MAP: dict[str, tuple[str, type]] = {
     "VOICE_POST_SILENCE_THR":     ("tts.voice_post_silence_threshold_db", float),
     # Image
     "IMAGE_BACKEND":              ("image.backend",                      str),
-    "COMFYUI_URL":                ("image.comfyui_url",                  str),
     "GEMINI_IMAGE_MODEL":         ("image.gemini_image_model",           str),
-    "POLLINATIONS_MODEL":         ("image.pollinations_model",           str),
     "FAL_MODEL":                  ("image.fal_model",                    str),
     "REPLICATE_MODEL":            ("image.replicate_model",              str),
     "IMAGE_COUNT":                ("image.image_count",                  int),
@@ -206,7 +206,7 @@ REPLICATE_API_KEY={REPLICATE_API_KEY}
 STABLE_HORDE_API_KEY={STABLE_HORDE_API_KEY}
 
 # ── TTS (VOICE) BACKEND ──────────────────────────────────────────
-# Options: omnivoice | edge_tts | elevenlabs | google_tts
+# Options: omnivoice | edge_tts | elevenlabs
 TTS_BACKEND={TTS_BACKEND}
 
 # OmniVoice local server URL (when using server mode)
@@ -241,17 +241,11 @@ VOICE_POST_SILENCE_THR={VOICE_POST_SILENCE_THR}
 ELEVENLABS_VOICE_ID={ELEVENLABS_VOICE_ID}
 
 # ── IMAGE BACKEND ────────────────────────────────────────────────
-# Options: comfyui | pollinations | gemini_imagen | fal_ai | stable_horde | replicate
+# Thumbnails / image gen: gemini_imagen only (Gemini API key required)
 IMAGE_BACKEND={IMAGE_BACKEND}
-
-# ComfyUI local Stable Diffusion server URL
-COMFYUI_URL={COMFYUI_URL}
 
 # Gemini Imagen model: nano_banana | imagen-3
 GEMINI_IMAGE_MODEL={GEMINI_IMAGE_MODEL}
-
-# Pollinations free model: dreamshaper | flux | turbo | juggernaut
-POLLINATIONS_MODEL={POLLINATIONS_MODEL}
 
 # Fal.ai model ID
 FAL_MODEL={FAL_MODEL}
@@ -506,6 +500,16 @@ class ConfigManager:
 
     def _validate_v3_fields(self) -> bool:
         changed = False
+
+        if self.get("tts.backend") == "google_tts":
+            self.set("tts.backend", "edge_tts")
+            changed = True
+
+        _img_backends = ("gemini_imagen",)
+        _ib = self.get("image.backend", DEFAULT_CONFIG["image"]["backend"])
+        if _ib not in _img_backends:
+            self.set("image.backend", "gemini_imagen")
+            changed = True
 
         aspect_ratio = self.get("aspect_ratio", DEFAULT_CONFIG["aspect_ratio"])
         if aspect_ratio not in ("9:16", "16:9"):

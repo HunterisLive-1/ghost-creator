@@ -17,6 +17,89 @@ from core.config_manager import config
 
 logger = logging.getLogger("ghost.image.gemini")
 
+
+class GeminiImageNotSupportedError(RuntimeError):
+    """Raised when the configured API key or project cannot use image generation (e.g. free tier)."""
+
+
+def is_gemini_image_unsupported(exc: BaseException) -> bool:
+    """
+    Return True if this failure is due to image generation not being allowed for the key/plan,
+    as opposed to quota/rate limits or transient errors.
+    """
+    if isinstance(exc, GeminiImageNotSupportedError):
+        return True
+
+    try:
+        from google.genai.errors import APIError
+    except ImportError:
+        APIError = ()  # type: ignore[misc, assignment]
+
+    def _walk_chain(err: BaseException) -> list[BaseException]:
+        out: list[BaseException] = []
+        seen: set[int] = set()
+        e: BaseException | None = err
+        while e is not None and id(e) not in seen and len(out) < 8:
+            seen.add(id(e))
+            out.append(e)
+            e = e.__cause__
+        return out
+
+    for e in _walk_chain(exc):
+        msg = str(e).lower()
+
+        if "resourceexhausted" in msg.replace(" ", "") or "resource exhausted" in msg:
+            return False
+        if "429" in msg and ("quota" in msg or "rate" in msg or "exhausted" in msg):
+            return False
+        if "rate limit" in msg or "too many requests" in msg:
+            return False
+
+        code = getattr(e, "code", None)
+        status = getattr(e, "status", None)
+        st = status.upper() if isinstance(status, str) else ""
+
+        if APIError and isinstance(e, APIError):
+            if code == 429:
+                return False
+            if code in (403, 404):
+                return True
+            if st in ("PERMISSION_DENIED", "FAILED_PRECONDITION", "NOT_FOUND"):
+                return True
+
+        if "returned no image" in msg or "did not contain an image" in msg:
+            return True
+        if "imagen returned no images" in msg:
+            return True
+
+        if (
+            any(
+                p in msg
+                for p in (
+                    "not supported",
+                    "does not support",
+                    "cannot generate images",
+                    "image generation is not",
+                    "requested modality",
+                    "permission_denied",
+                    "not enabled for",
+                    "billing has not been enabled",
+                    "must be logged in to a",
+                )
+            )
+            and (
+                "image" in msg
+                or "modality" in msg
+                or "imagen" in msg
+                or "generate_images" in msg
+                or "generate_content" in msg
+            )
+        ):
+            return True
+
+    return False
+
+
 # Available Gemini image models (from ListModels API)
 GEMINI_IMAGE_MODELS = {
     "nano_banana":     "gemini-2.5-flash-image",
@@ -92,6 +175,14 @@ class GeminiImagenBackend(ImageBackend):
             error_msg = str(exc)
             if "ResourceExhausted" in error_msg or "quota" in error_msg.lower():
                 logger.warning("Gemini image quota exceeded!")
+            if is_gemini_image_unsupported(exc):
+                logger.info(
+                    "Gemini image generation not available for this API key/plan: %s",
+                    exc,
+                )
+                raise GeminiImageNotSupportedError(
+                    "Gemini image generation is not available for this API key"
+                ) from exc
             logger.error(f"Gemini image gen failed: {exc}")
             raise RuntimeError(f"Gemini image gen failed: {exc}") from exc
 

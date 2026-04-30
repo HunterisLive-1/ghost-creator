@@ -13,7 +13,6 @@ if str(_project_root) not in sys.path:
 
 from config import APP_VERSION
 from core.config_manager import config
-from gui.tabs.pipeline_tab import PipelineTab
 from gui.tabs.settings_tab import SettingsTab
 from gui.tabs.documentary_tab import DocumentaryTab
 
@@ -72,8 +71,6 @@ class GhostCreatorApp(ctk.CTk):
 
     # ── Main UI (built only after license is confirmed) ───────────────────────
     def _init_main_ui(self):
-        self.progress_queue = queue.Queue()
-
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True)
 
@@ -120,16 +117,11 @@ class GhostCreatorApp(ctk.CTk):
         )
         self.tabview.pack(fill="both", expand=True, padx=15, pady=5)
 
-        tab_pipeline    = self.tabview.add("▶ PIPELINE")
         tab_documentary = self.tabview.add("🎬 DOCUMENTARY")
         tab_settings    = self.tabview.add("⚙ SETTINGS")
         tab_history     = self.tabview.add("📋 HISTORY")
 
-        # Each tab gets its own progress queue so they don't cross-contaminate
         self.doc_queue = queue.Queue()
-
-        self.pipeline_tab = PipelineTab(tab_pipeline, progress_queue=self.progress_queue, app_ref=self)
-        self.pipeline_tab.pack(fill="both", expand=True)
 
         self.documentary_tab = DocumentaryTab(tab_documentary, progress_queue=self.doc_queue, app_ref=self)
         self.documentary_tab.pack(fill="both", expand=True)
@@ -162,8 +154,7 @@ class GhostCreatorApp(ctk.CTk):
         
     def update_backend_labels(self):
         tts = config.get("tts.backend", "omnivoice").upper()
-        img = config.get("image.backend", "comfyui").upper()
-        self.backend_label.configure(text=f"AUDIO_SUBROUTINE: [{tts}]   |   VISION_MATRIX: [{img}]")
+        self.backend_label.configure(text=f"AUDIO_SUBROUTINE: [{tts}]")
 
     def set_system_state(self, state: str):
         self.sys_state = state

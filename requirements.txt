@@ -14,36 +14,22 @@ pytrends>=4.9.2
 feedparser>=6.0.10
 requests>=2.31.0
 
-# --- Scripting (Gemini + OpenAI) ---
+# --- Scripting (Gemini) ---
 google-genai>=0.5.0
-openai>=1.0.0
 
 # --- Voice / TTS ---
-# OmniVoice: install PyTorch + torchaudio for your OS/GPU first →
-#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-# Then: pip install omnivoice
-omnivoice>=0.1.0
-torch>=2.10.0
-torchaudio>=2.11.0
+# OmniVoice server runs in separate repo/environment (external run.bat path),
+# so local omnivoice/torch stack is intentionally not required here.
 pydub>=0.25.1
-soundfile>=0.12.1
 edge-tts>=6.1.9
 elevenlabs>=1.0.0
-google-cloud-texttospeech>=2.16.0
 
 
 
-
-
-# --- Image generation ---
-websocket-client>=1.7.0
+# --- Image generation (Gemini Imagen; thumbnails) ---
 Pillow>=10.3.0
-fal-client>=0.4.0
-replicate>=0.25.0
-# xAI Grok Imagine + Grok Video use plain requests (already included above) — no extra SDK needed
 
-# --- Video assembly ---
-moviepy>=1.0.3
+# --- Video / numeric ---
 numpy>=1.26.0
 
 # --- YouTube uploader ---
@@ -56,5 +42,4 @@ cryptography>=42.0.0
 yt-dlp>=2024.1.1
 
 # --- Utilities ---
-tqdm>=4.66.0
 colorlog>=6.8.2

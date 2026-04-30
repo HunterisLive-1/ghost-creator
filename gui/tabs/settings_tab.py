@@ -36,56 +36,14 @@ TTS_DESCRIPTIONS = {
     "elevenlabs": (
         "⭐ ElevenLabs — API key chahiye; neeche Voice ID + tuning fold mein (paid, best quality)."
     ),
-    "google_tts": (
-        "☁️ Google Cloud TTS — service-account JSON path API Keys + advanced setup (paid)."
-    ),
-}
-
-IMG_DESCRIPTIONS = {
-    "gemini_imagen": (
-        "✅ Imagen-3 — sirf Gemini key, cloud, no GPU. Best default.\n"
-        "   Fal/Replicate/Comfy = neeche ComfyUI fold + API keys."
-    ),
-    "pollinations": (
-        "🆓 Pollinations — free, no key; model dropdown image section mein. Basic quality."
-    ),
-    "comfyui": (
-        "⚡ ComfyUI — local, GPU, URL neeche \"ComfyUI URL\" fold mein. ~8188."
-    ),
-    "fal_ai": (
-        "🚀 Fal — fast cloud; API key. Pay-per-image."
-    ),
-    "stable_horde": (
-        "🌐 Stable Horde — free community GPU; key 000… ; slow queue possible."
-    ),
-    "replicate": (
-        "🔧 Replicate — hosted models, API key; many models, pay-per-use."
-    ),
-    "grok_imagine": (
-        "⭐ Grok Imagine — xAI key; Standard/Pro model neeche jab select ho. $0.02–0.07/img."
-    ),
 }
 
 # ── API key helper info ────────────────────────────────────────────────────────
-# Video format GUI labels ↔ config values
-_ASPECT_LABEL_FOR_RATIO = {"9:16": "9:16 Shorts", "16:9": "16:9 YouTube"}
-_TRANSITION_STYLE_TO_CONFIG = {
-    "Cinematic Mix": "cinematic_mix",
-    "Fade Only": "fade_only",
-    "Zoom Only": "zoom_only",
-    "Minimal": "minimal",
-}
-_TRANSITION_CONFIG_TO_STYLE = {v: k for k, v in _TRANSITION_STYLE_TO_CONFIG.items()}
 
 API_KEY_INFO = {
-    "api_keys.gemini":      ("REQUIRED", ACCENT_GRN,  "Script + Image generation  •  Free at: aistudio.google.com/app/apikey"),
+    "api_keys.gemini":      ("REQUIRED", ACCENT_GRN,  "Documentary script (Gemini)  •  Free at: aistudio.google.com/app/apikey"),
     "api_keys.elevenlabs":  ("OPTIONAL", TEXT_HINT,   "Sirf ElevenLabs TTS use karne par chahiye  •  elevenlabs.io"),
-    "api_keys.google_tts":  ("OPTIONAL", TEXT_HINT,   "Google Cloud TTS ka service-account JSON file ka PATH daalo"),
-    "api_keys.fal_ai":      ("OPTIONAL", TEXT_HINT,   "Sirf Fal.ai image backend use karne par chahiye  •  fal.ai/dashboard"),
-    "api_keys.replicate":   ("OPTIONAL", TEXT_HINT,   "Sirf Replicate image backend use karne par chahiye  •  replicate.com"),
-    "api_keys.stable_horde":("OPTIONAL", TEXT_HINT,   "Free use ke liye '0000000000' daalo  •  stablehorde.net"),
-    "api_keys.pexels":      ("OPTIONAL", TEXT_HINT,   "Documentary footage ke liye real stock videos  •  pexels.com/api (free)"),
-    "xai_api_key":          ("OPTIONAL", TEXT_HINT,   "Grok Imagine images + Grok Video clips ke liye  •  console.x.ai"),
+    "api_keys.pexels":      ("OPTIONAL", TEXT_HINT,   "Documentary footage ke liye stock video  •  pexels.com/api (free)"),
 }
 
 OMNIVOICE_STYLE_OPTIONS = {
@@ -141,7 +99,6 @@ class SettingsTab(ctk.CTkFrame):
 
         # State variables
         self._tts_val = config.get("tts.backend", "omnivoice")
-        self._img_val = config.get("image.backend", "comfyui")
 
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=10)
@@ -149,7 +106,6 @@ class SettingsTab(ctk.CTkFrame):
         self._build_beginner_banner(scroll)
         self._build_api_keys_section(scroll)
         self._build_tts_section(scroll)
-        self._build_image_section(scroll)
         self._build_video_format_section(scroll)
         self._build_script_generation_section(scroll)
         self._build_pipeline_section(scroll)
@@ -218,7 +174,7 @@ class SettingsTab(ctk.CTkFrame):
             inner,
             text=(
                 "1) API Keys → GEMINI  (aistudio.google.com)  ·  2) Audio → EDGE TTS  (free)  ·  "
-                "3) Vision → IMAGEN-3  ·  4) Core → language hi/en/…  ·  5) [ SAVE ] → Pipeline → RUN"
+                "3) Core → language hi/en/…  ·  4) [ SAVE ] → Documentary tab → ROLL FILM"
             ),
             font=("Share Tech Mono", 12),
             text_color="#88CCAA",
@@ -235,12 +191,7 @@ class SettingsTab(ctk.CTkFrame):
         keys = [
             ("Gemini API Key",              "api_keys.gemini"),
             ("ElevenLabs API Key",          "api_keys.elevenlabs"),
-            ("Google Cloud TTS (JSON path)","api_keys.google_tts"),
-            ("Fal.ai API Key",              "api_keys.fal_ai"),
-            ("Replicate API Key",           "api_keys.replicate"),
-            ("Stable Horde API Key",        "api_keys.stable_horde"),
             ("Pexels API Key",              "api_keys.pexels"),
-            ("xAI API Key",                 "xai_api_key"),
         ]
 
         more_keys_frame: ctk.CTkFrame | None = None
@@ -250,7 +201,7 @@ class SettingsTab(ctk.CTkFrame):
             else:
                 if more_keys_frame is None:
                     more_keys_frame = self._add_foldable(
-                        section, "More API keys (optional — 7 fields)", start_open=False
+                        section, "More API keys (optional)", start_open=False
                     )
                 key_parent = more_keys_frame
             badge_text, badge_color, hint_text = API_KEY_INFO.get(
@@ -354,7 +305,6 @@ class SettingsTab(ctk.CTkFrame):
             ("omnivoice",  "OMNIVOICE ⭐"),
             ("edge_tts",   "EDGE TTS ✅"),
             ("elevenlabs", "ELEVENLABS"),
-            ("google_tts", "GOOGLE CLOUD"),
         ]
 
         btn_frame = ctk.CTkFrame(section, fg_color="transparent")
@@ -394,51 +344,6 @@ class SettingsTab(ctk.CTkFrame):
                                   border_color=BORDER, border_width=1)
         tts_config.pack(fill="x", pady=(0, 5), ipadx=10, ipady=10)
 
-        _vpe = config.get("tts.voice_post_process", 1)
-        if isinstance(_vpe, bool):
-            _vpost_on = _vpe
-        else:
-            try:
-                _vpost_on = int(_vpe) != 0
-            except (TypeError, ValueError):
-                _vpost_on = True
-        self._voice_post_var = ctk.BooleanVar(value=_vpost_on)
-        ctk.CTkCheckBox(
-            tts_config,
-            text="Post-process voiceover: FFmpeg cleanup (80 Hz high-pass + loudness normalize) — all TTS",
-            variable=self._voice_post_var,
-            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC,
-            fg_color=BG_MAIN, border_color=BORDER,
-            hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
-        ).pack(anchor="w", padx=10, pady=(10, 2))
-        self._hint(
-            tts_config,
-            "Bina manual touch: TTS ke baad level consistent + halka rumble hata. "
-            "FFmpeg chahiye. Target LUFS: config / .env  `tts.voice_post_target_lufs` (default -16).",
-        )
-
-        _vst = config.get("tts.voice_post_silence_trim", 1)
-        if isinstance(_vst, bool):
-            _vst_on = _vst
-        else:
-            try:
-                _vst_on = int(_vst) != 0
-            except (TypeError, ValueError):
-                _vst_on = True
-        self._voice_post_silence_var = ctk.BooleanVar(value=_vst_on)
-        ctk.CTkCheckBox(
-            tts_config,
-            text="+ Smart silence: lambi chup kam, chhote word/sentence gaps bane rahen (FFmpeg silenceremove)",
-            variable=self._voice_post_silence_var,
-            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC,
-            fg_color=BG_MAIN, border_color=BORDER,
-            hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
-        ).pack(anchor="w", padx=10, pady=(2, 2))
-        self._hint(
-            tts_config,
-            "Fine-tune: `tts.voice_post_silence_min_internal` (sec, lamba dead-air) · "
-            "`tts.voice_post_silence_keep` (replaced gap) · `tts.voice_post_silence_threshold_db` — default 0.42 / 0.22 / -46.",
-        )
         omni_inner = self._add_foldable(
             tts_config, "OmniVoice — run.bat, mode, reference, design, quality", start_open=True
         )
@@ -498,7 +403,7 @@ class SettingsTab(ctk.CTkFrame):
         )
         ctk.CTkCheckBox(
             omni_inner,
-            text="Auto-start OmniVoice server before each pipeline run",
+            text="Auto-start OmniVoice server before each documentary run",
             variable=self._omnivoice_autostart_var,
             font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC,
             fg_color=BG_MAIN, border_color=BORDER,
@@ -507,7 +412,7 @@ class SettingsTab(ctk.CTkFrame):
         self._hint(
             omni_inner,
             "run.bat ka path daalo (e.g. D:/omnivoice/OmniVoice/run.bat). "
-            "Auto-start ON → pipeline khud server start karega. "
+            "Auto-start ON → app khud server start karega. "
             "OFF → manually start karo pehle.",
         )
 
@@ -758,256 +663,12 @@ class SettingsTab(ctk.CTkFrame):
         if hasattr(self, "_tts_desc"):
             self._tts_desc.configure(text=TTS_DESCRIPTIONS.get(val, ""))
 
-    # ── Section 3: Image Backend ──────────────────────────────────────────
-    def _build_image_section(self, parent):
-        section = self._section(
-            parent, ">> [ VISION MATRIX ]",
-            "Video ke liye AI images kaun generate karega. "
-            "👉 Beginner? → IMAGEN-3 chuno (sirf Gemini key chahiye, koi setup nahi)."
-        )
-
-        options = [
-            ("comfyui",       "COMFYUI"),
-            ("pollinations",  "POLLINATIONS 🆓"),
-            ("gemini_imagen", "IMAGEN-3 ✅"),
-            ("fal_ai",        "FAL.AI"),
-            ("stable_horde",  "STABLE HORDE"),
-            ("replicate",     "REPLICATE"),
-            ("grok_imagine",  "GROK IMAGINE ⭐"),
-        ]
-
-        btn_frame1 = ctk.CTkFrame(section, fg_color="transparent")
-        btn_frame1.pack(fill="x", pady=(5, 3))
-        btn_frame2 = ctk.CTkFrame(section, fg_color="transparent")
-        btn_frame2.pack(fill="x", pady=(0, 8))
-
-        self._img_btns = {}
-        for i, (val, label) in enumerate(options):
-            b_frame = btn_frame1 if i < 4 else btn_frame2
-            btn = ctk.CTkButton(
-                b_frame, text=label, font=("Share Tech Mono", 12, "bold"),
-                fg_color="transparent", text_color=TEXT_SEC,
-                border_color=BORDER, border_width=1, corner_radius=0,
-                command=lambda v=val: self._select_img(v)
-            )
-            btn.pack(side="left", padx=4, expand=True, fill="x")
-            btn.bind("<Enter>", lambda e, b=btn: b.configure(border_color=ACCENT_PRI) if b.cget("fg_color") == "transparent" else None)
-            btn.bind("<Leave>", lambda e, b=btn: b.configure(border_color=BORDER)     if b.cget("fg_color") == "transparent" else None)
-            self._img_btns[val] = btn
-
-        # Dynamic description box
-        self._img_desc = ctk.CTkLabel(
-            section,
-            text="",
-            font=("Share Tech Mono", 11),
-            text_color="#88CCAA",
-            justify="left",
-            anchor="w",
-            wraplength=760,
-            fg_color="#071510",
-            corner_radius=0,
-        )
-        self._img_desc.pack(fill="x", padx=0, pady=(0, 6), ipadx=10, ipady=6)
-
-        # Grok model sub-panel (shown only when Grok Imagine is selected)
-        GROK_MODEL_OPTIONS = {
-            "Standard · $0.02/img": "grok-2-image-1212",
-            "Pro · $0.07/img": "grok-2-image",
-        }
-        GROK_MODEL_REV = {v: k for k, v in GROK_MODEL_OPTIONS.items()}
-        self._grok_model_options = GROK_MODEL_OPTIONS
-
-        self._grok_panel = ctk.CTkFrame(section, fg_color=BG_CARD, corner_radius=0,
-                                        border_color=BORDER, border_width=1)
-        grok_inner = ctk.CTkFrame(self._grok_panel, fg_color="transparent")
-        grok_inner.pack(fill="x", padx=10, pady=8)
-        ctk.CTkLabel(grok_inner, text="GROK MODEL:",
-                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(side="left")
-        cur_grok_model = config.get("grok_image_model", "grok-2-image-1212")
-        self._grok_model_var = ctk.StringVar(value=GROK_MODEL_REV.get(cur_grok_model, "Standard · $0.02/img"))
-        ctk.CTkOptionMenu(
-            grok_inner,
-            values=list(GROK_MODEL_OPTIONS.keys()),
-            variable=self._grok_model_var,
-            font=("Share Tech Mono", 13),
-            text_color=TEXT_PRI, fg_color=BG_SEC,
-            button_color=BORDER, button_hover_color=ACCENT_PRI,
-            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
-            corner_radius=0, width=220,
-        ).pack(side="left", padx=10)
-        self._hint(self._grok_panel, "Requires xAI API key (set in API Keys section above)")
-
-        self._select_img(self._img_val)
-
-        # ComfyUI URL (fold — Imagen / Grok users skip)
-        _comfy_fold = self._add_foldable(
-            section, "ComfyUI URL (local SD — if using ComfyUI backend)",
-            start_open=False,
-        )
-        inner_img = ctk.CTkFrame(_comfy_fold, fg_color=BG_MAIN, corner_radius=0,
-                                 border_color=BORDER, border_width=1)
-        inner_img.pack(fill="x", pady=(0, 4), ipadx=10, ipady=8)
-
-        ctk.CTkLabel(inner_img, text="COMFYUI NODE URL:",
-                     font=("Share Tech Mono", 12, "bold"),
-                     text_color=TEXT_SEC).pack(anchor="w", padx=10, pady=(8, 0))
-        self._comfyui_url = ctk.CTkEntry(inner_img, width=400, font=("Share Tech Mono", 13),
-                                         fg_color=BG_MAIN, border_color=BORDER,
-                                         text_color=TEXT_PRI, corner_radius=0)
-        self._comfyui_url.insert(0, config.get("image.comfyui_url", "http://127.0.0.1:8188"))
-        self._comfyui_url.pack(anchor="w", padx=10, pady=(2, 2))
-        self._comfyui_url.bind("<FocusIn>",  lambda e: self._comfyui_url.configure(border_width=2, border_color=ACCENT_PRI))
-        self._comfyui_url.bind("<FocusOut>", lambda e: self._comfyui_url.configure(border_width=1, border_color=BORDER))
-        self._hint(inner_img, "ComfyUI backend only. Default :8188 — server start karo pehle.")
-
-    def _select_img(self, val):
-        self._img_val = val
-        for v, btn in self._img_btns.items():
-            if v == val:
-                btn.configure(fg_color=ACCENT_PRI, text_color=BG_MAIN, border_color=ACCENT_PRI)
-            else:
-                btn.configure(fg_color="transparent", text_color=TEXT_SEC, border_color=BORDER)
-        if hasattr(self, "_img_desc"):
-            self._img_desc.configure(text=IMG_DESCRIPTIONS.get(val, ""))
-        if hasattr(self, "_grok_panel"):
-            if val == "grok_imagine":
-                self._grok_panel.pack(fill="x", pady=(0, 8))
-            else:
-                self._grok_panel.pack_forget()
-
-    # ── Section: Video Format & Effects ───────────────────────────────────
+    # ── Section: Video Format ─────────────────────────────────────────────
     def _build_video_format_section(self, parent):
         section = self._section(
-            parent, ">> [ VIDEO FORMAT & EFFECTS ]",
-            "Final MP4 ka aspect ratio aur FFmpeg cinematic intro / scene transitions."
+            parent, ">> [ RUN BEHAVIOR ]",
+            "Script review / preview toggles. Resolution + subtitles Documentary tab se control karo."
         )
-
-        ctk.CTkLabel(
-            section, text="ASPECT RATIO:",
-            font=("Share Tech Mono", 12, "bold"),
-            text_color=TEXT_SEC,
-        ).pack(anchor="w", padx=10, pady=(4, 2))
-
-        ar_cfg = config.get("aspect_ratio", "9:16")
-        if ar_cfg not in _ASPECT_LABEL_FOR_RATIO:
-            ar_cfg = "9:16"
-        aspect_default = _ASPECT_LABEL_FOR_RATIO[ar_cfg]
-
-        self._aspect_seg = ctk.CTkSegmentedButton(
-            section,
-            values=["9:16 Shorts", "16:9 YouTube"],
-            font=("Share Tech Mono", 12, "bold"),
-            text_color=TEXT_PRI,
-            fg_color=BG_SEC,
-            selected_color=ACCENT_PRI,
-            selected_hover_color=ACCENT_SEC,
-            unselected_color=BG_CARD,
-            unselected_hover_color=BORDER,
-            corner_radius=0,
-            command=self._on_aspect_segment_change,
-        )
-        self._aspect_seg.set(aspect_default)
-        self._aspect_seg.pack(anchor="w", padx=10, pady=(0, 6), fill="x")
-        self._hint(
-            section,
-            "9:16 = vertical Shorts  |  16:9 = landscape. Change = turant apply + disk save — "
-            "[ SAVE CONFIG ] ab optional hai is ke liye.",
-        )
-
-        ctk.CTkLabel(
-            section,
-            text="─── Documentary (long form) ───────────────────────────",
-            font=("Share Tech Mono", 11),
-            text_color=TEXT_HINT,
-        ).pack(anchor="w", padx=10, pady=(14, 4))
-        self._doc_burn_subs_var = ctk.BooleanVar(
-            value=bool(config.get("documentary.burn_subtitles", False))
-        )
-        self._doc_burn_subs_cb = ctk.CTkCheckBox(
-            section,
-            text="Documentary: burn narration as subtitles (white, bold, bottom) — Long mode only",
-            variable=self._doc_burn_subs_var,
-            font=("Share Tech Mono", 12, "bold"),
-            text_color=TEXT_SEC,
-            fg_color=BG_MAIN,
-            border_color=BORDER,
-            hover_color=BG_CARD,
-            checkmark_color=ACCENT_PRI,
-            corner_radius=0,
-            command=self._on_doc_burn_subs_change,
-        )
-        self._doc_burn_subs_cb.pack(anchor="w", padx=15, pady=(0, 4))
-        self._hint(
-            section,
-            "Only the Documentary pipeline; Short documentary ignores it. Main (shorts) pipeline unchanged.",
-        )
-
-        ce = config.get("cinematic_effects", {})
-        intro_on = bool(ce.get("intro", True))
-        trans_on = bool(ce.get("transitions", True))
-
-        self._ce_intro_var = ctk.BooleanVar(value=intro_on)
-        self._ce_trans_var = ctk.BooleanVar(value=trans_on)
-
-        self._video_format_chk_row = ctk.CTkFrame(section, fg_color="transparent")
-        self._video_format_chk_row.pack(fill="x", pady=(8, 4), padx=5)
-
-        self._chk_intro = ctk.CTkCheckBox(
-            self._video_format_chk_row,
-            text="Cinematic Intro",
-            variable=self._ce_intro_var,
-            font=("Share Tech Mono", 12, "bold"),
-            text_color=TEXT_SEC,
-            fg_color=BG_MAIN,
-            border_color=BORDER,
-            hover_color=BG_CARD,
-            checkmark_color=ACCENT_PRI,
-            corner_radius=0,
-        )
-        self._chk_intro.pack(side="left", padx=(5, 24))
-
-        self._chk_trans = ctk.CTkCheckBox(
-            self._video_format_chk_row,
-            text="Scene Transitions",
-            variable=self._ce_trans_var,
-            font=("Share Tech Mono", 12, "bold"),
-            text_color=TEXT_SEC,
-            fg_color=BG_MAIN,
-            border_color=BORDER,
-            hover_color=BG_CARD,
-            checkmark_color=ACCENT_PRI,
-            corner_radius=0,
-            command=self._sync_transition_style_visibility,
-        )
-        self._chk_trans.pack(side="left", padx=(0, 5))
-
-        self._transition_style_row = ctk.CTkFrame(section, fg_color="transparent")
-        ctk.CTkLabel(
-            self._transition_style_row,
-            text="TRANSITION STYLE:",
-            font=("Share Tech Mono", 12, "bold"),
-            text_color=TEXT_SEC,
-        ).pack(anchor="w", padx=10, pady=(4, 2))
-        ts_cfg = ce.get("transition_style", "cinematic_mix")
-        ts_label = _TRANSITION_CONFIG_TO_STYLE.get(ts_cfg, "Cinematic Mix")
-        self._trans_style = ctk.CTkOptionMenu(
-            self._transition_style_row,
-            values=["Cinematic Mix", "Fade Only", "Zoom Only", "Minimal"],
-            font=("Share Tech Mono", 13),
-            text_color=TEXT_PRI,
-            fg_color=BG_SEC,
-            button_color=BORDER,
-            button_hover_color=ACCENT_PRI,
-            dropdown_fg_color=BG_CARD,
-            dropdown_text_color=TEXT_PRI,
-            corner_radius=0,
-            width=200,
-        )
-        self._trans_style.set(ts_label)
-        self._trans_style.pack(anchor="w", padx=10, pady=(0, 4))
-        self._hint(self._transition_style_row, "xfade transition pool — sirf tab use hota hai jab Scene Transitions ON ho")
-
-        self._sync_transition_style_visibility()
 
         ctk.CTkLabel(
             section,
@@ -1019,7 +680,7 @@ class SettingsTab(ctk.CTkFrame):
         self._script_review_var = ctk.BooleanVar(value=bool(config.get("script_review_enabled", True)))
         self._chk_script_review = ctk.CTkCheckBox(
             section,
-            text="Pause for script review before generating images",
+            text="Pause for script review before narration / footage download",
             variable=self._script_review_var,
             font=("Share Tech Mono", 12, "bold"),
             text_color=TEXT_SEC,
@@ -1039,7 +700,7 @@ class SettingsTab(ctk.CTkFrame):
         ).pack(anchor="w", padx=10, pady=(0, 2))
         self._hint(
             section,
-            "When enabled, pipeline pauses after script generation so you can review and edit before images are created.",
+            "When enabled, run pauses after the documentary script so you can edit narration and stock search terms.",
         )
 
         self._video_preview_var = ctk.BooleanVar(value=bool(config.get("video_preview_enabled", True)))
@@ -1065,19 +726,8 @@ class SettingsTab(ctk.CTkFrame):
         ).pack(anchor="w", padx=10, pady=(0, 2))
         self._hint(
             section,
-            "When enabled, pipeline pauses after video assembly so you can preview the result, then approve or cancel the upload.",
+            "When enabled, video preview opens before upload so you can approve or cancel.",
         )
-
-    def _sync_transition_style_visibility(self):
-        """Show transition style row only when Scene Transitions is checked."""
-        if not hasattr(self, "_transition_style_row"):
-            return
-        if self._ce_trans_var.get():
-            self._transition_style_row.pack(
-                fill="x", pady=(4, 0), after=self._video_format_chk_row
-            )
-        else:
-            self._transition_style_row.pack_forget()
 
     def _sync_upload_controls(self):
         """Disable upload visibility mode when YouTube upload is turned off."""
@@ -1110,33 +760,11 @@ class SettingsTab(ctk.CTkFrame):
         }
         GEMINI_MODEL_REV = {v: k for k, v in GEMINI_MODEL_MAP.items()}
 
-        OPENAI_MODELS = [
-            "gpt-4o (Best · ~$0.01/script)",
-            "gpt-4o-mini (Cheap · ~$0.001/script)",
-        ]
-        OPENAI_MODEL_MAP = {
-            "gpt-4o (Best · ~$0.01/script)": "gpt-4o",
-            "gpt-4o-mini (Cheap · ~$0.001/script)": "gpt-4o-mini",
-        }
-        OPENAI_MODEL_REV = {v: k for k, v in OPENAI_MODEL_MAP.items()}
-
-        IMG2VIDEO_OPTIONS = {
-            "AnimateDiff · $0.005/clip (Fal)": "animatediff",
-            "Stable Video · $0.05/clip (Fal)": "stable_video",
-            "Kling Standard · $0.14/clip (Fal)": "kling_standard",
-            "Kling Pro · $0.28/clip (Fal)": "kling_pro",
-            "Grok Video 5s · $0.25/clip (xAI)": "grok_video_5s",
-            "Grok Video 10s · $0.50/clip (xAI)": "grok_video_10s",
-        }
-        IMG2VIDEO_REV = {v: k for k, v in IMG2VIDEO_OPTIONS.items()}
-
         self._gemini_model_map = GEMINI_MODEL_MAP
-        self._openai_model_map = OPENAI_MODEL_MAP
-        self._img2video_map = IMG2VIDEO_OPTIONS
 
         section = self._section(
             parent, ">> [ SCRIPT GENERATION ]",
-            "AI provider aur model choose karo — Gemini free hai, OpenAI paid, Ollama local/free"
+            "AI provider aur model choose karo — Gemini free hai, Ollama local/free"
         )
 
         # ── AI Provider toggle ──────────────────────────────────────────────
@@ -1148,11 +776,11 @@ class SettingsTab(ctk.CTkFrame):
         ).pack(side="left", padx=5)
 
         current_provider = config.get("script_provider", "gemini")
-        _prov_display = {"gemini": "Gemini", "openai": "OpenAI", "ollama": "Ollama"}
+        _prov_display = {"gemini": "Gemini", "ollama": "Ollama"}
         self._provider_var = ctk.StringVar(value=_prov_display.get(current_provider, "Gemini"))
         self._provider_seg = ctk.CTkSegmentedButton(
             prov_row,
-            values=["Gemini", "OpenAI", "Ollama"],
+            values=["Gemini", "Ollama"],
             variable=self._provider_var,
             font=("Share Tech Mono", 13, "bold"),
             text_color=TEXT_PRI,
@@ -1198,58 +826,6 @@ class SettingsTab(ctk.CTkFrame):
             corner_radius=0, width=280,
         )
         self._gemini_model_dropdown.pack(side="left", padx=10)
-
-        # ── OpenAI frame ────────────────────────────────────────────────────
-        self._openai_frame = ctk.CTkFrame(section, fg_color="transparent")
-
-        oai_row = ctk.CTkFrame(self._openai_frame, fg_color="transparent")
-        oai_row.pack(fill="x", pady=4)
-        ctk.CTkLabel(
-            oai_row, text="OPENAI MODEL:",
-            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=260, anchor="w"
-        ).pack(side="left", padx=5)
-
-        cur_oai = config.get("openai_model", "gpt-4o")
-        cur_oai_display = OPENAI_MODEL_REV.get(cur_oai, OPENAI_MODELS[0])
-        self._openai_model_var = ctk.StringVar(value=cur_oai_display)
-        self._openai_model_dropdown = ctk.CTkOptionMenu(
-            oai_row,
-            values=OPENAI_MODELS,
-            variable=self._openai_model_var,
-            font=("Share Tech Mono", 13),
-            text_color=TEXT_PRI, fg_color=BG_SEC,
-            button_color=BORDER, button_hover_color=ACCENT_PRI,
-            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
-            corner_radius=0, width=280,
-        )
-        self._openai_model_dropdown.pack(side="left", padx=10)
-
-        key_row = ctk.CTkFrame(self._openai_frame, fg_color="transparent")
-        key_row.pack(fill="x", pady=4)
-        lbl_k = ctk.CTkFrame(key_row, fg_color="transparent", width=260)
-        lbl_k.pack(side="left")
-        lbl_k.pack_propagate(False)
-        ctk.CTkLabel(lbl_k, text="OPENAI API KEY:", anchor="w",
-                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(anchor="w", padx=5)
-        ctk.CTkLabel(lbl_k, text="platform.openai.com/api-keys", anchor="w",
-                     font=("Share Tech Mono", 10), text_color=TEXT_HINT).pack(anchor="w", padx=5)
-        self._openai_key_entry = ctk.CTkEntry(
-            key_row, width=340, show="•",
-            font=("Share Tech Mono", 13),
-            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT_PRI, corner_radius=0,
-        )
-        self._openai_key_entry.insert(0, config.get("openai_api_key", ""))
-        self._openai_key_entry.pack(side="left", padx=10)
-        self._openai_key_entry.bind("<FocusIn>",  lambda e: self._openai_key_entry.configure(border_width=2, border_color=ACCENT_PRI))
-        self._openai_key_entry.bind("<FocusOut>", lambda e: self._openai_key_entry.configure(border_width=1, border_color=BORDER))
-
-        ctk.CTkButton(
-            key_row, text="👁", width=36,
-            font=("Share Tech Mono", 13),
-            text_color=TEXT_SEC, fg_color="transparent",
-            hover_color=BG_CARD, border_color=BORDER, border_width=1, corner_radius=0,
-            command=self._toggle_openai_key_visibility,
-        ).pack(side="left")
 
         # ── Ollama frame ─────────────────────────────────────────────────────
         self._ollama_frame = ctk.CTkFrame(section, fg_color="transparent")
@@ -1374,76 +950,22 @@ class SettingsTab(ctk.CTkFrame):
                 "     • aya-expanse  →  `ollama pull aya-expanse`  (101 languages)\n"
                 "     • llama3.1   →  `ollama pull llama3.1`  (partial support)\n"
                 "\n"
-                "💡  Sahi Hindi/regional script ke liye Gemini ya OpenAI use karo."
+                "💡  Sahi Hindi/regional script ke liye Gemini use karo."
             ),
             font=("Share Tech Mono", 11), text_color=TEXT_SEC,
             anchor="w", justify="left",
         ).pack(anchor="w", padx=12, pady=(0, 10))
-
-        # ── Image-to-Video Backend ──────────────────────────────────────────
-        ctk.CTkFrame(section, fg_color=BORDER, height=1).pack(fill="x", pady=(16, 6), padx=5)
-        ctk.CTkLabel(
-            section, text=">> [ IMAGE-TO-VIDEO BACKEND ]",
-            font=("Orbitron", 13, "bold"), text_color=TEXT_SEC,
-        ).pack(anchor="w", padx=10, pady=(0, 4))
-
-        i2v_row = ctk.CTkFrame(section, fg_color="transparent")
-        i2v_row.pack(fill="x", pady=4)
-        ctk.CTkLabel(
-            i2v_row, text="IMG2VIDEO BACKEND:",
-            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=260, anchor="w"
-        ).pack(side="left", padx=5)
-        cur_i2v = config.get("img2video_backend", "kling_standard")
-        cur_i2v_display = IMG2VIDEO_REV.get(cur_i2v, list(IMG2VIDEO_OPTIONS.keys())[2])
-        self._img2video_var = ctk.StringVar(value=cur_i2v_display)
-        ctk.CTkOptionMenu(
-            i2v_row,
-            values=list(IMG2VIDEO_OPTIONS.keys()),
-            variable=self._img2video_var,
-            font=("Share Tech Mono", 13),
-            text_color=TEXT_PRI, fg_color=BG_SEC,
-            button_color=BORDER, button_hover_color=ACCENT_PRI,
-            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
-            corner_radius=0, width=280,
-        ).pack(side="left", padx=10)
-
-        dur_row = ctk.CTkFrame(section, fg_color="transparent")
-        dur_row.pack(fill="x", pady=4)
-        ctk.CTkLabel(
-            dur_row, text="CLIP DURATION:",
-            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=260, anchor="w"
-        ).pack(side="left", padx=5)
-        cur_dur = config.get("img2video_duration", "5") + "s"
-        self._clip_duration_var = ctk.StringVar(value=cur_dur)
-        ctk.CTkOptionMenu(
-            dur_row,
-            values=["5s", "10s"],
-            variable=self._clip_duration_var,
-            font=("Share Tech Mono", 13),
-            text_color=TEXT_PRI, fg_color=BG_SEC,
-            button_color=BORDER, button_hover_color=ACCENT_PRI,
-            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
-            corner_radius=0, width=120,
-        ).pack(side="left", padx=10)
-        self._hint(section, "Fal.ai backends → Fal API key  •  Grok backends → xAI API key  |  Used in Image Review step when 'Make Video' is toggled ON")
 
         # Show correct frame on init
         self._on_provider_switch(self._provider_var.get())
 
     def _on_provider_switch(self, value: str):
         self._gemini_frame.pack_forget()
-        self._openai_frame.pack_forget()
         self._ollama_frame.pack_forget()
-        if value == "OpenAI":
-            self._openai_frame.pack(fill="x")
-        elif value == "Ollama":
+        if value == "Ollama":
             self._ollama_frame.pack(fill="x")
         else:
             self._gemini_frame.pack(fill="x")
-
-    def _toggle_openai_key_visibility(self):
-        current = self._openai_key_entry.cget("show")
-        self._openai_key_entry.configure(show="" if current == "•" else "•")
 
     # ── Ollama helpers ────────────────────────────────────────────────────
     def _probe_ollama_async(self):
@@ -1538,7 +1060,7 @@ class SettingsTab(ctk.CTkFrame):
     def _build_pipeline_section(self, parent):
         section = self._section(
             parent, ">> [ CORE PARAMETERS ]",
-            "Video banane ke general settings. Language aur upload mode zaroor check karo."
+            "Documentary + upload ke liye language aur Chrome profiles."
         )
 
         def _make_row(label_text, hint, widget_class, **kwargs):
@@ -1571,41 +1093,6 @@ class SettingsTab(ctk.CTkFrame):
             "— script + voiceover isi language mein",
         )
 
-        _, self._img_count = _make_row(
-            "IMAGE COUNT:", "Script + video mein kitni scenes / images",
-            ctk.CTkOptionMenu,
-            values=["4", "6", "8", "10", "12", "14", "16", "18", "20", "24", "28", "32", "36", "40"],
-            width=160,
-            font=("Share Tech Mono", 13),
-            text_color=TEXT_PRI, fg_color=BG_SEC, button_color=BORDER,
-            button_hover_color=ACCENT_PRI, corner_radius=0
-        )
-        self._img_count.set(str(config.get("image.image_count", 6)))
-        self._hint(section, "Zyada scenes = lamba render  |  4–40 (Gemini script + utni hi images)")
-
-        row_td = ctk.CTkFrame(section, fg_color="transparent")
-        row_td.pack(fill="x", pady=4)
-        lbl_td = ctk.CTkFrame(row_td, fg_color="transparent", width=260)
-        lbl_td.pack(side="left")
-        lbl_td.pack_propagate(False)
-        ctk.CTkLabel(lbl_td, text="TARGET DURATION (SEC):", anchor="w",
-                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(anchor="w", padx=5)
-        ctk.CTkLabel(lbl_td, text="Voiceover + video length target", anchor="w",
-                     font=("Share Tech Mono", 10), text_color=TEXT_HINT).pack(anchor="w", padx=5)
-        self._target_duration = ctk.CTkEntry(
-            row_td, width=120, font=("Share Tech Mono", 13),
-            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT_PRI, corner_radius=0,
-        )
-        self._target_duration.insert(0, str(int(config.get("target_duration", 60))))
-        self._target_duration.pack(side="left", padx=10)
-        self._target_duration.bind(
-            "<FocusIn>", lambda e: self._target_duration.configure(border_width=2, border_color=ACCENT_PRI)
-        )
-        self._target_duration.bind(
-            "<FocusOut>", lambda e: self._target_duration.configure(border_width=1, border_color=BORDER)
-        )
-        self._hint(section, "60–600 seconds — script + TTS roughly is duration ke around banega")
-
         self._upload_enabled_var = ctk.BooleanVar(value=bool(config.get("pipeline.upload_enabled", True)))
         upload_flag_row = ctk.CTkFrame(section, fg_color="transparent")
         upload_flag_row.pack(fill="x", pady=(6, 2), padx=5)
@@ -1637,27 +1124,6 @@ class SettingsTab(ctk.CTkFrame):
         )
         self._upload.set(config.get("pipeline.upload_mode", "unlisted"))
         self._hint(section, "unlisted = sirf link wale dekh sakte (testing ke liye)  |  public = sabko dikhega  |  draft = save only")
-
-        # Thumbnail toggle
-        self._thumbnail_enabled_var = ctk.BooleanVar(value=bool(config.get("pipeline.thumbnail_enabled", True)))
-        thumb_flag_row = ctk.CTkFrame(section, fg_color="transparent")
-        thumb_flag_row.pack(fill="x", pady=(6, 2), padx=5)
-        ctk.CTkCheckBox(
-            thumb_flag_row,
-            text="Auto-generate clickbait thumbnail before upload",
-            variable=self._thumbnail_enabled_var,
-            font=("Share Tech Mono", 12, "bold"),
-            text_color=TEXT_SEC,
-            fg_color=BG_MAIN,
-            border_color=BORDER,
-            hover_color=BG_CARD,
-            checkmark_color=ACCENT_PRI,
-            corner_radius=0,
-        ).pack(anchor="w", padx=5)
-        self._hint(
-            section,
-            "AI se 1280×720 thumbnail banega — title text + clickbait overlay — output/thumbnails/ mein save hoga",
-        )
 
         self._sync_upload_controls()
 
@@ -1776,21 +1242,21 @@ class SettingsTab(ctk.CTkFrame):
         if not profiles:
             self._profile_menu.configure(values=["No Profiles Configured"])
             self._profile_menu.set("No Profiles Configured")
-            if hasattr(self.app_ref, "pipeline_tab"):
-                self.app_ref.pipeline_tab.update_uplink_status("No Profile")
+            if hasattr(self.app_ref, "documentary_tab"):
+                self.app_ref.documentary_tab.update_uplink_status("No Profile")
         else:
             names = [p["name"] for p in profiles]
             self._profile_menu.configure(values=names)
             if 0 <= idx < len(names):
                 self._profile_menu.set(names[idx])
-                if hasattr(self.app_ref, "pipeline_tab"):
-                    self.app_ref.pipeline_tab.update_uplink_status(names[idx])
+                if hasattr(self.app_ref, "documentary_tab"):
+                    self.app_ref.documentary_tab.update_uplink_status(names[idx])
             else:
                 self._profile_menu.set(names[0])
                 config.set("pipeline.active_profile_index", 0)
                 config.save()
-                if hasattr(self.app_ref, "pipeline_tab"):
-                    self.app_ref.pipeline_tab.update_uplink_status(names[0])
+                if hasattr(self.app_ref, "documentary_tab"):
+                    self.app_ref.documentary_tab.update_uplink_status(names[0])
 
     def _on_profile_select(self, value):
         profiles = config.get("pipeline.chrome_profiles", [])
@@ -1798,8 +1264,8 @@ class SettingsTab(ctk.CTkFrame):
             if p["name"] == value:
                 config.set("pipeline.active_profile_index", i)
                 config.save()
-                if hasattr(self.app_ref, "pipeline_tab"):
-                    self.app_ref.pipeline_tab.update_uplink_status(value)
+                if hasattr(self.app_ref, "documentary_tab"):
+                    self.app_ref.documentary_tab.update_uplink_status(value)
                 break
 
     def _setup_new_profile(self):
@@ -1848,25 +1314,6 @@ class SettingsTab(ctk.CTkFrame):
                 config.save()
                 self._refresh_profile_menu()
 
-    def _on_aspect_segment_change(self, value: str) -> None:
-        """Apply aspect ratio on tap so pipeline/Documentary see it without a separate [ SAVE CONFIG ] click."""
-        aspect_ratio = "16:9" if value == "16:9 YouTube" else "9:16"
-        config.set("aspect_ratio", aspect_ratio)
-        try:
-            config.save()
-        except OSError:
-            pass
-
-    def _on_doc_burn_subs_change(self) -> None:
-        config.set("documentary.burn_subtitles", bool(self._doc_burn_subs_var.get()))
-        try:
-            config.save()
-        except OSError:
-            pass
-        doc = getattr(self.app_ref, "documentary_tab", None)
-        if doc and hasattr(doc, "_burn_subs_var"):
-            doc._burn_subs_var.set(self._doc_burn_subs_var.get())
-
     # ── Save Action ───────────────────────────────────────────────────────
     def _save(self):
         self._save_btn.configure(fg_color=ACCENT_GRN, text_color=BG_MAIN, text="[ SAVED ✓ ]")
@@ -1876,10 +1323,6 @@ class SettingsTab(ctk.CTkFrame):
 
         config.set("tts.backend",          self._tts_val)
         config.set("tts.reference_audio",  self._ref_audio.get().strip())
-        if hasattr(self, "_voice_post_var"):
-            config.set("tts.voice_post_process", 1 if self._voice_post_var.get() else 0)
-        if hasattr(self, "_voice_post_silence_var"):
-            config.set("tts.voice_post_silence_trim", 1 if self._voice_post_silence_var.get() else 0)
         if hasattr(self, "_omnivoice_server_path"):
             config.set("tts.omnivoice_server_path", self._omnivoice_server_path.get().strip())
         if hasattr(self, "_omnivoice_autostart_var"):
@@ -1918,37 +1361,6 @@ class SettingsTab(ctk.CTkFrame):
             config.set("tts.elevenlabs_similarity_boost", _safe_float(self._eleven_similarity, 0.85))
             config.set("tts.elevenlabs_style",            _safe_float(self._eleven_style, 0.45))
 
-
-        config.set("image.backend",                  self._img_val)
-        config.set("image.comfyui_url",              self._comfyui_url.get().strip())
-        if hasattr(self, "_grok_model_var") and hasattr(self, "_grok_model_options"):
-            config.set("grok_image_model", self._grok_model_options.get(self._grok_model_var.get(), "grok-2-image-1212"))
-        try:
-            ic = int(self._img_count.get())
-        except ValueError:
-            ic = 6
-        config.set("image.image_count", max(4, min(ic, 40)))
-
-        try:
-            td = int(str(self._target_duration.get()).strip())
-        except ValueError:
-            td = 60
-        config.set("target_duration", max(60, min(td, 600)))
-
-        aspect_label = self._aspect_seg.get()
-        aspect_ratio = "16:9" if aspect_label == "16:9 YouTube" else "9:16"
-        config.set("aspect_ratio", aspect_ratio)
-
-        if hasattr(self, "_doc_burn_subs_var"):
-            config.set("documentary.burn_subtitles", bool(self._doc_burn_subs_var.get()))
-
-        ce = dict(config.get("cinematic_effects", {}))
-        ce["intro"] = bool(self._ce_intro_var.get())
-        ce["transitions"] = bool(self._ce_trans_var.get())
-        ts_label = self._trans_style.get()
-        ce["transition_style"] = _TRANSITION_STYLE_TO_CONFIG.get(ts_label, "cinematic_mix")
-        config.set("cinematic_effects", ce)
-
         if hasattr(self, "_script_review_var"):
             config.set("script_review_enabled", bool(self._script_review_var.get()))
 
@@ -1956,14 +1368,10 @@ class SettingsTab(ctk.CTkFrame):
             config.set("video_preview_enabled", bool(self._video_preview_var.get()))
 
         if hasattr(self, "_provider_var"):
-            _prov_map = {"Gemini": "gemini", "OpenAI": "openai", "Ollama": "ollama"}
+            _prov_map = {"Gemini": "gemini", "Ollama": "ollama"}
             provider = _prov_map.get(self._provider_var.get(), "gemini")
             config.set("script_provider", provider)
             config.set("gemini_model", self._gemini_model_map.get(self._gemini_model_var.get(), "gemini-2.0-flash"))
-            config.set("openai_model", self._openai_model_map.get(self._openai_model_var.get(), "gpt-4o"))
-            config.set("openai_api_key", self._openai_key_entry.get().strip())
-            config.set("img2video_backend", self._img2video_map.get(self._img2video_var.get(), "kling_standard"))
-            config.set("img2video_duration", self._clip_duration_var.get().replace("s", ""))
             if hasattr(self, "_ollama_url_entry"):
                 config.set("ollama_url", self._ollama_url_entry.get().strip() or "http://localhost:11434")
             if hasattr(self, "_ollama_model_entry"):
@@ -1972,7 +1380,6 @@ class SettingsTab(ctk.CTkFrame):
         config.set("pipeline.language",              self._lang.get())
         config.set("pipeline.upload_enabled",       bool(self._upload_enabled_var.get()))
         config.set("pipeline.upload_mode",           self._upload.get())
-        config.set("pipeline.thumbnail_enabled",    bool(self._thumbnail_enabled_var.get()))
         config.set("pipeline.output_folder",         self._output_dir.get().strip())
 
         config.save()

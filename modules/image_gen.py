@@ -1,8 +1,7 @@
 """
 modules/image_gen.py — Image Generation Dispatcher (Thin Wrapper)
 ==================================================================
-Routes image generation to the configured backend.
-All backend-specific logic lives in backends/image/*.py.
+Routes image generation to Gemini Imagen (Google AI).
 
 Usage:
     from modules.image_gen import run_image_generation, generate_images
@@ -31,29 +30,17 @@ def _get_backend_map() -> dict[str, type]:
     if BACKEND_MAP:
         return BACKEND_MAP
 
-    from backends.image.comfyui import ComfyUIBackend
-    from backends.image.pollinations import PollinationsBackend
     from backends.image.gemini_imagen import GeminiImagenBackend
-    from backends.image.fal_ai import FalAIBackend
-    from backends.image.stable_horde import StableHordeBackend
-    from backends.image.replicate import ReplicateBackend
-    from backends.image.grok_image import GrokImageBackend
 
     BACKEND_MAP = {
-        "comfyui": ComfyUIBackend,
-        "pollinations": PollinationsBackend,
         "gemini_imagen": GeminiImagenBackend,
-        "fal_ai": FalAIBackend,
-        "stable_horde": StableHordeBackend,
-        "replicate": ReplicateBackend,
-        "grok_imagine": GrokImageBackend,
     }
     return BACKEND_MAP
 
 
 def _get_backend():
-    """Instantiate the configured image backend."""
-    backend_name = config.get("image.backend", "comfyui")
+    """Instantiate the configured image backend (Gemini Imagen only)."""
+    backend_name = config.get("image.backend", "gemini_imagen")
     backend_map = _get_backend_map()
 
     if backend_name not in backend_map:
@@ -75,7 +62,7 @@ def run_image_generation(
     aspect_ratio: str | None = None,
 ) -> list[str]:
     """
-    Generate images for a list of prompts using the configured backend.
+    Generate images for a list of prompts using Gemini Imagen.
 
     Parameters
     ----------
@@ -108,26 +95,13 @@ def run_image_generation(
 
     log.info(f"Generating {len(prompts)} images with {backend.name} ({width}x{height})")
 
-    # Free models if ComfyUI (before starting fresh)
-    if hasattr(backend, '_free_models'):
-        backend._free_models()
-
     saved_paths: list[str] = []
 
-    if backend.is_local:
-        # Sequential generation for local backends (GPU constraint)
-        for idx, prompt in enumerate(prompts, start=1):
-            out_path = str(output_dir / f"scene_{idx:02d}.png")
-            log.info(f"Generating image {idx}/{len(prompts)} …")
-            asyncio.run(backend.generate(prompt, out_path, width, height, aspect_ratio=ar))
-            saved_paths.append(out_path)
-    else:
-        # Sequential for cloud too (most have rate limits)
-        for idx, prompt in enumerate(prompts, start=1):
-            out_path = str(output_dir / f"scene_{idx:02d}.png")
-            log.info(f"Generating image {idx}/{len(prompts)} …")
-            asyncio.run(backend.generate(prompt, out_path, width, height, aspect_ratio=ar))
-            saved_paths.append(out_path)
+    for idx, prompt in enumerate(prompts, start=1):
+        out_path = str(output_dir / f"scene_{idx:02d}.png")
+        log.info(f"Generating image {idx}/{len(prompts)} …")
+        asyncio.run(backend.generate(prompt, out_path, width, height, aspect_ratio=ar))
+        saved_paths.append(out_path)
 
     log.info(f"All {len(saved_paths)} image(s) saved to {output_dir}")
     return saved_paths

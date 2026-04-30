@@ -22,12 +22,15 @@ Config keys (from core.config_manager):
   pipeline.chrome_profiles        — list of {name, path} dicts
   pipeline.active_profile_index   — index into the above list
   pipeline.upload_mode            — "public" | "unlisted" | "private" | "draft"
-  pipeline.headless_upload        — bool, default False
-  pipeline.upload_slow_mo         — int ms, default 80
-  pipeline.upload_timeout         — int ms, default 90_000
+  pipeline.headless_upload           — bool, default False
+  pipeline.upload_slow_mo            — int ms, default 80
+  pipeline.upload_timeout            — int ms, default 90_000 (navigation / selectors)
+  pipeline.upload_complete_timeout_ms — int ms, default 900_000 (max wait for file 0→100%)
+  pipeline.post_publish_grace_ms     — int ms, default 12_000 (pause before closing Chrome after success)
 """
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -219,60 +222,121 @@ async def _navigate_to_visibility(page, progress: Callable) -> None:
     log.warning("Reached maximum navigation steps — could not confirm Visibility page.")
 
 
-async def _wait_for_upload_complete(page, progress: Callable, timeout: int = 600_000) -> None:
+async def _is_upload_wizard_next_enabled(page) -> bool:
+    """True if the main Next button is visible and clickable (YouTube enables it when upload is done)."""
+    next_sels = [
+        "ytcp-button#next-button",
+        "#next-button",
+        'ytcp-stepper ytcp-button#next-button',
+        'ytcp-stepper button:has-text("Next")',
+    ]
+    for sel in next_sels:
+        try:
+            btn = page.locator(sel).first
+            if not await btn.is_visible(timeout=1_200):
+                continue
+            dis = await btn.get_attribute("disabled")
+            aria_dis = await btn.get_attribute("aria-disabled")
+            if dis is not None or aria_dis == "true":
+                return False
+            return True
+        except Exception:
+            continue
+    return False
+
+
+async def _progress_bar_suggests_upload_complete(page) -> bool:
+    """True if the upload progress UI shows 100% / complete (best-effort)."""
+    try:
+        prog = page.locator("ytcp-video-upload-progress").first
+        if await prog.is_visible(timeout=1_000):
+            txt = (await prog.inner_text()).lower()
+            if "100" in txt and "%" in txt:
+                return True
+            if "complete" in txt and "upload" in txt:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+async def _has_explicit_upload_complete_text(page) -> bool:
+    """Narrow 'Upload complete' checks — avoid 'Checks complete' / processing copy on wrong steps."""
+    narrow = [
+        'ytcp-video-upload-progress:has-text("Upload complete")',
+        'ytcp-upload-dialog:has-text("Upload complete")',
+        'ytcp-video-upload-dialog :text("Upload complete")',
+    ]
+    for sel in narrow:
+        try:
+            loc = page.locator(sel).first
+            if await loc.is_visible(timeout=600):
+                return True
+        except Exception:
+            continue
+    try:
+        loc = page.get_by_text("Upload complete", exact=True).first
+        if await loc.is_visible(timeout=400):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+async def _upload_completion_pulse(page) -> tuple[bool, str]:
+    """
+    One poll for “file transfer finished” on the Details step.
+    Prefer Next enabled (YouTube enables it when the file is on their servers).
+    """
+    if await _is_upload_wizard_next_enabled(page):
+        return True, "Next button enabled"
+    if await _has_explicit_upload_complete_text(page):
+        return True, "Upload complete (copy)"
+    if await _progress_bar_suggests_upload_complete(page):
+        return True, "Progress 100%"
+    return False, ""
+
+
+async def _wait_for_upload_complete(page, progress: Callable, timeout: int) -> None:
     """
     Block until the background file-upload reaches 100%.
 
-    YouTube Studio shows a progress element while uploading.  We poll for
-    several completion indicators with a generous timeout (default 10 min).
+    Requires the same completion signal on **two** consecutive polls (~3s apart)
+    so we don’t race ahead on flaky UI. On timeout, raises — we never continue
+    with a partial upload (that is what strands videos in Draft).
     """
-    progress("Waiting for file upload to complete …")
+    progress("Waiting for file upload to complete (0% → 100%) …")
     log.info("Waiting for YouTube file-upload to finish …")
 
-    # Indicators that the raw upload (not processing) is done
-    DONE_SELECTORS = [
-        # "Upload complete" text inside the dialog
-        'ytcp-uploads-still-processing-dialog',
-        ':has-text("Upload complete")',
-        ':has-text("Checks complete")',
-        ':has-text("Your video is being processed")',
-        ':has-text("Video is processing")',
-        # The progress bar element disappears once upload finishes
-    ]
-
-    # Poll every 4 s — better UX than one long wait_for_selector
-    import time
     deadline = time.monotonic() + timeout / 1000
+    stable_need = 2
+    stable = 0
+    last_reason = ""
+
     while time.monotonic() < deadline:
-        for sel in DONE_SELECTORS:
-            try:
-                el = page.locator(sel).first
-                if await el.is_visible(timeout=2_000):
-                    log.info(f"Upload complete detected via {sel!r}")
-                    progress("File upload complete!")
-                    return
-            except Exception:
-                continue
-
-        # Also check if progress bar percentage text shows "100"
-        try:
-            prog_text = await page.locator('ytcp-video-upload-progress').inner_text(timeout=1_000)
-            if "100" in prog_text or "complete" in prog_text.lower():
-                log.info("Upload progress shows 100% complete")
-                progress("File upload complete!")
+        ok, reason = await _upload_completion_pulse(page)
+        if ok:
+            stable += 1
+            last_reason = reason
+            log.debug("Upload poll OK (%s), stable %s/%s", reason, stable, stable_need)
+            if stable >= stable_need:
+                log.info("File upload finished — %s (confirmed stable)", last_reason)
+                progress("File upload complete — continuing with details …")
+                await page.wait_for_timeout(2_000)
                 return
-        except Exception:
-            pass
+        else:
+            stable = 0
+        await page.wait_for_timeout(3_000)
 
-        await page.wait_for_timeout(4_000)
-
-    # Timed out — warn but continue (the form might still work)
-    log.warning(
-        "Upload-complete indicator not detected within timeout. "
-        "Proceeding anyway — video may still be uploading. "
-        "If the video goes to draft, increase pipeline.upload_timeout."
+    await page.screenshot(path=_screenshot_path("upload_not_complete_timeout"))
+    mins = max(1, timeout // 60_000)
+    raise RuntimeError(
+        f"Video file did not finish uploading within {mins} minute(s). "
+        "Continuing would close the browser while YouTube is still receiving the file — "
+        "videos often end up in Draft instead of your chosen visibility. "
+        "Wait until Studio shows 100%% or the Next button enables, then retry. "
+        "For very large files, increase pipeline.upload_complete_timeout_ms in config."
     )
-    progress("⚠️ Upload progress unclear — proceeding (may go to draft if slow)")
 
 
 async def _upload_thumbnail_on_details_page(page, thumbnail: str, progress: Callable) -> None:
@@ -352,6 +416,8 @@ async def _upload(
     headless = bool(config.get("pipeline.headless_upload", _HEADLESS))
     slow_mo  = int(config.get("pipeline.upload_slow_mo",  _SLOW_MO))
     timeout  = int(config.get("pipeline.upload_timeout",  _TIMEOUT))
+    upload_complete_timeout = int(config.get("pipeline.upload_complete_timeout_ms", 900_000))
+    post_publish_grace_ms = int(config.get("pipeline.post_publish_grace_ms", 12_000))
     vis_mode = str(config.get("pipeline.upload_mode", "unlisted")).lower().strip()
 
     profiles   = config.get("pipeline.chrome_profiles", [])
@@ -362,7 +428,11 @@ async def _upload(
     active_profile      = profiles[active_idx] if 0 <= active_idx < len(profiles) else profiles[0]
     chrome_profile_path = active_profile["path"]
 
-    log.info(f"Upload config: headless={headless}, slow_mo={slow_mo}ms, timeout={timeout}ms, visibility={vis_mode!r}")
+    log.info(
+        f"Upload config: headless={headless}, slow_mo={slow_mo}ms, page_timeout={timeout}ms, "
+        f"upload_complete_timeout={upload_complete_timeout}ms, post_publish_grace={post_publish_grace_ms}ms, "
+        f"visibility={vis_mode!r}"
+    )
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch_persistent_context(
@@ -379,6 +449,7 @@ async def _upload(
         )
         page = browser.pages[0] if browser.pages else await browser.new_page()
 
+        publish_flow_ok = False
         try:
             # ── 1. Navigate to YouTube Studio ─────────────────────────────────
             progress("Opening YouTube Studio …")
@@ -470,7 +541,7 @@ async def _upload(
 
             # ── 5. *** WAIT FOR ACTUAL FILE UPLOAD TO FINISH *** ──────────────
             # Must happen before NEXT×3 or YouTube saves as Draft
-            await _wait_for_upload_complete(page, progress, timeout=600_000)
+            await _wait_for_upload_complete(page, progress, timeout=upload_complete_timeout)
             await page.wait_for_timeout(1_000)
 
             # ── 6. Fill in Title ───────────────────────────────────────────────
@@ -657,6 +728,8 @@ async def _upload(
                 )
                 progress("⚠️ Confirmation timed out — check YouTube Studio manually.")
 
+            publish_flow_ok = True
+
         except Exception:
             try:
                 await page.screenshot(path=_screenshot_path("unexpected_error"))
@@ -665,8 +738,15 @@ async def _upload(
             raise
 
         finally:
-            await page.wait_for_timeout(3_000)
-            await browser.close()
+            grace_ms = post_publish_grace_ms if publish_flow_ok else 4_000
+            try:
+                await page.wait_for_timeout(grace_ms)
+            except Exception:
+                pass
+            try:
+                await browser.close()
+            except Exception:
+                pass
 
 
 # ── Public entry point ────────────────────────────────────────────────────────

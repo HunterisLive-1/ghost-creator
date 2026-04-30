@@ -51,7 +51,6 @@ def _get_backend_map() -> dict[str, type]:
         "omnivoice":   lambda: _load("backends.tts.omnivoice_tts", "OmniVoiceTTS"),
         "elevenlabs":  lambda: _load("backends.tts.elevenlabs", "ElevenLabsTTS"),
         "edge_tts":    lambda: _load("backends.tts.edge_tts", "EdgeTTS"),
-        "google_tts":  lambda: _load("backends.tts.google_tts", "GoogleTTS"),
     }
     return BACKEND_MAP
 

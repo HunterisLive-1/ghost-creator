@@ -300,9 +300,6 @@ if exist ".env" (
             echo # --- Language ^(hindi / english / hinglish^) ---
             echo VOICEOVER_LANG=hindi
             echo.
-            echo # --- ComfyUI ^(local^) ---
-            echo COMFYUI_URL=http://127.0.0.1:8188
-            echo.
             echo # --- YouTube / Playwright ---
             echo YT_PROFILE_DIR=
             echo YT_PROFILE_NAME=Default
@@ -335,7 +332,6 @@ from core.config_manager import config
 if env.get('GEMINI_API_KEY'): config.set('api_keys.gemini', env['GEMINI_API_KEY'])
 if env.get('CHATTERBOX_API_URL'): config.set('tts.chatterbox_url', env['CHATTERBOX_API_URL'])
 if env.get('CHATTERBOX_REFERENCE_AUDIO'): config.set('tts.chatterbox_reference_audio', env['CHATTERBOX_REFERENCE_AUDIO'])
-if env.get('COMFYUI_URL'): config.set('image.comfyui_url', env['COMFYUI_URL'])
 config.save()
 print('        [OK] Migrated .env → config.json')
 print('        Your .env is kept as backup (.env.backup)')
@@ -372,9 +368,7 @@ echo    3. Launch Ghost Creator AI:
 echo       - GUI mode:  python gui\app.py
 echo       - CLI mode:  python main.py
 echo.
-echo    4. ^(Optional^) Start local backends:
-echo       - ComfyUI at http://127.0.0.1:8188
-echo       - Chatterbox auto-starts when needed
+echo    4. ^(Optional^) OmniVoice TTS: start local server if using that backend.
 echo.
 echo    5. ^(One-time^) Set up YouTube auto-upload:
 echo       venv\Scripts\python.exe setup_chrome_profile.py

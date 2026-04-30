@@ -78,14 +78,13 @@ class ImageBackend(ABC):
     """
     Abstract base class for Image Generation backends.
 
-    Every image backend (ComfyUI, Pollinations, Fal.ai, etc.)
-    must implement this interface.
+    Every image backend (e.g. Gemini Imagen) must implement this interface.
     """
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """Human-readable backend name (e.g. 'ComfyUI', 'Pollinations.ai')."""
+        """Human-readable backend name (e.g. 'Gemini Imagen')."""
         ...
 
     @property
