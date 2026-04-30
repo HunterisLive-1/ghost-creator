@@ -30,6 +30,7 @@ ACCENT_WARN = "#FFB800"
 ACCENT_GOLD = "#FFD700"
 TEXT_PRI    = "#E6F0FF"
 TEXT_SEC    = "#88AADD"
+TEXT_HINT   = "#4A6080"
 
 # Documentary-specific accent
 ACCENT_DOC  = "#B060FF"   # purple-ish — distinct from normal pipeline blue
@@ -78,7 +79,6 @@ class DocumentaryTab(ctk.CTkFrame):
         self._build_mode_cards()
         self._build_topic_row()
         self._build_duration_row()
-        self._build_language_row()
         self._build_voice_engine_row()
         self._build_footage_settings()
         self._build_control_row()
@@ -166,7 +166,7 @@ class DocumentaryTab(ctk.CTkFrame):
         ctk.CTkLabel(li, text="🎞  LONG FORM",
                      font=("Orbitron", 15, "bold"), text_color=TEXT_SEC,
                      ).pack(anchor="w")
-        ctk.CTkLabel(li, text="3 – 40 minutes",
+        ctk.CTkLabel(li, text="3 min – 2 hours",
                      font=("Share Tech Mono", 13, "bold"), text_color=TEXT_SEC,
                      ).pack(anchor="w", pady=(4, 0))
         ctk.CTkLabel(li,
@@ -184,7 +184,7 @@ class DocumentaryTab(ctk.CTkFrame):
         if mode == "short":
             self._short_card.configure(border_width=2, border_color=ACCENT_DOC, fg_color="#100820")
             self._long_card.configure(border_width=1, border_color=BORDER, fg_color=BG_CARD)
-            # Reconfigure slider for 30–60 s
+            # 30 – 60 s
             if hasattr(self, "_dur_slider"):
                 self._dur_slider.configure(from_=30, to=60, number_of_steps=30)
                 saved = int(config.get("documentary.short_duration", 60))
@@ -195,14 +195,14 @@ class DocumentaryTab(ctk.CTkFrame):
         else:
             self._short_card.configure(border_width=1, border_color=BORDER, fg_color=BG_CARD)
             self._long_card.configure(border_width=2, border_color=ACCENT_DOC, fg_color="#100820")
-            # Reconfigure slider for 180–2400 s (3–40 min)
+            # 180 – 7200 s  (3 min – 2 hours), steps of 60 s = 117 steps
             if hasattr(self, "_dur_slider"):
-                self._dur_slider.configure(from_=180, to=2400, number_of_steps=222)
+                self._dur_slider.configure(from_=180, to=7200, number_of_steps=117)
                 saved = int(config.get("documentary.long_duration", 600))
-                self._dur_var.set(float(max(180, min(saved, 2400))))
+                self._dur_var.set(float(max(180, min(saved, 7200))))
                 self._on_dur_slider()
             if hasattr(self, "_dur_range_lbl"):
-                self._dur_range_lbl.configure(text="3 – 40 min")
+                self._dur_range_lbl.configure(text="3 min – 2 hrs")
         if hasattr(self, "_refresh_burn_subs_state"):
             self._refresh_burn_subs_state()
 
@@ -463,42 +463,6 @@ class DocumentaryTab(ctk.CTkFrame):
         ctk.CTkLabel(row1, text="s",
                      font=("Share Tech Mono", 11), text_color=TEXT_SEC,
                      ).pack(side="left")
-
-        row2 = ctk.CTkFrame(inner, fg_color="transparent")
-        row2.pack(fill="x", pady=(10, 0))
-        ctk.CTkLabel(
-            row2,
-            text="Aspect ratio:",
-            font=("Share Tech Mono", 12), text_color=TEXT_SEC,
-        ).pack(side="left")
-        self._aspect_var = tk.StringVar(
-            value="16:9" if str(config.get("aspect_ratio", "9:16")) == "16:9" else "9:16"
-        )
-        ctk.CTkOptionMenu(
-            row2,
-            values=["9:16", "16:9"],
-            variable=self._aspect_var,
-            width=90,
-            font=("Share Tech Mono", 12),
-            fg_color=BG_MAIN, button_color=ACCENT_DOC,
-            button_hover_color=ACCENT_PRI, text_color=TEXT_PRI,
-            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
-            dropdown_hover_color=BG_MAIN, corner_radius=0,
-            command=self._save_aspect_ratio,
-        ).pack(side="left", padx=(8, 16))
-        ctk.CTkLabel(
-            row2,
-            text="Pexels uses portrait (9:16) or landscape (16:9) to match. Current:",
-            font=("Share Tech Mono", 11), text_color=TEXT_SEC, justify="left", anchor="w",
-            wraplength=900,
-        ).pack(anchor="w")
-        self._doc_aspect_lbl = ctk.CTkLabel(
-            row2,
-            text="",
-            font=("Share Tech Mono", 12, "bold"), text_color=ACCENT_DOC, anchor="w",
-        )
-        self._doc_aspect_lbl.pack(anchor="w", pady=(2, 0))
-        self._refresh_doc_aspect_lbl()
 
         row3 = ctk.CTkFrame(inner, fg_color="transparent")
         row3.pack(fill="x", pady=(12, 0))

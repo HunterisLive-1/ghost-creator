@@ -663,71 +663,309 @@ class SettingsTab(ctk.CTkFrame):
         if hasattr(self, "_tts_desc"):
             self._tts_desc.configure(text=TTS_DESCRIPTIONS.get(val, ""))
 
-    # ── Section: Video Format ─────────────────────────────────────────────
+    # ── Section: Run Behavior ─────────────────────────────────────────────
     def _build_video_format_section(self, parent):
         section = self._section(
             parent, ">> [ RUN BEHAVIOR ]",
-            "Script review / preview toggles. Resolution + subtitles Documentary tab se control karo."
+            "Pipeline controls, language, model, and output — all in one compact table."
         )
 
-        ctk.CTkLabel(
-            section,
-            text="─── Pipeline Behavior ───────────────────────────────────",
-            font=("Share Tech Mono", 11),
-            text_color=TEXT_HINT,
-        ).pack(anchor="w", padx=10, pady=(18, 4))
+        # ── Table grid (3 columns, fully responsive) ──────────────────────
+        tbl = ctk.CTkFrame(section, fg_color="transparent")
+        tbl.pack(fill="x", pady=(4, 8))
+        for c in range(3):
+            tbl.columnconfigure(c, weight=1, uniform="rb")
 
-        self._script_review_var = ctk.BooleanVar(value=bool(config.get("script_review_enabled", True)))
+        # ── Helper: build one table cell ──────────────────────────────────
+        def _cell(row, col, colspan=1, *, rowspan=1):
+            f = ctk.CTkFrame(
+                tbl, fg_color=BG_CARD, corner_radius=0,
+                border_width=1, border_color=BORDER,
+            )
+            f.grid(row=row, column=col, columnspan=colspan, rowspan=rowspan,
+                   sticky="nsew", padx=3, pady=3)
+            return f
+
+        def _cell_lbl(cell, text):
+            ctk.CTkLabel(
+                cell, text=text,
+                font=("Share Tech Mono", 10, "bold"),
+                text_color=ACCENT_PRI, anchor="w",
+            ).pack(anchor="w", padx=10, pady=(6, 2))
+
+        def _hint_lbl(cell, text):
+            ctk.CTkLabel(
+                cell, text=f"  ↳  {text}",
+                font=("Share Tech Mono", 10),
+                text_color=TEXT_HINT, anchor="w", wraplength=0,
+            ).pack(anchor="w", padx=10, pady=(0, 6))
+
+        # ════════════════════ ROW 0 ════════════════════════════════════════
+
+        # [0,0] Pipeline pause toggles
+        c00 = _cell(0, 0)
+        _cell_lbl(c00, "PIPELINE BEHAVIOR")
+        self._script_review_var = ctk.BooleanVar(
+            value=bool(config.get("script_review_enabled", True))
+        )
         self._chk_script_review = ctk.CTkCheckBox(
-            section,
-            text="Pause for script review before narration / footage download",
+            c00,
+            text="Pause for script review",
             variable=self._script_review_var,
             font=("Share Tech Mono", 12, "bold"),
             text_color=TEXT_SEC,
-            fg_color=BG_MAIN,
-            border_color=BORDER,
-            hover_color=BG_CARD,
-            checkmark_color=ACCENT_PRI,
-            corner_radius=0,
+            fg_color=BG_MAIN, border_color=BORDER,
+            hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
         )
-        self._chk_script_review.pack(anchor="w", padx=10, pady=(2, 2))
-        ctk.CTkLabel(
-            section,
-            text="   ↳  Uncheck for fully automated / unattended runs",
-            font=("Share Tech Mono", 11),
-            text_color=TEXT_HINT,
-            anchor="w",
-        ).pack(anchor="w", padx=10, pady=(0, 2))
-        self._hint(
-            section,
-            "When enabled, run pauses after the documentary script so you can edit narration and stock search terms.",
-        )
+        self._chk_script_review.pack(anchor="w", padx=10, pady=(2, 1))
+        _hint_lbl(c00, "Uncheck for fully automated / unattended runs")
 
-        self._video_preview_var = ctk.BooleanVar(value=bool(config.get("video_preview_enabled", True)))
+        self._video_preview_var = ctk.BooleanVar(
+            value=bool(config.get("video_preview_enabled", True))
+        )
         self._chk_video_preview = ctk.CTkCheckBox(
-            section,
-            text="Pause for video preview before uploading",
+            c00,
+            text="Pause for video preview",
             variable=self._video_preview_var,
             font=("Share Tech Mono", 12, "bold"),
             text_color=TEXT_SEC,
-            fg_color=BG_MAIN,
-            border_color=BORDER,
-            hover_color=BG_CARD,
-            checkmark_color=ACCENT_PRI,
+            fg_color=BG_MAIN, border_color=BORDER,
+            hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
+        )
+        self._chk_video_preview.pack(anchor="w", padx=10, pady=(2, 1))
+        _hint_lbl(c00, "Opens media player before upload so you can approve or cancel")
+
+        # [0,1] Language picker
+        c01 = _cell(0, 1)
+        _cell_lbl(c01, "NARRATION LANGUAGE")
+        _langs = [
+            ("hi",       "🇮🇳 Hindi"),
+            ("hinglish", "🔀 Hinglish"),
+            ("en",       "🇬🇧 English"),
+            ("mr",       "🟠 Marathi"),
+            ("bn",       "🔵 Bengali"),
+            ("gu",       "🟢 Gujarati"),
+            ("ta",       "🔴 Tamil"),
+        ]
+        cur_lang = config.get("pipeline.language", "hi")
+        # Dropdown fits all options and is responsive
+        self._lang = ctk.CTkOptionMenu(
+            c01,
+            values=[lbl for _, lbl in _langs],
+            font=("Share Tech Mono", 12),
+            text_color=TEXT_PRI, fg_color=BG_SEC,
+            button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
             corner_radius=0,
         )
-        self._chk_video_preview.pack(anchor="w", padx=10, pady=(2, 2))
-        ctk.CTkLabel(
-            section,
-            text="   ↳  Opens your media player so you can watch the final video before it uploads",
-            font=("Share Tech Mono", 11),
-            text_color=TEXT_HINT,
-            anchor="w",
-        ).pack(anchor="w", padx=10, pady=(0, 2))
-        self._hint(
-            section,
-            "When enabled, video preview opens before upload so you can approve or cancel.",
+        self._lang_label_to_code = {lbl: code for code, lbl in _langs}
+        self._lang_code_to_label = {code: lbl for code, lbl in _langs}
+        self._lang.set(self._lang_code_to_label.get(cur_lang, _langs[0][1]))
+        self._lang.pack(anchor="w", padx=10, pady=(2, 2), fill="x")
+        _hint_lbl(c01, "Script + voiceover isi language mein generate hoga")
+
+        # [0,2] Output folder
+        c02 = _cell(0, 2)
+        _cell_lbl(c02, "OUTPUT FOLDER")
+        of_row = ctk.CTkFrame(c02, fg_color="transparent")
+        of_row.pack(fill="x", padx=8, pady=(2, 2))
+        self._output_dir = ctk.CTkEntry(
+            of_row, font=("Share Tech Mono", 12),
+            fg_color=BG_MAIN, border_color=BORDER,
+            text_color=TEXT_PRI, corner_radius=0,
         )
+        self._output_dir.insert(0, config.get("pipeline.output_folder", "output"))
+        self._output_dir.pack(side="left", fill="x", expand=True)
+        self._output_dir.bind("<FocusIn>",  lambda e: self._output_dir.configure(border_width=2, border_color=ACCENT_PRI))
+        self._output_dir.bind("<FocusOut>", lambda e: self._output_dir.configure(border_width=1, border_color=BORDER))
+        ctk.CTkButton(
+            of_row, text="…", width=30,
+            font=("Share Tech Mono", 13, "bold"), text_color=ACCENT_PRI,
+            fg_color="transparent", hover_color=BG_CARD,
+            border_color=BORDER, border_width=1, corner_radius=0,
+            command=self._browse_output,
+        ).pack(side="left", padx=(4, 0))
+        _hint_lbl(c02, "Relative (e.g. 'output') or full path — folder created automatically")
+
+        # ════════════════════ ROW 1 ════════════════════════════════════════
+
+        # [1,0] Upload settings
+        c10 = _cell(1, 0)
+        _cell_lbl(c10, "YOUTUBE UPLOAD")
+        self._upload_enabled_var = ctk.BooleanVar(
+            value=bool(config.get("pipeline.upload_enabled", True))
+        )
+        self._chk_upload_enabled = ctk.CTkCheckBox(
+            c10,
+            text="Enable YouTube upload after render",
+            variable=self._upload_enabled_var,
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=TEXT_SEC,
+            fg_color=BG_MAIN, border_color=BORDER,
+            hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
+            command=self._sync_upload_controls,
+        )
+        self._chk_upload_enabled.pack(anchor="w", padx=10, pady=(2, 4))
+        upload_row = ctk.CTkFrame(c10, fg_color="transparent")
+        upload_row.pack(fill="x", padx=8, pady=(0, 2))
+        ctk.CTkLabel(
+            upload_row, text="Mode:",
+            font=("Share Tech Mono", 11), text_color=TEXT_SEC,
+        ).pack(side="left")
+        self._upload = ctk.CTkOptionMenu(
+            upload_row,
+            values=["unlisted", "public", "draft"],
+            font=("Share Tech Mono", 12), text_color=TEXT_PRI,
+            fg_color=BG_SEC, button_color=BORDER,
+            button_hover_color=ACCENT_PRI, corner_radius=0, width=130,
+        )
+        self._upload.set(config.get("pipeline.upload_mode", "unlisted"))
+        self._upload.pack(side="left", padx=(6, 0))
+        _hint_lbl(c10, "unlisted = link-only  |  public = all  |  draft = save only")
+        self._sync_upload_controls()
+
+        # [1,1] Script provider + Gemini model
+        c11 = _cell(1, 1)
+        _cell_lbl(c11, "AI SCRIPT PROVIDER")
+        cur_prov = config.get("script_provider", "gemini")
+        self._provider_var = ctk.StringVar(
+            value="Gemini" if cur_prov == "gemini" else "Ollama"
+        )
+        self._provider_seg = ctk.CTkSegmentedButton(
+            c11,
+            values=["Gemini", "Ollama"],
+            variable=self._provider_var,
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=TEXT_PRI,
+            fg_color=BG_MAIN,
+            selected_color=ACCENT_PRI,
+            selected_hover_color=ACCENT_SEC,
+            unselected_color=BG_CARD,
+            unselected_hover_color=BORDER,
+            corner_radius=0,
+            command=self._on_provider_switch,
+        )
+        self._provider_seg.pack(anchor="w", padx=10, pady=(2, 6), fill="x")
+
+        # Ollama status inline (small)
+        self._ollama_status_lbl = ctk.CTkLabel(
+            c11, text="⬤ checking…",
+            font=("Share Tech Mono", 10), text_color=TEXT_HINT,
+        )
+        self._ollama_status_lbl.pack(anchor="w", padx=10)
+        threading.Thread(target=self._probe_ollama_async, daemon=True).start()
+
+        # ── Gemini frame (shown when Gemini selected) ──────────────────────
+        self._gemini_frame = ctk.CTkFrame(c11, fg_color="transparent")
+        GEMINI_MODELS = [
+            "gemini-2.5-flash       · 5rpm/20rpd  · Free ✅",
+            "gemini-2.5-flash-lite  · 10rpm/20rpd · Free ✅",
+            "gemini-3-flash         · 5rpm/20rpd  · Free ✅",
+            "gemini-3.1-flash-lite  · 15rpm/500rpd· Free ✅ BEST",
+            "gemini-2.5-pro         · Paid 💰 · Best Quality",
+            "gemini-3.1-pro         · Paid 💰 · Pro Quality",
+        ]
+        GEMINI_MODEL_MAP = {
+            "gemini-2.5-flash       · 5rpm/20rpd  · Free ✅":      "gemini-2.5-flash",
+            "gemini-2.5-flash-lite  · 10rpm/20rpd · Free ✅":       "gemini-2.5-flash-lite",
+            "gemini-3-flash         · 5rpm/20rpd  · Free ✅":       "gemini-3-flash",
+            "gemini-3.1-flash-lite  · 15rpm/500rpd· Free ✅ BEST":  "gemini-3.1-flash-lite",
+            "gemini-2.5-pro         · Paid 💰 · Best Quality":      "gemini-2.5-pro",
+            "gemini-3.1-pro         · Paid 💰 · Pro Quality":       "gemini-3.1-pro",
+        }
+        GEMINI_MODEL_REV = {v: k for k, v in GEMINI_MODEL_MAP.items()}
+        self._gemini_model_map = GEMINI_MODEL_MAP
+        cur_gem = config.get("gemini_model", "gemini-2.5-flash")
+        self._gemini_model_var = ctk.StringVar(
+            value=GEMINI_MODEL_REV.get(cur_gem, GEMINI_MODELS[0])
+        )
+        self._gemini_model_dropdown = ctk.CTkOptionMenu(
+            self._gemini_frame,
+            values=GEMINI_MODELS,
+            variable=self._gemini_model_var,
+            font=("Share Tech Mono", 11),
+            text_color=TEXT_PRI, fg_color=BG_SEC,
+            button_color=BORDER, button_hover_color=ACCENT_PRI,
+            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
+            corner_radius=0,
+        )
+        self._gemini_model_dropdown.pack(anchor="w", padx=10, pady=(2, 6), fill="x")
+
+        # ── Ollama frame (shown when Ollama selected) ──────────────────────
+        self._ollama_frame = ctk.CTkFrame(c11, fg_color="transparent")
+        self._ollama_detail_lbl = ctk.CTkLabel(
+            self._ollama_frame,
+            text="Status: checking…",
+            font=("Share Tech Mono", 10, "bold"),
+            text_color=TEXT_HINT, anchor="w", wraplength=0,
+        )
+        self._ollama_detail_lbl.pack(anchor="w", padx=10, pady=(0, 2))
+
+        url_r = ctk.CTkFrame(self._ollama_frame, fg_color="transparent")
+        url_r.pack(fill="x", padx=8, pady=(2, 2))
+        ctk.CTkLabel(url_r, text="URL:", font=("Share Tech Mono", 11), text_color=TEXT_SEC).pack(side="left")
+        self._ollama_url_entry = ctk.CTkEntry(
+            url_r, font=("Share Tech Mono", 11),
+            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT_PRI, corner_radius=0,
+        )
+        self._ollama_url_entry.insert(0, config.get("ollama_url", "http://localhost:11434"))
+        self._ollama_url_entry.pack(side="left", fill="x", expand=True, padx=(6, 4))
+        self._ollama_url_entry.bind("<FocusIn>",  lambda e: self._ollama_url_entry.configure(border_width=2, border_color=ACCENT_PRI))
+        self._ollama_url_entry.bind("<FocusOut>", lambda e: self._ollama_url_entry.configure(border_width=1, border_color=BORDER))
+        ctk.CTkButton(
+            url_r, text="TEST", width=50,
+            font=("Share Tech Mono", 11, "bold"),
+            text_color=ACCENT_GRN, fg_color="transparent",
+            hover_color=BG_CARD, border_color=ACCENT_GRN, border_width=1, corner_radius=0,
+            command=self._test_ollama_connection,
+        ).pack(side="left")
+
+        mod_r = ctk.CTkFrame(self._ollama_frame, fg_color="transparent")
+        mod_r.pack(fill="x", padx=8, pady=(2, 4))
+        ctk.CTkLabel(mod_r, text="Model:", font=("Share Tech Mono", 11), text_color=TEXT_SEC).pack(side="left")
+        self._ollama_model_entry = ctk.CTkEntry(
+            mod_r, font=("Share Tech Mono", 11),
+            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT_PRI, corner_radius=0,
+        )
+        self._ollama_model_entry.insert(0, config.get("ollama_model", "llama3"))
+        self._ollama_model_entry.pack(side="left", fill="x", expand=True, padx=(6, 4))
+        self._ollama_model_entry.bind("<FocusIn>",  lambda e: self._ollama_model_entry.configure(border_width=2, border_color=ACCENT_PRI))
+        self._ollama_model_entry.bind("<FocusOut>", lambda e: self._ollama_model_entry.configure(border_width=1, border_color=BORDER))
+        ctk.CTkButton(
+            mod_r, text="↻", width=36,
+            font=("Share Tech Mono", 13, "bold"),
+            text_color=ACCENT_PRI, fg_color="transparent",
+            hover_color=BG_CARD, border_color=ACCENT_PRI, border_width=1, corner_radius=0,
+            command=self._refresh_ollama_models,
+        ).pack(side="left")
+        self._ollama_model_hint = ctk.CTkLabel(
+            self._ollama_frame,
+            text="   ↳  Detected models will appear above",
+            font=("Share Tech Mono", 10), text_color=TEXT_HINT, anchor="w",
+        )
+        self._ollama_model_hint.pack(anchor="w", padx=8, pady=(0, 4))
+
+        # Show correct frame on init
+        self._on_provider_switch(self._provider_var.get())
+
+        # [1,2] Quick links / notes cell
+        c12 = _cell(1, 2)
+        _cell_lbl(c12, "PIPELINE NOTES")
+        notes = (
+            "• Script review pause → edit narration before footage download\n"
+            "• Video preview pause → watch final video before upload\n"
+            "• Uncheck both for fully automated overnight runs\n"
+            "• Language applies to script + voiceover (Edge TTS + OmniVoice)\n"
+            "• Output folder is relative to project root unless full path given"
+        )
+        ctk.CTkLabel(
+            c12, text=notes,
+            font=("Share Tech Mono", 11),
+            text_color=TEXT_HINT, anchor="w",
+            justify="left", wraplength=0,
+        ).pack(anchor="w", padx=10, pady=(2, 8))
+
+
 
     def _sync_upload_controls(self):
         """Disable upload visibility mode when YouTube upload is turned off."""
@@ -1063,94 +1301,6 @@ class SettingsTab(ctk.CTkFrame):
             "Documentary + upload ke liye language aur Chrome profiles."
         )
 
-        def _make_row(label_text, hint, widget_class, **kwargs):
-            row = ctk.CTkFrame(section, fg_color="transparent")
-            row.pack(fill="x", pady=4)
-            lbl_col = ctk.CTkFrame(row, fg_color="transparent", width=260)
-            lbl_col.pack(side="left")
-            lbl_col.pack_propagate(False)
-            ctk.CTkLabel(lbl_col, text=label_text, anchor="w",
-                         font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(anchor="w", padx=5)
-            ctk.CTkLabel(lbl_col, text=hint, anchor="w",
-                         font=("Share Tech Mono", 10), text_color=TEXT_HINT).pack(anchor="w", padx=5)
-            w = widget_class(row, **kwargs)
-            w.pack(side="left", padx=10)
-            return row, w
-
-        _, self._lang = _make_row(
-            "LANGUAGE:", "Script + voice kis language mein",
-            ctk.CTkOptionMenu,
-            values=["hi", "en", "mr", "bn", "gu", "ta"],
-            width=160,
-            font=("Share Tech Mono", 13),
-            text_color=TEXT_PRI, fg_color=BG_SEC, button_color=BORDER,
-            button_hover_color=ACCENT_PRI, corner_radius=0
-        )
-        self._lang.set(config.get("pipeline.language", "hi"))
-        self._hint(
-            section,
-            "hi Hindi  |  en English  |  mr Marathi  |  bn Bengali  |  gu Gujarati  |  ta Tamil  "
-            "— script + voiceover isi language mein",
-        )
-
-        self._upload_enabled_var = ctk.BooleanVar(value=bool(config.get("pipeline.upload_enabled", True)))
-        upload_flag_row = ctk.CTkFrame(section, fg_color="transparent")
-        upload_flag_row.pack(fill="x", pady=(6, 2), padx=5)
-        self._chk_upload_enabled = ctk.CTkCheckBox(
-            upload_flag_row,
-            text="Enable YouTube upload after render",
-            variable=self._upload_enabled_var,
-            font=("Share Tech Mono", 12, "bold"),
-            text_color=TEXT_SEC,
-            fg_color=BG_MAIN,
-            border_color=BORDER,
-            hover_color=BG_CARD,
-            checkmark_color=ACCENT_PRI,
-            corner_radius=0,
-            command=self._sync_upload_controls,
-        )
-        self._chk_upload_enabled.pack(anchor="w", padx=5)
-        self._hint(
-            section,
-            "Off = sirf MP4 local output folder mein save (permanent) — YouTube pe upload nahi hoga",
-        )
-
-        _, self._upload = _make_row(
-            "UPLOAD MODE:", "YouTube pe kaise upload ho (jab upload ON ho)",
-            ctk.CTkOptionMenu,
-            values=["unlisted", "public", "draft"], width=150, font=("Share Tech Mono", 13),
-            text_color=TEXT_PRI, fg_color=BG_SEC, button_color=BORDER,
-            button_hover_color=ACCENT_PRI, corner_radius=0
-        )
-        self._upload.set(config.get("pipeline.upload_mode", "unlisted"))
-        self._hint(section, "unlisted = sirf link wale dekh sakte (testing ke liye)  |  public = sabko dikhega  |  draft = save only")
-
-        self._sync_upload_controls()
-
-        # Output folder
-        row4 = ctk.CTkFrame(section, fg_color="transparent")
-        row4.pack(fill="x", pady=4)
-        lbl4 = ctk.CTkFrame(row4, fg_color="transparent", width=260)
-        lbl4.pack(side="left")
-        lbl4.pack_propagate(False)
-        ctk.CTkLabel(lbl4, text="OUTPUT FOLDER:", anchor="w",
-                     font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC).pack(anchor="w", padx=5)
-        ctk.CTkLabel(lbl4, text="Videos kahan save honge", anchor="w",
-                     font=("Share Tech Mono", 10), text_color=TEXT_HINT).pack(anchor="w", padx=5)
-        self._output_dir = ctk.CTkEntry(row4, width=320, font=("Share Tech Mono", 13),
-                                        fg_color=BG_MAIN, border_color=BORDER,
-                                        text_color=TEXT_PRI, corner_radius=0)
-        self._output_dir.insert(0, config.get("pipeline.output_folder", "output"))
-        self._output_dir.pack(side="left", padx=10)
-        self._output_dir.bind("<FocusIn>",  lambda e: self._output_dir.configure(border_width=2, border_color=ACCENT_PRI))
-        self._output_dir.bind("<FocusOut>", lambda e: self._output_dir.configure(border_width=1, border_color=BORDER))
-        ctk.CTkButton(row4, text="[ BROWSE ]", width=90,
-                      font=("Share Tech Mono", 13, "bold"), text_color=ACCENT_PRI,
-                      fg_color="transparent", hover_color=BG_CARD,
-                      border_color=BORDER, border_width=1, corner_radius=0,
-                      command=self._browse_output).pack(side="left", padx=5)
-        self._hint(section, "Relative path (e.g. 'output') ya full path (e.g. D:\\\\Videos\\\\GhostAI)  —  Folder automatically create hoga")
-
         # Chrome Profiles
         ctk.CTkFrame(section, fg_color=ACCENT_PRI, height=1).pack(fill="x", pady=(18, 5), padx=5)
         ctk.CTkLabel(section, text=">> [ CHROME PROFILES ]",
@@ -1377,7 +1527,9 @@ class SettingsTab(ctk.CTkFrame):
             if hasattr(self, "_ollama_model_entry"):
                 config.set("ollama_model", self._ollama_model_entry.get().strip() or "llama3")
 
-        config.set("pipeline.language",              self._lang.get())
+        _lang_raw = self._lang.get()
+        _lang_code = getattr(self, "_lang_label_to_code", {}).get(_lang_raw, _lang_raw)
+        config.set("pipeline.language", _lang_code)
         config.set("pipeline.upload_enabled",       bool(self._upload_enabled_var.get()))
         config.set("pipeline.upload_mode",           self._upload.get())
         config.set("pipeline.output_folder",         self._output_dir.get().strip())
