@@ -15,6 +15,7 @@ from config import APP_VERSION
 from core.config_manager import config
 from gui.tabs.settings_tab import SettingsTab
 from gui.tabs.documentary_tab import DocumentaryTab
+from gui.tabs.history_tab import HistoryTab
 
 # === BLUE AI PALETTE ===
 BG_MAIN     = "#050A10"
@@ -129,14 +130,8 @@ class GhostCreatorApp(ctk.CTk):
         self.settings_tab = SettingsTab(tab_settings, app_ref=self)
         self.settings_tab.pack(fill="both", expand=True)
 
-        tab_history.grid_columnconfigure(0, weight=1)
-        tab_history.grid_rowconfigure(0, weight=1)
-        ctk.CTkLabel(
-            tab_history,
-            text="[ ARCHIVE NODE OFFLINE ]\nNeural logs expanding...",
-            font=("Share Tech Mono", 16),
-            text_color=TEXT_SEC,
-        ).pack(expand=True)
+        self.history_tab = HistoryTab(tab_history, app_ref=self)
+        self.history_tab.pack(fill="both", expand=True)
 
     def _build_bottom_bar(self):
         self.bottom_canvas = ctk.CTkFrame(self.main_container, height=2, fg_color=BORDER, corner_radius=0)

@@ -15,6 +15,7 @@ JSON response into:
 """
 
 import json
+import math
 import re
 import shutil
 
@@ -40,6 +41,7 @@ VOICEOVER_LANG_META: dict[str, tuple[str, str]] = {
             "Write in pure Hindi using Devanagari script only. "
             "NEVER use Hinglish, Roman Hindi, or English spellings for Hindi words. "
             "Example: 'क्या आप जानते हैं कि यह एक कमाल की चीज़ है?'"
+            "always use hindi slangs/words which are commonly used in daily conversations"
         ),
     ),
     "hinglish": (
@@ -608,86 +610,149 @@ def generate_script(
 
 # ── Documentary Mode ──────────────────────────────────────────────────────────
 
+# Max seconds per single Gemini call — stays within reliable output length
+_DOC_CHUNK_MAX_S = 720   # 12 minutes per chunk
+
+
+def _default_narration_style_block() -> str:
+    """Injected when no Idea Workshop tone/style was agreed."""
+    return (
+        "\n════════════════════════════════════════════════════════\n"
+        "DEFAULT NARRATION STYLE (apply when no creative brief given):\n"
+        "- Open with a SHOCKING HOOK — a provocative question or little-known fact that\n"
+        "  immediately challenges the viewer's assumption about this topic.\n"
+        "- Tone: AUTHORITATIVE yet CONVERSATIONAL — like a National Geographic narrator\n"
+        "  who speaks like a real person, not a textbook.\n"
+        "- Vary sentence length: short punchy lines for impact, longer ones for depth.\n"
+        "- Use SPECIFIC details: real names, dates, numbers, case studies — no vague generalities.\n"
+        "- Build natural tension across segments: hook → context → revelation → implication → CTA.\n"
+        "════════════════════════════════════════════════════════\n"
+    )
+
+
 def _build_documentary_prompt(
     topic: str,
     lang: str,
     target_duration: int,
     num_segments: int,
+    *,
+    tone_hint: str = "",
+    style_hint: str = "",
+    chapter_num: int = 0,
+    total_chapters: int = 1,
+    prev_ending: str = "",
 ) -> str:
+    """
+    Build the Gemini prompt for one documentary chunk.
+    chapter_num / total_chapters: used when chunked (0 = single call = no chapter label).
+    prev_ending: last ~200 chars of previous chunk's voiceover for continuity.
+    """
     lang_display, script_rule = _lang_display_and_script(lang)
     voiceover_plain = _voiceover_plain_format_rules()
     hindi_style = _hindi_cinematic_monologue_block(lang)
     youtube_meta_rules = _youtube_metadata_rules(lang, lang_display)
     _min = target_duration // 60
     _sec = target_duration % 60
-    duration_label = f"{_min} minute{'s' if _min != 1 else ''}" + (f" {_sec}s" if _sec else "")
+    duration_label = (f"{_min} min" if not _sec else f"{_min}m {_sec}s")
     target_words = int((target_duration / 60) * 130)
+    per_seg_words = max(80, target_words // max(1, num_segments))
+
+    # ── Creative brief block ──────────────────────────────────────────────────
+    if tone_hint or style_hint:
+        _brief = (
+            "\n════════════════════════════════════════════════════════\n"
+            "CREATIVE BRIEF (agreed with user):\n"
+        )
+        if style_hint:
+            _brief += f"- Visual style  : {style_hint}\n"
+        if tone_hint:
+            _brief += (
+                f"- Voiceover tone: {tone_hint}\n"
+                "  Apply this tone consistently across EVERY segment.\n"
+            )
+        _brief += "════════════════════════════════════════════════════════\n"
+    else:
+        _brief = _default_narration_style_block()
+
+    # ── Chapter context (chunked mode only) ───────────────────────────────────
+    _chapter_block = ""
+    if total_chapters > 1 and chapter_num > 0:
+        _chapter_block = (
+            f"\n════════════════════════════════════════════════════════\n"
+            f"CHAPTER {chapter_num} of {total_chapters} of the full documentary.\n"
+            f"- Do NOT add an intro or repeat what was covered in earlier chapters.\n"
+            f"- Continue naturally from where the last chapter ended.\n"
+        )
+        if prev_ending:
+            _chapter_block += f"- Previous chapter ended with: \"{prev_ending[-200:].strip()}\"\n"
+        if chapter_num == total_chapters:
+            _chapter_block += "- This is the FINAL chapter — conclude the documentary and add the CTA.\n"
+        _chapter_block += "════════════════════════════════════════════════════════\n"
 
     return f"""You are a professional documentary scriptwriter.
 
 ════════════════════════════════════════════════════════
-TOPIC (MANDATORY — DO NOT DEVIATE):  "{topic}"
+TOPIC (MANDATORY — DO NOT DEVIATE): "{topic}"
 ════════════════════════════════════════════════════════
-Every word of narration, every video search query, the title, and all metadata
-MUST be directly and specifically about this exact topic: "{topic}".
+Every sentence of narration, every video query, the title, and all metadata
+MUST be directly and specifically about: "{topic}".
+Do NOT drift to generic facts, unrelated topics, or padding.
 ════════════════════════════════════════════════════════
-
+{_brief}{_chapter_block}
 LANGUAGE RULES:
 - "voiceover" fields MUST be in {lang_display}. {script_rule}
 - "video_query" fields MUST be in English (for YouTube search).
 {youtube_meta_rules}
-- Top-level "title" and metadata "title" MUST be identical and follow YOUTUBE METADATA title rules above (Hindi voiceover still uses Devanagari only in "voiceover" fields).
 {voiceover_plain}{hindi_style}
-
 Output ONLY valid JSON. No markdown fences, no extra text.
 
 ════════════════════════════════════════════════════════
-WORD COUNT (NON-NEGOTIABLE):
-- Target duration : {target_duration} seconds ({duration_label})
-- Required words  : {target_words} words across all segment voiceovers
-- Speaking rate   : ~130 words/min
-- DO NOT stop early. Write all {target_words} words.
+⚠️  WORD COUNT — THIS IS THE MOST CRITICAL RULE ⚠️
+════════════════════════════════════════════════════════
+- Chunk duration   : {target_duration} seconds ({duration_label})
+- MINIMUM words    : {target_words} words across ALL voiceover fields combined
+- Per-segment min  : ~{per_seg_words} words each (NEVER less than {per_seg_words // 2})
+- Speaking rate    : 130 words / minute in {lang_display}
+- DO NOT STOP EARLY. If you reach a natural end before {target_words} words:
+    → Expand with: historical context, expert viewpoints, real case studies,
+      statistics, societal impact, future outlook, comparisons, viewer anecdotes.
+    → NEVER repeat sentences you already wrote; always add NEW content.
+- Count your words before finishing. If total < {target_words - 100}, KEEP WRITING.
 ════════════════════════════════════════════════════════
 
-VIDEO QUERY RULES (CRITICAL for good footage):
-- Each "video_query" is a YouTube search string for REAL stock footage.
-- Be specific and visual — search for footage that SHOWS the concept, not explains it.
-- Good examples: "NASA rocket launch slow motion", "coral reef underwater ocean 4K",
-  "ancient Rome ruins aerial view", "stock market trading floor busy"
-- Bad examples: "explain economy", "history documentary", "facts about topic"
-- Queries must match the segment's narration content exactly.
-- Length: 3–7 words. English only. No quotes inside the query.
+VIDEO QUERY RULES:
+- Each "video_query" = a specific YouTube search string for matching REAL footage.
+- Be visual: "NASA rocket launch slow motion", "coral reef 4K underwater"
+- NOT generic: "documentary", "facts", "history"
+- 3–7 words, English only, no quotes inside.
 
-JSON schema — produce EXACTLY this structure:
+JSON schema — produce EXACTLY:
 {{
-  "title": "<YouTube documentary title per YOUTUBE METADATA — for Hindi: Hinglish Latin, English keywords + Roman Hindi, max ~100 chars, about '{topic}'>",
-  "voiceover_text": "<full combined narration — all segments joined — {target_words} words in {lang_display}>",
+  "title": "<YouTube title — for Hindi: Hinglish Latin, English keywords, max 100 chars>",
+  "voiceover_text": "<ALL segments' voiceover joined — MINIMUM {target_words} words in {lang_display}>",
   "segments": [
     {{
-      "voiceover": "<{lang_display} narration for this segment — natural pacing, full sentences>",
-      "video_query": "<specific English YouTube search query for matching real footage>",
-      "duration_hint": <integer seconds for this segment>
+      "voiceover": "<{lang_display} narration — MINIMUM {per_seg_words} words, full sentences>",
+      "video_query": "<English YouTube search query>",
+      "duration_hint": <integer seconds>
     }}
-    /* repeat for all {num_segments} segments — total duration_hint must equal {target_duration} */
   ],
   "metadata": {{
-    "title": "<same as top-level title — same Hinglish/English rules>",
-    "description": "<mostly English SEO, 2–4 paragraphs, optional Roman Hinglish hook — about '{topic}'>",
+    "title": "<same as top-level title>",
+    "description": "<English SEO, 2-4 paragraphs about '{topic}'>",
     "tags": ["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]
   }}
 }}
 
 SEGMENT RULES:
 - Produce exactly {num_segments} segments.
-- Each segment covers one aspect / chapter of the topic.
-- Segments flow naturally: hook → context → detail → depth → conclusion/CTA.
-- First segment: shocking hook directly about "{topic}".
-- Last segment: short CTA in {lang_display} (like/subscribe/comment).
-- Each "voiceover" must be self-contained — listener can understand without context.
-- Spoken text only — follow VOICEOVER — PLAIN SPOKEN FORMAT (no [flags], no emojis, no markup).
-- Sum of all duration_hint values must equal {target_duration}.
+- Flow: hook → background → detail → depth → implication{' → CTA' if chapter_num == total_chapters or total_chapters == 1 else ''}.
+- Every "voiceover" ≥ {per_seg_words} words. Every sentence counts toward the total.
+- Sum of all duration_hint values MUST equal {target_duration}.
+- Spoken prose only — no [tags], no emojis, no bullet symbols in voiceover.
 
 Generate the JSON now:"""
+
 
 
 def _validate_documentary_script(script: dict, num_segments: int) -> dict:
@@ -711,6 +776,91 @@ def _validate_documentary_script(script: dict, num_segments: int) -> dict:
     return script
 
 
+def _generate_documentary_chunked(
+    topic: str,
+    language: str,
+    target_duration: int,
+    total_segments: int,
+    cfg: dict,
+    provider: str,
+    tone_hint: str,
+    style_hint: str,
+) -> dict:
+    """
+    For long videos (> _DOC_CHUNK_MAX_S), split into N chunks of ≤12 min each,
+    call the AI for every chunk independently, then stitch the segments together.
+    This guarantees word-count compliance for 40–120 min videos.
+    """
+    n_chunks = math.ceil(target_duration / _DOC_CHUNK_MAX_S)
+    # Distribute duration evenly; last chunk gets the remainder
+    base_dur = target_duration // n_chunks
+    remainders = target_duration - base_dur * n_chunks
+    chunk_durations = [base_dur + (1 if i < remainders else 0) for i in range(n_chunks)]
+
+    # Segments per chunk (proportional)
+    segs_per_chunk = max(3, total_segments // n_chunks)
+
+    log.info(
+        "Chunked documentary: %s chunks × ~%ss each, %s segs/chunk",
+        n_chunks, base_dur, segs_per_chunk,
+    )
+
+    all_segments: list[dict] = []
+    first_title: str = ""
+    first_metadata: dict = {}
+    prev_ending: str = ""
+
+    for i, chunk_dur in enumerate(chunk_durations):
+        chunk_num = i + 1
+        # Last chunk: adjust segment count to account for rounding
+        if chunk_num == n_chunks:
+            remaining_segs = max(3, total_segments - len(all_segments))
+            cur_segs = remaining_segs
+        else:
+            cur_segs = segs_per_chunk
+
+        log.info("  Chunk %s/%s: %ss, %s segments …", chunk_num, n_chunks, chunk_dur, cur_segs)
+
+        prompt = _build_documentary_prompt(
+            topic, language, chunk_dur, cur_segs,
+            tone_hint=tone_hint, style_hint=style_hint,
+            chapter_num=chunk_num, total_chapters=n_chunks,
+            prev_ending=prev_ending,
+        )
+
+        if provider == "openai":
+            raw = _generate_raw_openai(prompt, cfg)
+        elif provider == "ollama":
+            raw = _generate_raw_ollama(prompt, cfg)
+        else:
+            raw = _generate_raw_gemini(prompt, cfg)
+
+        chunk_script = _extract_json(raw)
+        chunk_script = _validate_documentary_script(chunk_script, cur_segs)
+
+        if not first_title:
+            first_title    = chunk_script.get("title", topic)
+            first_metadata = chunk_script.get("metadata", {})
+
+        segs = chunk_script["segments"]
+        all_segments.extend(segs)
+        # Pass the tail of this chunk's narration to the next chunk for continuity
+        if segs:
+            prev_ending = segs[-1].get("voiceover", "")[-300:]
+
+    full_voiceover = " ".join(s["voiceover"] for s in all_segments)
+    log.info(
+        "Chunked script stitched: %s total segments, ~%s words",
+        len(all_segments), len(full_voiceover.split()),
+    )
+    return {
+        "title":          first_title,
+        "voiceover_text": full_voiceover,
+        "segments":       all_segments,
+        "metadata":       first_metadata,
+    }
+
+
 def generate_documentary_script(
     topic: str,
     lang: str | None = None,
@@ -719,32 +869,41 @@ def generate_documentary_script(
     n_segments: int = 0,
 ) -> dict:
     """
-    Generate a documentary script: narration + YouTube footage queries per segment.
-
-    Returns a dict with:
-        title          : str
-        voiceover_text : str  (full concatenated narration)
-        segments       : list[{voiceover, video_query, duration_hint}]
-        metadata       : {title, description, tags}
+    Generate a documentary script (narration + footage queries per segment).
+    Videos longer than _DOC_CHUNK_MAX_S (12 min) are generated in chunks to
+    guarantee full word-count coverage for 40–120 min targets.
     """
     cfg = script_config or {}
     language = (lang or "hi").lower().strip()
-    # Explicit count, or auto: more segments for longer target → more clip transitions
+
     if n_segments and n_segments > 0:
         num_segments = max(3, min(DOC_SEG_MAX, n_segments))
     else:
         num_segments = max(
-            3,
-            min(DOC_SEG_MAX, round(target_duration / DOC_AUTO_SEG_EVERY_S)),
+            3, min(DOC_SEG_MAX, round(target_duration / DOC_AUTO_SEG_EVERY_S))
         )
-    provider = cfg.get("script_provider") or config.get("script_provider", "gemini")
+
+    provider   = cfg.get("script_provider") or config.get("script_provider", "gemini")
+    tone_hint  = cfg.get("voiceover_tone", "") or config.get("documentary.voiceover_tone", "")
+    style_hint = cfg.get("video_style",    "") or config.get("documentary.video_style",    "")
 
     log.info(
-        "Generating documentary script: topic=%r  lang=%r  provider=%r  segments=%s",
-        topic, language, provider, num_segments,
+        "Documentary script: topic=%r  lang=%r  dur=%ss  segs=%s  provider=%r  tone=%r",
+        topic, language, target_duration, num_segments, provider, tone_hint,
     )
 
-    prompt = _build_documentary_prompt(topic, language, target_duration, num_segments)
+    # ── Long videos: chunked generation ──────────────────────────────────────
+    if target_duration > _DOC_CHUNK_MAX_S:
+        return _generate_documentary_chunked(
+            topic, language, target_duration, num_segments,
+            cfg, provider, tone_hint, style_hint,
+        )
+
+    # ── Short/medium videos: single call ─────────────────────────────────────
+    prompt = _build_documentary_prompt(
+        topic, language, target_duration, num_segments,
+        tone_hint=tone_hint, style_hint=style_hint,
+    )
 
     if provider == "openai":
         raw = _generate_raw_openai(prompt, cfg)
@@ -755,8 +914,9 @@ def generate_documentary_script(
 
     script = _extract_json(raw)
     script = _validate_documentary_script(script, num_segments)
-    log.info("Documentary script ready: %s segment(s), title=%r", len(script["segments"]), script["title"])
+    log.info("Script ready: %s segments, title=%r", len(script["segments"]), script["title"])
     return script
+
 
 
 def _generate_raw_gemini(prompt: str, script_config: dict) -> str:
@@ -853,8 +1013,132 @@ def _generate_raw_ollama(prompt: str, script_config: dict) -> str:
     return resp.json()["choices"][0]["message"]["content"]
 
 
+
+# ── Idea Workshop Chat ────────────────────────────────────────────────────────
+
+_CONSULTANT_SYSTEM = """
+You are Ghost Agent, a creative YouTube documentary consultant embedded inside Ghost Creator AI.
+Your job is to guide the user step-by-step through four decisions before they can generate a video.
+Never skip a step. Always confirm before moving to the next.
+
+STEP ORDER (strictly follow this sequence):
+  1. TOPIC     — What the documentary is about (specific, unique angle)
+  2. STYLE     — Visual/editorial feel: cinematic | shocking | educational | inspirational | fun
+  3. FORMAT    — short (under 60 seconds) OR long (3 minutes to 2 hours)
+  4. TONE      — Voiceover delivery: energetic | calm | dramatic | casual | authoritative
+
+RULES:
+- Keep every reply to 2-4 sentences MAX.
+- Ask exactly ONE question per reply to advance to the next step.
+- Remember everything said in the conversation — never ask again about something already confirmed.
+- When a parameter is agreed, say "✓ [STEP]: [value] confirmed." so the user sees progress.
+- Only proceed to the PLAN block when ALL FOUR parameters are explicitly agreed by the user.
+
+When all four are agreed, end your reply with this block EXACTLY (no extra text on those lines):
+<<PLAN_START>>
+TOPIC: <the agreed one-line topic / subject>
+STYLE: <cinematic|shocking|educational|inspirational|fun>
+FORMAT: <short|long>
+TONE: <energetic|calm|dramatic|casual|authoritative>
+META_TITLE: <suggested YouTube title for this video>
+META_TAGS: <comma-separated 6-10 tags relevant to topic>
+<<PLAN_END>>
+
+Do NOT emit <<PLAN_START>> until the user has explicitly confirmed all four parameters.
+"""
+
+# Key to extract from PLAN block
+_PLAN_KEYS = ("TOPIC", "STYLE", "FORMAT", "TONE", "META_TITLE", "META_TAGS")
+
+
+def parse_plan_block(text: str) -> dict | None:
+    """
+    Extract the agreed creative plan from an AI reply.
+    Returns a dict with keys: topic, style, format, tone, meta_title, meta_tags
+    or None if no complete plan block is present.
+    """
+    if "<<PLAN_START>>" not in text or "<<PLAN_END>>" not in text:
+        return None
+    block_start = text.index("<<PLAN_START>>") + len("<<PLAN_START>>")
+    block_end   = text.index("<<PLAN_END>>")
+    block = text[block_start:block_end]
+    plan: dict = {}
+    for line in block.splitlines():
+        line = line.strip()
+        for key in _PLAN_KEYS:
+            if line.upper().startswith(f"{key}:"):
+                plan[key.lower().replace("meta_", "")] = line.split(":", 1)[1].strip()
+                break
+    # Require the four core keys
+    if all(k in plan for k in ("topic", "style", "format", "tone")):
+        return plan
+    return None
+
+
+def chat_with_consultant(
+    history: list[dict],
+    user_message: str,
+    script_config: dict | None = None,
+) -> str:
+    """
+    Multi-turn Gemini chat for the documentary Idea Workshop.
+
+    Parameters
+    ----------
+    history       : list of {role: 'user'|'model', text: str} dicts
+    user_message  : latest user input
+    script_config : optional config slice (same shape as generate_script uses)
+
+    Returns
+    -------
+    str — the model's reply text
+    """
+    cfg = script_config or {}
+    api_key = (cfg.get("api_keys.gemini") or config.get("api_keys.gemini", "")).strip()
+    if not api_key:
+        return "⚠ No Gemini API key found. Please add it in Settings → API Keys."
+
+    gemini_model = cfg.get("gemini_model") or config.get("gemini_model", GEMINI_MODEL)
+
+    # Build contents list: system turn first, then history, then new user turn
+    contents = []
+    # Gemini multi-turn: alternate user/model
+    # Inject system prompt as a user turn at the very start if history is empty
+    if not history:
+        contents.append({"role": "user",  "parts": [{"text": _CONSULTANT_SYSTEM}]})
+        contents.append({"role": "model", "parts": [{"text": "Got it! I'm ready to help you craft the perfect documentary topic. What idea do you have in mind? (Even a vague notion is fine — I'll help you sharpen it.)"}]})
+
+    for turn in history:
+        role = "user" if turn.get("role") == "user" else "model"
+        contents.append({"role": role, "parts": [{"text": turn.get("text", "")}]})
+
+    contents.append({"role": "user", "parts": [{"text": user_message}]})
+
+    try:
+        client = _gemini_client(api_key, gemini_model)
+        response = client.models.generate_content(
+            model=gemini_model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                temperature=0.8,
+                max_output_tokens=512,
+                safety_settings=[
+                    types.SafetySetting(category="HARM_CATEGORY_HARASSMENT",        threshold="BLOCK_ONLY_HIGH"),
+                    types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH",       threshold="BLOCK_ONLY_HIGH"),
+                    types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_ONLY_HIGH"),
+                    types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_ONLY_HIGH"),
+                ],
+            ),
+        )
+        return response.text or "⚠ No response from Gemini."
+    except Exception as exc:
+        log.warning("chat_with_consultant error: %s", exc)
+        return f"⚠ Gemini error: {exc}"
+
+
 if __name__ == "__main__":
     # Quick smoke-test
     import pprint
     topic = "OpenAI releases GPT-5 with real-time reasoning"
     pprint.pprint(generate_script(topic))
+

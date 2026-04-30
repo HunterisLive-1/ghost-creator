@@ -123,6 +123,11 @@ class PipelineRunner:
         # Documentary-only: regen from preview reuses this context
         self._doc_regen_ctx: dict | None = None
 
+        # Per-step retry
+        self._retry_event = threading.Event()
+        self._retry_requested = False
+        self.waiting_for_retry = False
+
     def start(self, topic: str | None = None) -> None:
         """Start the pipeline in a background thread."""
         if self.thread and self.thread.is_alive():
@@ -156,8 +161,23 @@ class PipelineRunner:
         self._video_preview_action = "cancel"
         self._script_review_event.set()
         self._video_preview_event.set()
+        # Wake any blocked retry wait so the thread can exit
+        self._retry_event.set()
         self._emit(0, "Pipeline stopped by user", "WARNING")
         log.info("Pipeline stop requested by user")
+
+    def request_retry(self) -> None:
+        """Called by GUI when the user clicks the Retry button on a failed step."""
+        self._retry_requested = True
+        self.waiting_for_retry = False
+        self._retry_event.set()
+        log.info("Retry requested by user")
+
+    def _reset_retry(self) -> None:
+        """Clear retry state before (re-)attempting a step."""
+        self._retry_requested = False
+        self.waiting_for_retry = False
+        self._retry_event.clear()
 
     def approve_script(self, approved_data: dict) -> None:
         """Called by GUI when user approves script in review window."""
@@ -387,7 +407,20 @@ class PipelineRunner:
         if not self.running:
             return
         _provider_label = script_cfg["script_provider"].capitalize()
-        self._emit(2, f"📝 Generating documentary script via {_provider_label} …", "INFO")
+
+        # Warn upfront for long-form: multiple API calls needed
+        from modules.scripter import _DOC_CHUNK_MAX_S
+        import math as _math
+        if target_duration > _DOC_CHUNK_MAX_S:
+            _n_chunks = _math.ceil(target_duration / _DOC_CHUNK_MAX_S)
+            self._emit(2,
+                f"📝 Long-form video detected ({target_duration//60} min) — "
+                f"generating in {_n_chunks} chapters via {_provider_label}. "
+                f"This may take {_n_chunks * 20}–{_n_chunks * 40}s …",
+                "INFO",
+            )
+        else:
+            self._emit(2, f"📝 Generating documentary script via {_provider_label} …", "INFO")
 
         n_segs_override = int(config.get("documentary.segments", 0) or 0)
         script = generate_documentary_script(
@@ -399,8 +432,15 @@ class PipelineRunner:
         )
         title = script.get("title") or script.get("metadata", {}).get("title", topic)
         num_segs = len(script["segments"])
-        self._emit(2, f"Script ready: {title!r} ({num_segs} segments)", "SUCCESS")
-        log.info("Documentary script: %s segments", num_segs)
+        _word_count = len(script["voiceover_text"].split())
+        _expected   = int((target_duration / 60) * 130)
+        self._emit(2,
+            f"Script ready: {title!r} — {num_segs} segments, "
+            f"~{_word_count:,} words (target {_expected:,})",
+            "SUCCESS",
+        )
+        log.info("Documentary script: %s segments, ~%s words", num_segs, _word_count)
+
 
         # Script review (reuse same pause mechanism)
         if config.get("script_review_enabled", True):
@@ -456,27 +496,37 @@ class PipelineRunner:
         except Exception:
             pass
 
-        # ── Step 3: Voiceover ─────────────────────────────────────────────
-        if not self.running:
-            return
-        self._emit(3, "🎙️ Generating voiceover …", "INFO")
+        # ── Step 3: Voiceover (with retry) ───────────────────────────────
         from modules.voicer import run_voiceover
 
         def _voice_progress(msg: str) -> None:
             self._emit(3, msg, "INFO")
 
-        audio_path = run_voiceover(
-            script["voiceover_text"],
-            language=language,
-            output_path=run_dir / "voiceover.mp3",
-            progress_callback=_voice_progress,
-        )
-        self._emit(3, f"Voiceover saved: {audio_path}", "SUCCESS")
+        audio_path: Path | None = None
+        while True:
+            if not self.running:
+                return
+            self._reset_retry()
+            self._emit(3, "🎙️ Generating voiceover …", "INFO")
+            try:
+                audio_path = run_voiceover(
+                    script["voiceover_text"],
+                    language=language,
+                    output_path=run_dir / "voiceover.mp3",
+                    progress_callback=_voice_progress,
+                )
+                self._emit(3, f"Voiceover saved: {audio_path}", "SUCCESS")
+                break  # success — move to next step
+            except Exception as exc:
+                log.error("Step 3 (Voice) failed: %s", exc, exc_info=True)
+                self._emit(3, f"❌ Voiceover failed: {exc}", "ERROR", retry_available=True)
+                self.waiting_for_retry = True
+                self._retry_event.wait()  # block until retry or stop
+                if not self.running:
+                    return
+                self._emit(3, "🔄 Retrying voiceover …", "INFO")
 
-        # ── Step 4: Download footage clips ────────────────────────────────
-        if not self.running:
-            return
-        self._emit(4, f"📹 Downloading {num_segs} footage clips from YouTube …", "INFO")
+        # ── Step 4: Download footage clips (with retry) ───────────────────
         from modules.video_fetcher import fetch_clips
 
         def _fetch_progress(msg: str) -> None:
@@ -484,39 +534,68 @@ class PipelineRunner:
 
         max_clip_dur = int(config.get("documentary.max_clip_duration", 120))
         clips_dir = run_dir / "clips"
-        clips = fetch_clips(
-            script["segments"],
-            clips_dir,
-            max_clip_duration=max_clip_dur,
-            progress_callback=_fetch_progress,
-        )
-        good = sum(1 for c in clips if c is not None)
-        self._emit(4, f"{good}/{num_segs} clips downloaded", "SUCCESS" if good > 0 else "WARNING")
+        clips: list | None = None
+        while True:
+            if not self.running:
+                return
+            self._reset_retry()
+            self._emit(4, f"📹 Downloading {num_segs} footage clips from YouTube …", "INFO")
+            try:
+                clips = fetch_clips(
+                    script["segments"],
+                    clips_dir,
+                    max_clip_duration=max_clip_dur,
+                    progress_callback=_fetch_progress,
+                )
+                good = sum(1 for c in clips if c is not None)
+                self._emit(4, f"{good}/{num_segs} clips downloaded", "SUCCESS" if good > 0 else "WARNING")
+                break  # success
+            except Exception as exc:
+                log.error("Step 4 (Footage) failed: %s", exc, exc_info=True)
+                self._emit(4, f"❌ Footage download failed: {exc}", "ERROR", retry_available=True)
+                self.waiting_for_retry = True
+                self._retry_event.wait()
+                if not self.running:
+                    return
+                self._emit(4, "🔄 Retrying footage download …", "INFO")
 
-        # ── Step 5: Assemble documentary ──────────────────────────────────
-        if not self.running:
-            return
-        self._emit(5, "🎬 Assembling documentary with FFmpeg …", "INFO")
+        # ── Step 5: Assemble documentary (with retry) ─────────────────────
         from modules.documentary_assembler import assemble_documentary, wants_burned_subtitles
 
         def _asm_progress(msg: str) -> None:
             self._emit(5, msg, "INFO")
 
-        _output_filename = f"documentary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         _pb_speed = float(config.get("documentary.playback_speed", 1.0))
         _burn = wants_burned_subtitles(config)
-        video_path = assemble_documentary(
-            clips=clips,
-            audio_path=audio_path,
-            segments=script["segments"],
-            output_dir=run_dir,
-            output_filename=_output_filename,
-            aspect_ratio=aspect_ratio,
-            progress_callback=_asm_progress,
-            playback_speed=_pb_speed,
-            burn_subtitles=_burn,
-        )
-        self._emit(5, f"Documentary rendered: {video_path}", "SUCCESS")
+        video_path: Path | None = None
+        while True:
+            if not self.running:
+                return
+            self._reset_retry()
+            self._emit(5, "🎬 Assembling documentary with FFmpeg …", "INFO")
+            _output_filename = f"documentary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+            try:
+                video_path = assemble_documentary(
+                    clips=clips,
+                    audio_path=audio_path,
+                    segments=script["segments"],
+                    output_dir=run_dir,
+                    output_filename=_output_filename,
+                    aspect_ratio=aspect_ratio,
+                    progress_callback=_asm_progress,
+                    playback_speed=_pb_speed,
+                    burn_subtitles=_burn,
+                )
+                self._emit(5, f"Documentary rendered: {video_path}", "SUCCESS")
+                break  # success
+            except Exception as exc:
+                log.error("Step 5 (Assembly) failed: %s", exc, exc_info=True)
+                self._emit(5, f"❌ Assembly failed: {exc}", "ERROR", retry_available=True)
+                self.waiting_for_retry = True
+                self._retry_event.wait()
+                if not self.running:
+                    return
+                self._emit(5, "🔄 Retrying assembly …", "INFO")
 
         # ── Step 5.5: Video preview (loop: approve, or regen audio/video, then re-preview) ─
         if config.get("video_preview_enabled", True):
@@ -600,6 +679,28 @@ class PipelineRunner:
             self._emit(6, "⏭️ Upload disabled — documentary saved locally.", "SUCCESS")
             done_msg = f"Documentary complete (no upload). Saved: {video_path}"
 
+        # ── Write history_entry.json ─────────────────────────────────────────
+        _dur_s = int(target_duration)
+        _dur_label = (
+            f"{_dur_s}s" if _dur_s < 60
+            else f"{_dur_s // 60}m {_dur_s % 60}s" if _dur_s % 60
+            else f"{_dur_s // 60}m"
+        )
+        try:
+            import json as _json2
+            (run_dir / "history_entry.json").write_text(
+                _json2.dumps({
+                    "topic":      topic or "",
+                    "title":      script.get("title", ""),
+                    "timestamp":  datetime.now().isoformat(),
+                    "duration":   _dur_label,
+                    "video_path": str(video_path) if video_path else "",
+                }, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
         self.progress_queue.put({
             "step": 7,
             "message": done_msg,
@@ -610,7 +711,8 @@ class PipelineRunner:
             "run_id": self._run_id,
         })
 
-    def _emit(self, step: int, message: str, level: str = "INFO") -> None:
+
+    def _emit(self, step: int, message: str, level: str = "INFO", retry_available: bool = False) -> None:
         """Emit a progress event to the queue."""
         self.progress_queue.put({
             "step": step,
@@ -618,4 +720,5 @@ class PipelineRunner:
             "level": level,
             "timestamp": datetime.now().isoformat(),
             "run_id": self._run_id,
+            "retry_available": retry_available,
         })

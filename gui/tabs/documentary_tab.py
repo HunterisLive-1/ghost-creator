@@ -77,6 +77,7 @@ class DocumentaryTab(ctk.CTkFrame):
 
         self._build_header()
         self._build_mode_cards()
+        self._build_idea_workshop()
         self._build_topic_row()
         self._build_duration_row()
         self._build_voice_engine_row()
@@ -205,6 +206,279 @@ class DocumentaryTab(ctk.CTkFrame):
                 self._dur_range_lbl.configure(text="3 min – 2 hrs")
         if hasattr(self, "_refresh_burn_subs_state"):
             self._refresh_burn_subs_state()
+
+    # ── Idea Workshop ─────────────────────────────────────────────────────────
+    def _build_idea_workshop(self):
+        """Collapsible AI brainstorm chat panel — discuss topic/tone with Gemini."""
+        self._workshop_open = False
+        self._chat_history: list[dict] = []   # [{role, text}, ...]
+
+        # Outer container (always visible — just the toggle bar)
+        outer = ctk.CTkFrame(self._body, fg_color=BG_SEC, corner_radius=0,
+                             border_width=1, border_color=BORDER)
+        outer.pack(fill="x", padx=20, pady=(0, 6))
+
+        # ── Toggle header ────────────────────────────────────────────────────
+        header = ctk.CTkFrame(outer, fg_color="transparent")
+        header.pack(fill="x", padx=12, pady=6)
+
+        self._workshop_toggle_btn = ctk.CTkButton(
+            header,
+            text="▶  🤖 IDEA WORKSHOP  —  brainstorm topic & tone with AI",
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=ACCENT_DOC, fg_color="transparent",
+            hover_color=BG_CARD, anchor="w",
+            corner_radius=0, height=30,
+            command=self._toggle_workshop,
+        )
+        self._workshop_toggle_btn.pack(side="left", fill="x", expand=True)
+
+        ctk.CTkLabel(
+            header, text="(Gemini · auto-fills topic)",
+            font=("Share Tech Mono", 10), text_color=TEXT_HINT,
+        ).pack(side="right")
+
+        # ── Collapsible body ─────────────────────────────────────────────────
+        self._workshop_body = ctk.CTkFrame(outer, fg_color="transparent")
+        # Not packed by default — shown on toggle
+
+        # Chat log
+        self._workshop_log = ctk.CTkTextbox(
+            self._workshop_body,
+            font=("Consolas", 12),
+            fg_color="#020608", border_color=BORDER, border_width=1,
+            corner_radius=0, state="disabled", height=200,
+            wrap="word",
+        )
+        self._workshop_log.pack(fill="x", padx=12, pady=(8, 4))
+        self._workshop_log.tag_config("user",  foreground=ACCENT_PRI)
+        self._workshop_log.tag_config("model", foreground=ACCENT_DOC)
+        self._workshop_log.tag_config("topic", foreground="#00FF99")
+        self._workshop_log.tag_config("hint",  foreground=TEXT_HINT)
+
+        # Input row
+        input_row = ctk.CTkFrame(self._workshop_body, fg_color="transparent")
+        input_row.pack(fill="x", padx=12, pady=(0, 10))
+
+        self._workshop_entry = ctk.CTkEntry(
+            input_row,
+            placeholder_text="Describe your idea, or ask about tone / style…",
+            font=("Share Tech Mono", 12),
+            fg_color=BG_MAIN, border_color=ACCENT_DOC, border_width=1,
+            text_color=TEXT_PRI, corner_radius=0,
+        )
+        self._workshop_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self._workshop_entry.bind("<Return>", lambda e: self._workshop_send())
+
+        self._workshop_send_btn = ctk.CTkButton(
+            input_row, text="DISCUSS",
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=BG_MAIN, fg_color=ACCENT_DOC,
+            hover_color=ACCENT_PRI, corner_radius=0, width=90,
+            command=self._workshop_send,
+        )
+        self._workshop_send_btn.pack(side="left", padx=(0, 6))
+
+        ctk.CTkButton(
+            input_row, text="🗑 Clear",
+            font=("Share Tech Mono", 11),
+            text_color=TEXT_HINT, fg_color="transparent",
+            hover_color=BG_CARD, border_color=BORDER, border_width=1,
+            corner_radius=0, width=72,
+            command=self._workshop_clear,
+        ).pack(side="left")
+
+        # Hint label
+        ctk.CTkLabel(
+            self._workshop_body,
+            text='   ↳  When the AI suggests a topic, a green "USE THIS TOPIC →" button will appear.',
+            font=("Share Tech Mono", 10), text_color=TEXT_HINT, anchor="w",
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
+        # "Use topic" row (hidden until AI suggests one)
+        self._use_topic_frame = ctk.CTkFrame(self._workshop_body, fg_color="transparent")
+        self._suggested_topic_lbl = ctk.CTkLabel(
+            self._use_topic_frame, text="",
+            font=("Share Tech Mono", 12, "bold"), text_color="#00FF99", anchor="w",
+        )
+        self._suggested_topic_lbl.pack(side="left", padx=(12, 10), fill="x", expand=True)
+        ctk.CTkButton(
+            self._use_topic_frame, text="USE THIS TOPIC  →",
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=BG_MAIN, fg_color="#00FF99",
+            hover_color=ACCENT_GRN if 'ACCENT_GRN' in dir() else "#00AA44",
+            corner_radius=0, width=160,
+            command=self._use_suggested_topic,
+        ).pack(side="right", padx=12)
+
+        # Print initial greeting into the log
+        self._workshop_append(
+            "AI",
+            "Ready to help! Tell me what kind of documentary you want to make.",
+            "hint",
+        )
+
+    def _toggle_workshop(self):
+        if self._workshop_open:
+            self._workshop_body.pack_forget()
+            self._workshop_open = False
+            self._workshop_toggle_btn.configure(
+                text="▶  🤖 IDEA WORKSHOP  —  brainstorm topic & tone with AI"
+            )
+        else:
+            self._workshop_body.pack(fill="x")
+            self._workshop_open = True
+            self._workshop_toggle_btn.configure(
+                text="▼  🤖 IDEA WORKSHOP  —  brainstorm topic & tone with AI"
+            )
+            self._workshop_entry.focus()
+
+    def _workshop_append(self, who: str, text: str, tag: str):
+        self._workshop_log.configure(state="normal")
+        self._workshop_log.insert("end", f"[{who}]  ", tag)
+        self._workshop_log.insert("end", text + "\n\n")
+        self._workshop_log.see("end")
+        self._workshop_log.configure(state="disabled")
+
+    def _workshop_send(self):
+        msg = self._workshop_entry.get().strip()
+        if not msg or not self.pipeline_running is False:
+            if not msg:
+                return
+        # Show user bubble
+        self._workshop_append("YOU", msg, "user")
+        self._workshop_entry.delete(0, "end")
+        self._workshop_send_btn.configure(state="disabled", text="…")
+        self._use_topic_frame.pack_forget()
+
+        import threading
+        threading.Thread(target=self._workshop_call_gemini, args=(msg,), daemon=True).start()
+
+    def _workshop_call_gemini(self, user_msg: str):
+        from modules.scripter import chat_with_consultant, parse_plan_block
+        cfg = {
+            "api_keys.gemini": config.get("api_keys.gemini", ""),
+            "gemini_model":    config.get("gemini_model", "gemini-2.5-flash"),
+        }
+        reply = chat_with_consultant(self._chat_history, user_msg, cfg)
+
+        # Update history (keep last 20 turns = 10 exchanges)
+        self._chat_history.append({"role": "user",  "text": user_msg})
+        self._chat_history.append({"role": "model", "text": reply})
+        if len(self._chat_history) > 20:
+            self._chat_history = self._chat_history[-20:]
+
+        # Check for finalized <<PLAN_START>>..<<PLAN_END>> block
+        plan = parse_plan_block(reply)
+
+        # Schedule GUI update on main thread
+        self.after(0, self._workshop_on_reply, reply, plan)
+
+    def _workshop_on_reply(self, reply: str, plan):
+        # Strip the raw plan block from the chat log — show clean prose only
+        clean_reply = reply
+        if plan and "<<PLAN_START>>" in reply:
+            clean_reply = reply[:reply.index("<<PLAN_START>>")].strip()
+
+        self._workshop_append("AI", clean_reply, "model")
+        self._workshop_send_btn.configure(state="normal", text="DISCUSS")
+
+        if plan:
+            self._last_plan = plan
+            # Show rich plan summary in chat
+            summary = (
+                "\u2705  ALL PARAMETERS AGREED \u2014 PLAN FINALIZED\n"
+                f"   TOPIC   : {plan.get('topic', '')}\n"
+                f"   STYLE   : {plan.get('style', '')}\n"
+                f"   FORMAT  : {plan.get('format', '')}\n"
+                f"   TONE    : {plan.get('tone', '')}\n"
+            )
+            if plan.get("title"):
+                summary += f"   TITLE   : {plan['title']}\n"
+            if plan.get("tags"):
+                summary += f"   TAGS    : {plan['tags']}"
+            self._workshop_append("PLAN", summary, "topic")
+            # Update the button label to show agreed topic
+            self._suggested_topic_lbl.configure(
+                text=f"\U0001f3ac  {plan.get('topic', 'Agreed topic')}"
+            )
+            self._use_topic_frame.pack(fill="x", pady=(0, 8))
+
+    def _use_suggested_topic(self):
+        """Apply the full agreed plan: topic, format, tone, style to the pipeline."""
+        plan = getattr(self, "_last_plan", None)
+
+        # ── No plan yet \u2014 fallback to bare topic if present ─────────────────
+        if not plan:
+            topic = getattr(self, "_last_suggested_topic", "")
+            if topic:
+                self._topic_entry.configure(state="normal")
+                self._topic_entry.delete(0, "end")
+                self._topic_entry.insert(0, topic)
+                self._auto_var.set(False)
+                self._workshop_append("SYS", f'Topic set: "{topic}" \u2014 click ROLL FILM!', "topic")
+                self._use_topic_frame.pack_forget()
+            return
+
+        topic  = plan.get("topic", "")
+        fmt    = plan.get("format", "").lower().strip()
+        tone   = plan.get("tone",   "").strip()
+        style  = plan.get("style",  "").strip()
+
+        # 1. Fill topic entry
+        if topic:
+            self._topic_entry.configure(state="normal")
+            self._topic_entry.delete(0, "end")
+            self._topic_entry.insert(0, topic)
+            self._auto_var.set(False)
+
+        # 2. Switch format mode card  (short / long)
+        if fmt in ("short", "long"):
+            self._apply_mode(fmt)
+
+        # 3. Persist tone + style so generate_documentary_script picks them up
+        if tone:
+            config.set("documentary.voiceover_tone", tone)
+        if style:
+            config.set("documentary.video_style", style)
+
+        # 4. Store suggested metadata hints
+        if plan.get("title"):
+            config.set("documentary.suggested_title", plan["title"])
+        if plan.get("tags"):
+            config.set("documentary.suggested_tags", plan["tags"])
+
+        try:
+            config.save()
+        except OSError:
+            pass
+
+        self._use_topic_frame.pack_forget()
+        self._workshop_append(
+            "SYS",
+            (
+                "Plan applied to pipeline!\n"
+                f"  Topic  : \"{topic}\"\n"
+                f"  Mode   : {fmt or '(unchanged)'}\n"
+                f"  Tone   : {tone or '(default)'}\n"
+                f"  Style  : {style or '(default)'}\n"
+                "\u2192 Click \u25b6 ROLL FILM when ready!"
+            ),
+            "topic",
+        )
+
+    def _workshop_clear(self):
+        self._chat_history.clear()
+        self._last_plan = None
+        self._workshop_log.configure(state="normal")
+        self._workshop_log.delete("1.0", "end")
+        self._workshop_log.configure(state="disabled")
+        self._use_topic_frame.pack_forget()
+        # Reset any persisted tone/style from previous plan
+        config.set("documentary.voiceover_tone", "")
+        config.set("documentary.video_style", "")
+        self._workshop_append("AI", "Chat cleared. Ready for a new idea!", "hint")
+
 
     # ── Topic ─────────────────────────────────────────────────────────────────
     def _build_topic_row(self):
@@ -555,6 +829,16 @@ class DocumentaryTab(ctk.CTkFrame):
         )
         self._stop_btn.pack(side="left", padx=15)
 
+        self._retry_btn = ctk.CTkButton(
+            frame, text="🔄  RETRY STEP",
+            font=("Orbitron", 13, "bold"), text_color=ACCENT_WARN,
+            fg_color="#221500", hover_color="#FF8C00",
+            border_color=ACCENT_WARN, border_width=1, corner_radius=0,
+            height=50, width=160,
+            command=self._on_retry,
+        )
+        # Not packed yet — shown only when a step error occurs
+
         self._status_lbl = ctk.CTkLabel(
             frame, text="",
             font=("Share Tech Mono", 12), text_color=TEXT_SEC,
@@ -755,9 +1039,19 @@ class DocumentaryTab(ctk.CTkFrame):
         self._run_btn.configure(state="normal", text="▶  ROLL FILM")
         self._stop_btn.configure(state="disabled")
         self._status_lbl.configure(text="ABORTED", text_color=ACCENT_RED)
+        self._retry_btn.pack_forget()
         if self.app_ref:
             self.app_ref.set_system_state("READY")
         self._append_log("Pipeline stopped by user.", "WARNING")
+
+    def _on_retry(self):
+        """Called when user clicks the Retry button after a step error."""
+        if not self.runner or not self.pipeline_running:
+            return
+        self._retry_btn.pack_forget()
+        self._status_lbl.configure(text="● RETRYING", text_color=ACCENT_WARN)
+        self._append_log("🔄 Retry requested — re-attempting step…", "INFO")
+        self.runner.request_retry()
 
     # ── Script Review ─────────────────────────────────────────────────────────
     def _check_for_script_review(self):
@@ -943,11 +1237,21 @@ class DocumentaryTab(ctk.CTkFrame):
 
         if done:
             self._on_pipeline_done(level, message, output)
+            return
+
+        if msg.get("retry_available"):
+            # Show retry button — pipeline is paused waiting for user input
+            self._status_lbl.configure(text="● STEP FAILED", text_color=ACCENT_RED)
+            self._retry_btn.pack(side="left", padx=(0, 10), after=self._stop_btn)
+        else:
+            # Any non-retry message hides it (step moved on or a normal progress msg)
+            self._retry_btn.pack_forget()
 
     def _on_pipeline_done(self, level: str, message: str, output: str):
         self.pipeline_running = False
         self._run_btn.configure(state="normal", text="▶  ROLL FILM")
         self._stop_btn.configure(state="disabled")
+        self._retry_btn.pack_forget()
 
         if level == "SUCCESS":
             for i in range(6):
@@ -969,8 +1273,12 @@ class DocumentaryTab(ctk.CTkFrame):
 
         self._redraw_steps_and_bar()
         # Scroll to bottom so the output panel / error status is visible
-        # without forcing the user to scroll up from the top.
         self.after(100, lambda: self._scroll._parent_canvas.yview_moveto(1.0))
+        # Refresh history tab if available
+        if level == "SUCCESS":
+            ht = getattr(self.app_ref, "history_tab", None)
+            if ht and hasattr(ht, "refresh"):
+                self.after(300, ht.refresh)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
     def _reset_steps(self):
