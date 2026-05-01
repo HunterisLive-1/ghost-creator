@@ -1,5 +1,5 @@
 """
-gui/app.py — Ghost Creator AI v4.1 Neural Interface
+gui/app.py — Ghost Creator AI v4.2.2 Neural Interface
 """
 import queue
 import sys
@@ -15,6 +15,7 @@ from config import APP_VERSION
 from core.config_manager import config
 from gui.tabs.settings_tab import SettingsTab
 from gui.tabs.documentary_tab import DocumentaryTab
+from gui.tabs.direct_upload_tab import DirectUploadTab
 from gui.tabs.history_tab import HistoryTab
 
 # === BLUE AI PALETTE ===
@@ -70,8 +71,72 @@ class GhostCreatorApp(ctk.CTk):
         self.deiconify()
         self._init_main_ui()
 
+    def _prepare_ffmpeg_on_first_run(self) -> None:
+        """Frozen Windows .exe: download FFmpeg once to %LOCALAPPDATA%\\GhostCreatorAI\\ffmpeg."""
+        if not getattr(sys, "frozen", False) or sys.platform != "win32":
+            return
+        from tkinter import messagebox
+        from core.ffmpeg_bootstrap import ffmpeg_binaries_present, prepare_ffmpeg_runtime
+
+        if ffmpeg_binaries_present():
+            return
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("First-time setup — FFmpeg")
+        dlg.geometry("520x200")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.attributes("-topmost", True)
+        dlg.grab_set()
+        dlg.configure(fg_color=BG_MAIN)
+        lbl = ctk.CTkLabel(
+            dlg,
+            text="Downloading FFmpeg (one-time, ~100 MB)…\nInternet required.",
+            font=("Share Tech Mono", 12),
+            text_color=TEXT_PRI,
+            justify="center",
+        )
+        lbl.pack(padx=24, pady=(20, 8))
+        pbar = ctk.CTkProgressBar(
+            dlg,
+            width=440,
+            height=16,
+            corner_radius=4,
+            fg_color=BORDER,
+            progress_color=ACCENT_PRI,
+        )
+        pbar.set(0)
+        pbar.pack(padx=24, pady=(4, 20))
+
+        def tick() -> None:
+            dlg.update_idletasks()
+            self.update_idletasks()
+
+        try:
+            prepare_ffmpeg_runtime(
+                progress=lambda t: lbl.configure(text=t),
+                progress_ratio=lambda r: pbar.set(max(0.0, min(1.0, r))),
+                ui_tick=tick,
+            )
+        except Exception as exc:
+            messagebox.showerror(
+                "FFmpeg setup failed",
+                f"Could not download FFmpeg:\n{exc}\n\n"
+                "Check your connection, or install FFmpeg and add it to PATH, then restart.",
+            )
+        finally:
+            try:
+                dlg.grab_release()
+            except tk.TclError:
+                pass
+            try:
+                dlg.destroy()
+            except tk.TclError:
+                pass
+
     # ── Main UI (built only after license is confirmed) ───────────────────────
     def _init_main_ui(self):
+        self._prepare_ffmpeg_on_first_run()
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True)
 
@@ -119,6 +184,7 @@ class GhostCreatorApp(ctk.CTk):
         self.tabview.pack(fill="both", expand=True, padx=15, pady=5)
 
         tab_documentary = self.tabview.add("🎬 DOCUMENTARY")
+        tab_upload      = self.tabview.add("📤 UPLOAD")
         tab_settings    = self.tabview.add("⚙ SETTINGS")
         tab_history     = self.tabview.add("📋 HISTORY")
 
@@ -127,11 +193,25 @@ class GhostCreatorApp(ctk.CTk):
         self.documentary_tab = DocumentaryTab(tab_documentary, progress_queue=self.doc_queue, app_ref=self)
         self.documentary_tab.pack(fill="both", expand=True)
 
+        self.upload_tab = DirectUploadTab(tab_upload, app_ref=self)
+        self.upload_tab.pack(fill="both", expand=True)
+
         self.settings_tab = SettingsTab(tab_settings, app_ref=self)
         self.settings_tab.pack(fill="both", expand=True)
 
         self.history_tab = HistoryTab(tab_history, app_ref=self)
         self.history_tab.pack(fill="both", expand=True)
+
+        # Tab names for programmatic switching (see open_direct_upload_with_video)
+        self._tab_name_upload = "📤 UPLOAD"
+
+    def open_direct_upload_with_video(self, video_path: str | Path, *, title_hint: str | None = None) -> None:
+        """Switch to Direct Upload and pre-fill the video path (e.g. after Ghost Editor re-render)."""
+        try:
+            self.tabview.set(self._tab_name_upload)
+        except Exception:
+            pass
+        self.upload_tab.set_video_for_upload(video_path, title_hint=title_hint)
 
     def _build_bottom_bar(self):
         self.bottom_canvas = ctk.CTkFrame(self.main_container, height=2, fg_color=BORDER, corner_radius=0)

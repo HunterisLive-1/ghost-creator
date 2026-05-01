@@ -11,6 +11,7 @@ Steps:
   5. Replace audio with the voiceover (strip original clip audio)
 
 Optional: burn Hindi (or any) voiceover as white bold text at the bottom (long-form only — see pipeline).
+Optional: PNG/JPG logo watermark (corner + scale) after subs/music — see Settings and Ghost Editor.
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 from config import get_logger, get_ffmpeg_executable, get_ffprobe_executable
+from core.clip_manager import ClipInfo
 
 log = get_logger("doc_assembler")
 
@@ -30,6 +32,8 @@ log = get_logger("doc_assembler")
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 _CB = Callable[[str], None] | None
+
+_LOGO_POSITIONS = frozenset({"top_left", "top_right", "bottom_left", "bottom_right"})
 
 
 def _notify(fn: _CB, msg: str) -> None:
@@ -192,12 +196,26 @@ def _write_documentary_ass(
     total_duration_sec: float,
     ass_path: Path,
     aspect_ratio: str,
+    subtitle_style: dict | None = None,
 ) -> int:
     w, h = _resolution(aspect_ratio)
     fs = 32 if h >= 1600 else 28
     margin_v = 72 if h >= 1600 else 56
     durs = _normalized_segment_durations(segments, total_duration_sec)
     font = _ass_fontname()
+    
+    style = subtitle_style or {}
+    # Convert HEX like "#FFFFFF" to ASS format "&H00FFFFFF" (where 00 is alpha opaque)
+    color_hex = style.get("color", "#FFFFFF").lstrip("#")
+    if len(color_hex) == 6:
+        color_ass = f"&H00{color_hex[4:6]}{color_hex[2:4]}{color_hex[0:2]}"
+    else:
+        color_ass = "&H00FFFFFF"
+        
+    bg_hex = style.get("bg_color", "&H80000000") # Already in ASS format if from our UI
+    bold = "-1" if style.get("bold", True) else "0"
+    italic = "-1" if style.get("italic", False) else "0"
+    
     # "ScriptType: v4.00+" = ASS/SSA spec version (not Ghost Creator `APP_VERSION`).
     header = (
         "[Script Info]\n"
@@ -211,7 +229,7 @@ def _write_documentary_ass(
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        "Style: DocSub,{font},{fs},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,2,20,20,{mv},1\n"
+        f"Style: DocSub,{font},{fs},{color_ass},&H000000FF,&H00000000,{bg_hex},{bold},{italic},0,0,100,100,0,0,1,2,1,2,20,20,{margin_v},1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
@@ -225,27 +243,44 @@ def _write_documentary_ass(
         if not body:
             t0 += dur
             continue
-        t1 = t0 + dur
-        line = _wrap_subtitle_text(body, max_chars=max_chars)
-        if not line:
-            t0 = t1
-            continue
-        events.append(
-            f"Dialogue: 0,{_sec_to_ass_time(t0)},{_sec_to_ass_time(t1)},DocSub,,0,0,0,,{line}"
-        )
-        t0 = t1
+        
+        words = body.split()
+        cues = []
+        cur_words = []
+        cur_len = 0
+        # Limit to roughly 2 lines (e.g. 80 chars)
+        limit = max_chars * 2
+        for w_tok in words:
+            if cur_len + len(w_tok) + 1 > limit and cur_words:
+                cues.append(" ".join(cur_words))
+                cur_words = [w_tok]
+                cur_len = len(w_tok)
+            else:
+                cur_words.append(w_tok)
+                cur_len += len(w_tok) + (1 if cur_len > 0 else 0)
+        if cur_words:
+            cues.append(" ".join(cur_words))
+            
+        total_len = sum(len(c) for c in cues)
+        t_cue = t0
+        for cue_text in cues:
+            cue_dur = dur * (len(cue_text) / max(1, total_len))
+            line = _wrap_subtitle_text(cue_text, max_chars=max_chars)
+            if line:
+                events.append(
+                    f"Dialogue: 0,{_sec_to_ass_time(t_cue)},{_sec_to_ass_time(t_cue + cue_dur)},DocSub,,0,0,0,,{line}"
+                )
+            t_cue += cue_dur
+            
+        t0 += dur
 
     ass_path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
     return len(events)
 
 
 def _ffmpeg_ass_path(ass_p: Path) -> str:
-    """Path string for ffmpeg `ass=` filter on Windows (escape `C:`)."""
-    p = ass_p.resolve()
-    s = str(p).replace("\\", "/")
-    if sys.platform == "win32" and len(s) >= 2 and s[1] == ":":
-        s = s[0] + r"\:" + s[2:]
-    return s
+    """Path string for ffmpeg `ass=` filter. By using cwd=tmp, we just pass the filename."""
+    return ass_p.name
 
 
 def wants_burned_subtitles(config) -> bool:
@@ -255,6 +290,136 @@ def wants_burned_subtitles(config) -> bool:
     if (config.get("documentary.length_mode", "short") or "short") != "long":
         return False
     return True
+
+
+def _normalize_logo_spec(logo_watermark: dict | None) -> dict | None:
+    """
+    Resolve logo overlay options from an explicit dict (editor / tests) or from config.
+    Returns None if watermark should be skipped.
+    Dict may be ``{"enabled": False}`` to force off for one export.
+    """
+    from core.config_manager import config as _cfg
+
+    if logo_watermark is not None and logo_watermark.get("enabled") is False:
+        return None
+
+    def _clip(v: float, lo: float, hi: float) -> float:
+        return max(lo, min(hi, float(v)))
+
+    if logo_watermark is None:
+        if not bool(_cfg.get("documentary.logo_enabled", False)):
+            return None
+        path_s = (str(_cfg.get("documentary.logo_path", "") or "")).strip()
+        if not path_s:
+            return None
+        path = Path(path_s)
+        if not path.is_file():
+            return None
+        pos = str(_cfg.get("documentary.logo_position", "bottom_right") or "bottom_right")
+        if pos not in _LOGO_POSITIONS:
+            pos = "bottom_right"
+        return {
+            "path": path,
+            "position": pos,
+            "scale": _clip(float(_cfg.get("documentary.logo_scale", 0.15)), 0.05, 0.45),
+            "margin": int(max(0, min(120, int(_cfg.get("documentary.logo_margin", 24))))),
+            "opacity": _clip(float(_cfg.get("documentary.logo_opacity", 1.0)), 0.05, 1.0),
+        }
+
+    path = logo_watermark.get("path")
+    if path is None:
+        path_s = (str(_cfg.get("documentary.logo_path", "") or "")).strip()
+        path = Path(path_s) if path_s else None
+    elif isinstance(path, str):
+        path = Path(path.strip()) if path.strip() else None
+    elif not isinstance(path, Path):
+        path = Path(str(path))
+    if not path or not path.is_file():
+        return None
+
+    pos = str(logo_watermark.get("position") or _cfg.get("documentary.logo_position", "bottom_right"))
+    if pos not in _LOGO_POSITIONS:
+        pos = "bottom_right"
+    scale = _clip(float(logo_watermark.get("scale", _cfg.get("documentary.logo_scale", 0.15))), 0.05, 0.45)
+    margin = int(logo_watermark.get("margin", _cfg.get("documentary.logo_margin", 24)))
+    margin = max(0, min(120, margin))
+    opacity = _clip(float(logo_watermark.get("opacity", _cfg.get("documentary.logo_opacity", 1.0))), 0.05, 1.0)
+    return {
+        "path": path,
+        "position": pos,
+        "scale": scale,
+        "margin": margin,
+        "opacity": opacity,
+    }
+
+
+def _logo_overlay_expressions(position: str, margin: int) -> tuple[str, str]:
+    m = int(max(0, margin))
+    if position == "top_left":
+        return str(m), str(m)
+    if position == "top_right":
+        return f"main_w-overlay_w-{m}", str(m)
+    if position == "bottom_left":
+        return str(m), f"main_h-overlay_h-{m}"
+    # bottom_right
+    return f"main_w-overlay_w-{m}", f"main_h-overlay_h-{m}"
+
+
+def _apply_logo_watermark(
+    video_path: Path,
+    spec: dict,
+    video_w: int,
+    tmp: Path,
+    progress_callback: _CB,
+) -> None:
+    """Burn logo onto ``video_path`` in-place (replaced via temp file)."""
+    logo_path = Path(spec["path"])
+    pos = spec["position"]
+    margin = int(spec["margin"])
+    opacity = float(spec["opacity"])
+    scale = float(spec["scale"])
+    logo_w = max(32, int(video_w * scale))
+    logo_w = (logo_w // 2) * 2
+
+    vin, lin = video_path, logo_path
+    work_tmp = Path(tmp)
+    if _path_needs_ffmpeg_workaround(video_path):
+        vin = work_tmp / "_wm_video_in.mp4"
+        shutil.copy2(video_path, vin)
+    if _path_needs_ffmpeg_workaround(logo_path):
+        ext = logo_path.suffix.lower() or ".png"
+        if ext not in (".png", ".jpg", ".jpeg"):
+            ext = ".png"
+        lin = work_tmp / f"_wm_logo_in{ext}"
+        shutil.copy2(logo_path, lin)
+
+    ox, oy = _logo_overlay_expressions(pos, margin)
+    opc = max(0.05, min(1.0, opacity))
+    if opc < 0.999:
+        lg_chain = f"[1:v]scale={logo_w}:-1,format=rgba,colorchannelmixer=aa={opc:.5f}[lg]"
+    else:
+        lg_chain = f"[1:v]scale={logo_w}:-1,format=rgba[lg]"
+    fc = f"{lg_chain};[0:v][lg]overlay={ox}:{oy}[outv]"
+    vout = work_tmp / "_wm_out.mp4"
+
+    _notify(progress_callback, "  🖼 Applying logo watermark …")
+    _ffmpeg(
+        "-i", str(vin),
+        "-i", str(lin),
+        "-filter_complex", fc,
+        "-map", "[outv]",
+        "-map", "0:a",
+        "-c:a", "copy",
+        "-c:v", "libx264", "-crf", "20", "-preset", "fast",
+        str(vout),
+        timeout=7200,
+        cwd=str(work_tmp) if work_tmp else None,
+    )
+    try:
+        video_path.unlink()
+    except OSError:
+        pass
+    shutil.move(str(vout), str(video_path))
 
 
 def _trim_or_loop_clip(
@@ -313,6 +478,11 @@ def assemble_documentary(
     progress_callback: _CB = None,
     playback_speed: float = 1.0,
     burn_subtitles: bool = False,
+    subtitle_style: dict | None = None,
+    bg_music_path: Path | str | None = None,
+    bg_music_volume: float = 0.25,
+    narration_volume: float = 1.0,
+    logo_watermark: dict | None = None,
 ) -> Path:
     """
     Build the final documentary video:
@@ -327,6 +497,11 @@ def assemble_documentary(
         progress_callback: optional fn(str)
         playback_speed:  1.0 = normal; other values scale video + voice together (same factor)
         burn_subtitles:  if True, re-encode with burned-in ASS (white, bold, bottom)
+        subtitle_style:  dict with styling options for the subtitles
+        bg_music_path:   optional bed music mixed under narration at given volume
+        bg_music_volume: 0.0–1.0 linear gain applied to bed before amix
+        logo_watermark:  optional ``{"enabled": bool, "path", "position", "scale", "margin", "opacity"}``;
+                         ``None`` uses Settings (``documentary.logo_*``). ``{"enabled": False}`` skips.
 
     Returns:
         Path to assembled video
@@ -338,9 +513,85 @@ def assemble_documentary(
             output_filename, aspect_ratio, progress_callback, tmp_dir,
             playback_speed=playback_speed,
             burn_subtitles=burn_subtitles,
+            subtitle_style=subtitle_style,
+            bg_music_path=bg_music_path,
+            bg_music_volume=bg_music_volume,
+            narration_volume=narration_volume,
+            logo_watermark=logo_watermark,
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _clip_source_path(src) -> Path | None:
+    """Normalize ``Path`` or :class:`~core.clip_manager.ClipInfo` to a path."""
+    if src is None:
+        return None
+    if isinstance(src, ClipInfo):
+        return src.path
+    return Path(src)
+
+
+def _mix_background_music(
+    video_path: Path,
+    music_path: Path,
+    music_gain: float,
+    output_path: Path,
+    narration_volume: float = 1.0,
+) -> None:
+    """Mix narration (from video) with bed music; output length follows video/voice."""
+    g  = max(0.0, min(1.5, float(music_gain)))
+    vg = max(0.0, min(2.0, float(narration_volume)))
+    fc = (
+        f"[0:a]volume={vg:.5f}[a0];"
+        f"[1:a]volume={g:.5f},apad[a1];"
+        f"[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+    )
+    _ffmpeg(
+        "-i", str(video_path),
+        "-i", str(music_path),
+        "-filter_complex", fc,
+        "-map", "0:v",
+        "-map", "[aout]",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        str(output_path),
+        timeout=1800,
+    )
+
+
+def _try_fast_video_trim(
+    src_path: Path,
+    dst: Path,
+    dur: float,
+) -> bool:
+    """
+    Try stream-copy first ``dur`` seconds of video (no audio). Returns True on success.
+    Falls back to caller if False.
+    """
+    clip_len = _probe_duration(src_path)
+    if clip_len + 0.05 < dur:
+        return False
+    try:
+        _ffmpeg(
+            "-i", str(src_path),
+            "-t", str(dur),
+            "-c", "copy",
+            "-an",
+            str(dst),
+            timeout=300,
+        )
+        out_len = _probe_duration(dst)
+        if out_len + 0.2 < dur * 0.92:
+            return False
+        return True
+    except Exception:
+        if dst.exists():
+            try:
+                dst.unlink()
+            except OSError:
+                pass
+        return False
 
 
 def _assemble(
@@ -348,6 +599,11 @@ def _assemble(
     output_filename, aspect_ratio, progress_callback, tmp_dir,
     playback_speed: float = 1.0,
     burn_subtitles: bool = False,
+    subtitle_style: dict | None = None,
+    bg_music_path: Path | str | None = None,
+    bg_music_volume: float = 0.25,
+    narration_volume: float = 1.0,
+    logo_watermark: dict | None = None,
 ) -> Path:
     tmp = Path(tmp_dir)
 
@@ -367,14 +623,18 @@ def _assemble(
 
     for i, (seg, dur) in enumerate(zip(segments, durations)):
         src = clips[i] if i < len(clips) else None
+        src_path = _clip_source_path(src)
         dst = tmp / f"t_{i:02d}.mp4"
 
         _notify(progress_callback, f"  ✂️  Clip {i+1}/{len(segments)}: {dur:.1f}s")
 
-        if src and src.exists() and src.stat().st_size > 5000:
+        if src_path and src_path.exists() and src_path.stat().st_size > 5000:
             try:
-                _trim_or_loop_clip(src, dst, dur, vf)
-                last_good = dst
+                if _try_fast_video_trim(src_path, dst, dur):
+                    last_good = dst
+                else:
+                    _trim_or_loop_clip(src_path, dst, dur, vf)
+                    last_good = dst
             except Exception as exc:
                 log.warning("Trim failed for clip %s: %s — using filler", i + 1, exc)
                 _make_filler(dst, dur, w, h, last_good, tmp, i)
@@ -431,11 +691,26 @@ def _assemble(
             str(final),
         )
 
+    bg_p = Path(bg_music_path) if bg_music_path else None
+    if bg_p and bg_p.is_file() and bg_p.stat().st_size > 100:
+        _notify(progress_callback, "  🎵 Mixing background music …")
+        mixed = tmp / "mixed_with_music.mp4"
+        try:
+            _mix_background_music(final, bg_p, float(bg_music_volume), mixed,
+                                  narration_volume=float(narration_volume))
+            try:
+                final.unlink()
+            except OSError:
+                pass
+            shutil.move(str(mixed), str(final))
+        except Exception as exc:
+            log.warning("Background music mix failed: %s — keeping voice-only video", exc)
+
     if burn_subtitles and segments:
         d_out = _probe_duration(final)
         if d_out > 0.2:
             ass_p = tmp / "doc_subs.ass"
-            n_cues = _write_documentary_ass(segments, d_out, ass_p, aspect_ratio)
+            n_cues = _write_documentary_ass(segments, d_out, ass_p, aspect_ratio, subtitle_style)
             if n_cues > 0:
                 _notify(progress_callback, "  📝 Burning subtitles (bottom, white, bold) …")
                 vout = tmp / "subbed_out.mp4"
@@ -455,9 +730,10 @@ def _assemble(
                         "-i", str(burn_src),
                         "-vf", f"ass={apf}",
                         "-c:a", "copy",
-                        "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+                        "-c:v", "libx264", "-crf", "23", "-preset", "ultrafast", "-threads", "0",
                         str(vout),
                         timeout=7200,
+                        cwd=tmp,
                     )
                 finally:
                     if burn_src is not final and burn_src.exists():
@@ -472,6 +748,14 @@ def _assemble(
                 shutil.move(str(vout), str(final))
             else:
                 log.info("No subtitle cues — skipping burn-in.")
+
+    _logo_spec = _normalize_logo_spec(logo_watermark)
+    if _logo_spec:
+        try:
+            _apply_logo_watermark(final, _logo_spec, w, tmp, progress_callback)
+        except Exception as exc:
+            log.warning("Logo watermark skipped: %s", exc)
+            _notify(progress_callback, f"  ⚠️ Logo watermark failed — output has no logo. ({exc})")
 
     size_mb = final.stat().st_size / (1024 * 1024)
     _notify(progress_callback, f"  ✅ Documentary ready: {final.name} ({size_mb:.1f} MB)")

@@ -11,7 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Release version — keep in sync with `installer_v4.iss` (MyAppVersion) and GUI/README branding.
-APP_VERSION = "4.1"
+APP_VERSION = "4.2.2"
 
 # ── Load .env ──────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -43,6 +43,15 @@ def _bundle_root() -> Path:
     return BASE_DIR
 
 
+def _user_runtime_ffmpeg_dir() -> Path:
+    """Per-user FFmpeg cache (frozen app first-run download). Same root as config.json."""
+    if sys.platform == "win32":
+        root = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    else:
+        root = Path.home() / ".cache"
+    return root / "GhostCreatorAI" / "ffmpeg"
+
+
 def _ffmpeg_exe_names() -> tuple[str, str]:
     if sys.platform == "win32":
         return "ffmpeg.exe", "ffprobe.exe"
@@ -51,15 +60,24 @@ def _ffmpeg_exe_names() -> tuple[str, str]:
 
 def get_ffmpeg_executable() -> str:
     """
-    Path to ffmpeg: bundled ``ffmpeg/`` next to the app, then PATH, then bare name.
+    Path to ffmpeg:
 
-    ``modules/voicer.py`` used to resolve ``modules/ffmpeg/`` (wrong); callers must
-    use this so one-folder installs and PyInstaller bundles both work.
+    1. User cache: ``%LOCALAPPDATA%/GhostCreatorAI/ffmpeg`` (first-run download in frozen app)
+    2. Next to the executable: ``<install>/ffmpeg/`` (developer / manual drop-in)
+    3. PyInstaller bundle legacy: ``_MEIPASS/ffmpeg/`` if present
+    4. ``PATH``
+    5. Bare ``ffmpeg`` / ``ffmpeg.exe``
     """
     ff, _ = _ffmpeg_exe_names()
+    user = _user_runtime_ffmpeg_dir() / ff
+    if user.is_file():
+        return str(user.resolve())
+    beside = get_base_dir() / "ffmpeg" / ff
+    if beside.is_file():
+        return str(beside.resolve())
     bundled = _bundle_root() / "ffmpeg" / ff
-    if bundled.exists():
-        return str(bundled)
+    if bundled.is_file():
+        return str(bundled.resolve())
     w = shutil.which("ffmpeg")
     if w:
         return w
@@ -67,11 +85,17 @@ def get_ffmpeg_executable() -> str:
 
 
 def get_ffprobe_executable() -> str:
-    """Path to ffprobe: bundled folder, then PATH, then bare name."""
+    """Path to ffprobe — same resolution order as ``get_ffmpeg_executable``."""
     _, fp = _ffmpeg_exe_names()
+    user = _user_runtime_ffmpeg_dir() / fp
+    if user.is_file():
+        return str(user.resolve())
+    beside = get_base_dir() / "ffmpeg" / fp
+    if beside.is_file():
+        return str(beside.resolve())
     bundled = _bundle_root() / "ffmpeg" / fp
-    if bundled.exists():
-        return str(bundled)
+    if bundled.is_file():
+        return str(bundled.resolve())
     w = shutil.which("ffprobe")
     if w:
         return w

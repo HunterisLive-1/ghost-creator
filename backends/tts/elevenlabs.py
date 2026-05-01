@@ -2,8 +2,9 @@
 backends/tts/elevenlabs.py — ElevenLabs TTS Backend
 =====================================================
 Paid cloud TTS with the highest quality voice synthesis.
-Uses the official ElevenLabs SDK with multilingual v2 model
-for Hindi support.
+Uses the official ElevenLabs SDK with ``eleven_multilingual_v2`` for
+Hindi and other languages (Telugu, Odia, Tamil, etc. — choose a multilingual
+voice in the ElevenLabs dashboard for best results).
 """
 
 import logging

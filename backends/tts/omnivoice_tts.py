@@ -30,7 +30,11 @@ from backends.base import TTSBackend
 from config import get_base_dir, get_ffmpeg_executable
 from core.config_manager import config
 
-AudioSegment.converter = get_ffmpeg_executable()
+
+def _ensure_pydub_ffmpeg() -> None:
+    AudioSegment.converter = get_ffmpeg_executable()
+
+
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 logger = logging.getLogger("ghost.tts.omnivoice")
@@ -236,6 +240,14 @@ def _is_hindi_language_hint(language: str | None) -> bool:
         return False
     s = language.strip().lower()
     return "hindi" in s or s in ("hi", "hin")
+
+
+def _effective_omnivoice_lang(pipeline_lang: str) -> str:
+    """k2-fsa OmniVoice language tag (e.g. Odia ISO `or` → API `ory`)."""
+    from modules.tts_lang_support import resolve_omnivoice_language_tag
+
+    hint = (config.get("tts.omnivoice_language_hint", "") or "").strip()
+    return resolve_omnivoice_language_tag(pipeline_lang, hint)
 
 
 def _model_id() -> str:
@@ -460,7 +472,6 @@ def _build_design_params(mode: str, language: str) -> dict:
     profile = config.get("tts.omnivoice_design_voice", "custom")
     gender = config.get("tts.omnivoice_voice_gender", "")
     extra_instruct = config.get("tts.omnivoice_extra_instruct", "")
-    language_hint = (config.get("tts.omnivoice_language_hint", "") or "").strip()
 
     gen_kw, speed_style = _resolve_style_and_quality(style, quality)
     speed_prof = _design_voice_speed_override(profile)
@@ -481,10 +492,9 @@ def _build_design_params(mode: str, language: str) -> dict:
         out["instruct"] = instruct
     if speed is not None:
         out["speed"] = speed
-    if language_hint and language_hint.lower() not in ("auto", "none", "default"):
-        out["language"] = language_hint
-    elif language and language.lower() not in ("auto", "none", "default"):
-        out["language"] = language
+    mapped = _effective_omnivoice_lang(language)
+    if mapped and mapped.lower() not in ("auto", "none", "default"):
+        out["language"] = mapped
     # WebUI `generate-design` only: Hindi → slightly slower pacing
     if mode != "clone":
         _lang = out.get("language") or language
@@ -746,6 +756,10 @@ class OmniVoiceTTS(TTSBackend):
             if vn:
                 data["ref_voice_name"] = vn
 
+            lang_ov = _effective_omnivoice_lang(language)
+            if lang_ov and lang_ov.lower() not in ("auto", "none", "default"):
+                data["language"] = lang_ov
+
             with open(str(ref_path), "rb") as wav_f:
                 resp = requests.post(
                     f"{_server_url()}/generate",
@@ -757,10 +771,7 @@ class OmniVoiceTTS(TTSBackend):
             # design mode
             extra_instruct = config.get("tts.omnivoice_extra_instruct", "")
             design_voice   = config.get("tts.omnivoice_design_voice", "custom")
-            language_hint  = config.get("tts.omnivoice_language_hint", "")
-            lang = language_hint or (
-                language if language and language.lower() not in ("auto", "none", "default") else ""
-            )
+            lang_ov = _effective_omnivoice_lang(language)
             form: dict = {
                 "text":           text,
                 "speaking_style": speaking_style,
@@ -770,8 +781,8 @@ class OmniVoiceTTS(TTSBackend):
             }
             if extra_instruct:
                 form["instruct"] = extra_instruct
-            if lang:
-                form["language"] = lang
+            if lang_ov and lang_ov.lower() not in ("auto", "none", "default"):
+                form["language"] = lang_ov
 
             resp = requests.post(
                 f"{_server_url()}/generate-design",
@@ -993,6 +1004,7 @@ class OmniVoiceTTS(TTSBackend):
     # ── Public API ─────────────────────────────────────────────────────────
 
     async def synthesize(self, text: str, language: str, output_path: str) -> str:
+        _ensure_pydub_ffmpeg()
         if _server_path() is None:
             raise RuntimeError(
                 "OmniVoice server-only backend mein SERVER PATH required hai. "

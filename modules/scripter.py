@@ -26,6 +26,7 @@ from google.genai import types
 
 from config import get_logger, GEMINI_MODEL, VOICEOVER_LANG
 from core.config_manager import config
+from modules.tts_number_normalize import normalize_documentary_script_numbers
 
 log = get_logger("scripter")
 
@@ -58,6 +59,8 @@ VOICEOVER_LANG_META: dict[str, tuple[str, str]] = {
     "bn": ("Bengali", "Use Bengali script."),
     "gu": ("Gujarati", "Use Gujarati script."),
     "ta": ("Tamil", "Use Tamil script."),
+    "te": ("Telugu", "Use Telugu script."),
+    "or": ("Odia", "Use Odia (Oriya) script for Odisha — standard Odia orthography."),
 }
 
 
@@ -82,6 +85,11 @@ def _voiceover_plain_format_rules() -> str:
         "- Do NOT use emotion tags, square brackets, hashtags, emojis, asterisks, bullet symbols, or stage directions in the spoken text.\n"
         "- Do NOT prefix lines with [neutral], [excited], or any [label]. No SFX:/MUSIC: lines.\n"
         "- Avoid decorative typing: no repeated !!!, ellipsis spam ………, or ALL CAPS for fake emphasis; convey energy with words only.\n"
+        "- NUMBERS / YEARS / DATES: NEVER use Arabic digits (0–9) in spoken voiceover. "
+        "Always write every number, year, count, date, and statistic as **full words** in the same script as the voiceover "
+        "(e.g. Hindi: समझिए उन्नीस सौ निन्यानवे में …; English: In nineteen ninety-nine …; "
+        "Telugu/Tamil/Bengali/Odia: use native script words for those languages). "
+        "TTS will misread digits; words must be spelled out.\n"
     )
 
 
@@ -848,17 +856,17 @@ def _generate_documentary_chunked(
         if segs:
             prev_ending = segs[-1].get("voiceover", "")[-300:]
 
-    full_voiceover = " ".join(s["voiceover"] for s in all_segments)
     log.info(
         "Chunked script stitched: %s total segments, ~%s words",
         len(all_segments), len(full_voiceover.split()),
     )
-    return {
+    out = {
         "title":          first_title,
         "voiceover_text": full_voiceover,
         "segments":       all_segments,
         "metadata":       first_metadata,
     }
+    return normalize_documentary_script_numbers(out, language)
 
 
 def generate_documentary_script(
@@ -914,6 +922,7 @@ def generate_documentary_script(
 
     script = _extract_json(raw)
     script = _validate_documentary_script(script, num_segments)
+    script = normalize_documentary_script_numbers(script, language)
     log.info("Script ready: %s segments, title=%r", len(script["segments"]), script["title"])
     return script
 
@@ -1017,34 +1026,45 @@ def _generate_raw_ollama(prompt: str, script_config: dict) -> str:
 # ── Idea Workshop Chat ────────────────────────────────────────────────────────
 
 _CONSULTANT_SYSTEM = """
-You are Ghost Agent, a creative YouTube documentary consultant embedded inside Ghost Creator AI.
-Your job is to guide the user step-by-step through four decisions before they can generate a video.
-Never skip a step. Always confirm before moving to the next.
+You are Ghost Agent inside Ghost Creator AI. You chat naturally about the user's documentary idea.
 
-STEP ORDER (strictly follow this sequence):
-  1. TOPIC     — What the documentary is about (specific, unique angle)
-  2. STYLE     — Visual/editorial feel: cinematic | shocking | educational | inspirational | fun
-  3. FORMAT    — short (under 60 seconds) OR long (3 minutes to 2 hours)
-  4. TONE      — Voiceover delivery: energetic | calm | dramatic | casual | authoritative
+HOW VIDEOS START (no rigid questionnaire):
+- Do NOT run a fixed wizard (topic → style → format → tone). Treat the chat as one flowing conversation.
+- You may discuss angle, audience, mood, or length in any order — or not at all.
+- When generation should begin, you emit <<PLAN_START>>...<<PLAN_END>> (see below). That block IS the "start video" action.
 
-RULES:
-- Keep every reply to 2-4 sentences MAX.
-- Ask exactly ONE question per reply to advance to the next step.
-- Remember everything said in the conversation — never ask again about something already confirmed.
-- When a parameter is agreed, say "✓ [STEP]: [value] confirmed." so the user sees progress.
-- Only proceed to the PLAN block when ALL FOUR parameters are explicitly agreed by the user.
+WHEN TO EMIT THE PLAN (dynamic):
+1) User clearly wants to begin — e.g. "okay start", "start", "go", "generate", "yes", "create it",
+   "make the video", "banao", "chalo", "lets go", "roll it", "that's enough", "I'm happy with that",
+   Hindi/English mixes, typos OK. → In the SAME reply, emit the plan immediately. No extra "are you sure?"
+   unless the topic is completely missing.
+2) You judge the idea is concrete enough (clear subject/angle from the chat) AND the user sounds done
+   OR you already suggested starting and they agreed briefly → you MAY emit the plan without asking four separate questions.
+3) If ONLY the subject is missing (vague like "something cool"), ask ONE short clarifying question — still no step-by-step form.
 
-When all four are agreed, end your reply with this block EXACTLY (no extra text on those lines):
+SMART DEFAULTS (fill any field not explicit in chat):
+- STYLE (pick one): cinematic | shocking | educational | inspirational | fun  → default cinematic
+- FORMAT: short = under ~60s; long = roughly 1+ minutes up to feature length → default long
+  If user said "3 minutes", "five min", "~10 min episode" → FORMAT: long. If they said "shorts", "under a minute" → short.
+- TONE: energetic | calm | dramatic | casual | authoritative → default authoritative (or dramatic if war/conflict/heavy news tone fits better)
+
+CONVERSATION STYLE:
+- Keep replies concise (2–4 short sentences). No bullet checklist unless user asks.
+- You may briefly reflect what you understood; do not demand ✓ TOPIC / ✓ STYLE lines before generating.
+- NEVER say you cannot create the video — emitting the plan starts the pipeline.
+- NEVER ask the user to click "Roll Film" or any button.
+- NEVER write the full script, shot list, or narration — only the short plan block when starting.
+
+OUTPUT WHEN STARTING:
+End your reply with EXACTLY this block (no text after <<PLAN_END>>). Use plain KEY: value lines:
 <<PLAN_START>>
-TOPIC: <the agreed one-line topic / subject>
-STYLE: <cinematic|shocking|educational|inspirational|fun>
-FORMAT: <short|long>
-TONE: <energetic|calm|dramatic|casual|authoritative>
-META_TITLE: <suggested YouTube title for this video>
-META_TAGS: <comma-separated 6-10 tags relevant to topic>
+TOPIC: <specific topic/angle from the whole conversation>
+STYLE: <one word from the list above>
+FORMAT: <short or long>
+TONE: <one word from the list above>
+META_TITLE: <catchy YouTube title>
+META_TAGS: <comma-separated 6-10 tags>
 <<PLAN_END>>
-
-Do NOT emit <<PLAN_START>> until the user has explicitly confirmed all four parameters.
 """
 
 # Key to extract from PLAN block
@@ -1102,11 +1122,10 @@ def chat_with_consultant(
 
     # Build contents list: system turn first, then history, then new user turn
     contents = []
-    # Gemini multi-turn: alternate user/model
-    # Inject system prompt as a user turn at the very start if history is empty
-    if not history:
-        contents.append({"role": "user",  "parts": [{"text": _CONSULTANT_SYSTEM}]})
-        contents.append({"role": "model", "parts": [{"text": "Got it! I'm ready to help you craft the perfect documentary topic. What idea do you have in mind? (Even a vague notion is fine — I'll help you sharpen it.)"}]})
+    
+    # ALWAYS inject the system prompt at the very start so the AI never forgets its rules.
+    contents.append({"role": "user",  "parts": [{"text": _CONSULTANT_SYSTEM}]})
+    contents.append({"role": "model", "parts": [{"text": "Understood. I chat naturally, avoid rigid step-by-step forms, and emit <<PLAN_START>> when the user wants to start or when we're ready — filling missing fields with smart defaults. I never write the full script."}]})
 
     for turn in history:
         role = "user" if turn.get("role") == "user" else "model"
@@ -1121,7 +1140,7 @@ def chat_with_consultant(
             contents=contents,
             config=types.GenerateContentConfig(
                 temperature=0.8,
-                max_output_tokens=512,
+                max_output_tokens=2048,
                 safety_settings=[
                     types.SafetySetting(category="HARM_CATEGORY_HARASSMENT",        threshold="BLOCK_ONLY_HIGH"),
                     types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH",       threshold="BLOCK_ONLY_HIGH"),

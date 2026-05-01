@@ -1,8 +1,10 @@
 """
 backends/tts/edge_tts.py — Microsoft Edge TTS Backend
 ======================================================
-Free, no API key required.  Uses Microsoft Azure voices via the
-edge-tts Python package.  High quality for both Hindi and English.
+Free, no API key required. Uses Microsoft Azure voices via the
+edge-tts Python package. Picks India Neural voices for Hindi, English,
+Tamil, Telugu, Odia, Marathi, Bengali, and Gujarati when narration
+language is set in Settings.
 """
 
 import logging
@@ -34,18 +36,17 @@ class EdgeTTS(TTSBackend):
         """
         Synthesize text to speech using edge-tts.
 
-        Uses Hindi voice for 'hi' language, English voice otherwise.
+        Picks a voice from narration language (see ``tts_lang_support.edge_tts_voice_for_language``).
         Output is saved as MP3.
         """
         import edge_tts
 
+        from modules.tts_lang_support import assert_tts_backend_supports_language, edge_tts_voice_for_language
+
         os.makedirs(str(Path(output_path).resolve().parent), exist_ok=True)
 
-        # Select voice based on language
-        if language.lower() in ("hi", "hindi"):
-            voice = config.get("tts.edge_tts_voice", "hi-IN-MadhurNeural")
-        else:
-            voice = "en-US-GuyNeural"
+        assert_tts_backend_supports_language("edge_tts", language)
+        voice = edge_tts_voice_for_language(language)
 
         logger.info(f"Edge TTS: voice={voice}, text={len(text)} chars → {output_path}")
 

@@ -8,6 +8,8 @@ python-dotenv>=1.0.0
 
 # --- GUI ---
 customtkinter>=5.2.0
+# Optional: Ghost Editor video preview (requires 64-bit VLC on Windows)
+python-vlc>=3.0.20123
 
 # --- Research ---
 pytrends>=4.9.2
@@ -23,6 +25,9 @@ google-genai>=0.5.0
 pydub>=0.25.1
 edge-tts>=6.1.9
 elevenlabs>=1.0.0
+# Spoken-word numbers for TTS (Hindi/Devanagari, Telugu, English, etc.)
+num2words>=0.5.12
+open-tamil>=1.1.0
 
 
 

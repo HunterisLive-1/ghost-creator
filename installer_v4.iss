@@ -1,5 +1,5 @@
 #define MyAppName "Ghost Creator AI"
-#define MyAppVersion "4.1"
+#define MyAppVersion "4.2.2"
 #define MyAppPublisher "HunterIsLive"
 #define MyAppURL "https://getmaya.online"
 #define MyAppExeName "GhostCreatorAI.exe"
@@ -19,7 +19,7 @@ DefaultDirName={autopf}\GhostCreatorAI
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=installer_output
-OutputBaseFilename=GhostCreatorAI_v4.1_Setup
+OutputBaseFilename=GhostCreatorAI_v4.2.2_Setup
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\icon.ico
 Compression=lzma2/ultra64
@@ -52,8 +52,10 @@ Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; Optional legacy workflow file (unused; Gemini-only image pipeline)
 Source: "workflow_api.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
-; Note: FFmpeg is inside GhostCreatorAI.exe (build.bat runs ensure_ffmpeg.ps1 + PyInstaller --add-data)
-; Note: config.json is generated automatically in %LOCALAPPDATA%\GhostCreatorAI on first run
+; FFmpeg is downloaded on first launch of the frozen app to:
+;   {userappdata}\GhostCreatorAI\ffmpeg
+; (see core/ffmpeg_bootstrap.py — keeps the installer small.)
+; config.json is generated automatically in %LOCALAPPDATA%\GhostCreatorAI on first run
 ; Note: OmniVoice TTS server path can be set in the App Settings inside the UI.
 
 [Icons]
@@ -73,6 +75,9 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 Filename: "taskkill"; Parameters: "/F /IM GhostCreatorAI.exe"; Flags: runhidden waituntilterminated; RunOnceId: "KillApp"
 
 [UninstallDelete]
+; Optional: remove one-time FFmpeg download cache (new installs re-download if needed)
+Type: filesandordirs; Name: "{localappdata}\GhostCreatorAI\ffmpeg"
+
 ; Delete entire install folder on uninstall (clean removal)
 Type: filesandordirs; Name: "{app}"
 

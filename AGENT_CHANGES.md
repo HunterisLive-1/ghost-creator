@@ -12,6 +12,36 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
 
 ---
 
+- Date/Time: 2026-04-30 (session 2)
+- Task: Ghost Editor — pre-trim before editor, VLC preview, timeline, voice/music tools, BG mix, fast segment pass
+- Changes:
+  - `core/pipeline_runner.py`: Step 4.5 pe ab `clips_for_edit/` pe **voice-aligned FFmpeg trim/loop** (`_trim_or_loop_clip`) chalti hai — wahi progress user ko editor se pehle dikhti hai; editor ke baad `audio_path` / bg ctx se step 5 read hota hai.
+  - `modules/documentary_assembler.py`: Pehle **stream-copy fast trim** try jab clip lambi ho; mix optional **background music** (`amix`) voice ke niche; naye args `bg_music_path` / `bg_music_volume`.
+  - `core/vlc_helper.py`: Windows par VLC folder detect + `python-vlc` instance; error par throw nahi.
+  - `core/clip_manager.py`: `trim_audio`, `trim_background_music` (voice/bed FFmpeg cut).
+  - `gui/components/clip_editor.py`: VLC embed preview (fail par message, pipeline nahi rukti); **timeline canvas** drag se reorder; **VOICE** tab replace+trim; **MUSIC** trim + volume; `on_done` 6th arg `audio_path`; re-assemble passes bg + music.
+  - `gui/tabs/documentary_tab.py` / `history_tab.py`: `on_done` callbacks updated; history re-render passes bg + edited voice.
+  - `requirements.txt`: `python-vlc` add (preview ke liye; VLC app alag install).
+- Reason:
+  - User: clipping/editor order, timeline + preview, VLC optional without crash, replace voice + BG music + trim, final assemble me music mix; final pass fast jab clips pehle se fit hon.
+
+---
+
+- Date/Time: 2026-04-30 (session)
+- Task: Complete documentary Ghost Editor flow — manual cuts, history re-edit, syntax fix
+- Changes:
+  - `core/pipeline_runner.py`: After footage download, copy full-length sources into `clips_for_edit/` (no auto pre-trim to voice timing); build `ClipInfo` list with per-segment target durations; pause for Ghost Editor; write `documentary_editor.json` beside `metadata.json` for re-edit.
+  - `core/clip_manager.py`: `ClipInfo.target_duration_sec`; `load_clips(..., target_durations=…)`; preserve targets in trim/split/replace; add `export_srt_file` / `export_clips_to_zip` aliases for the editor.
+  - `modules/documentary_assembler.py`: `_clip_source_path()` so assembly accepts `Path` or `ClipInfo`.
+  - `gui/components/clip_editor.py`: Coerce non-`ClipInfo` inputs via `load_clips`; show voice timing hint per clip; fix SRT `start`/`end` fields; fix trim/split/replace to match `clip_manager` APIs.
+  - `gui/tabs/documentary_tab.py`: Remove stray broken lines after `ClipEditorWindow(...)` (syntax error).
+  - `gui/tabs/history_tab.py`: List only newest **10** runs; add **Ghost Editor** button when `documentary_editor.json` + `voiceover.mp3` exist; re-assemble on DONE in a background thread and refresh list.
+  - `gui/tabs/settings_tab.py`: Relabel `video_preview_enabled` checkbox/hint to Ghost Editor before assembly.
+- Reason:
+  - Prior agent left invalid Python in `documentary_tab` and auto pre-trimmed clips so manual cutting matched almost no workflow; users need full rushes + voice-aligned targets, snapshot file for past runs, and a bounded history UI for re-opens.
+
+---
+
 - Date/Time: 2026-04-30 16:28
 - Task: Settings GUI cleanup for documentary-only flow
 - Changes:
@@ -765,3 +795,316 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
   - `modules/uploader.py`: `_wait_for_upload_complete` ab purane broad selectors (`Checks complete`, early processing copy) hata kar `_upload_completion_pulse` use karta hai (Next enabled / narrow “Upload complete” / progress 100%); **do lagatar polls** (~3s) confirm hone par aage; **timeout par ab proceed nahi** — `RuntimeError` + screenshot taaki video Draft me adhoori upload se na phase. `pipeline.upload_complete_timeout_ms` use; `finally` me success par `post_publish_grace_ms` (default 12s), fail par 4s phir `browser.close()`.
   - `core/config_manager.py` (agar pehle missing ho): `pipeline.upload_complete_timeout_ms` = 900_000, `pipeline.post_publish_grace_ms` = 12_000.
 - Reason: Browser jaldi band hone + “timeout par bhi continue” ki wajah se video poori upload hone se pehle publish flow chal jata tha; visibility Draft me chali jati thi. Ab partial upload par flow abort + retry; publish ke baad zyada grace taaki Studio requests complete ho saken.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: TTS-friendly numbers — spell digits as words per language (OmniVoice / all TTS)
+- Changes:
+  - `modules/tts_number_normalize.py`: `expand_numbers_in_text` / `normalize_documentary_script_numbers` for Hindi/Devanagari, English, Marathi, Tamil (open-tamil), Telugu/Bengali/Kannada (num2words), fallbacks.
+  - `modules/scripter.py`: documentary outputs pass through `normalize_documentary_script_numbers`; `_voiceover_plain_format_rules()` instructs model to avoid Arabic digits in voiceover; `VOICEOVER_LANG_META` me `te` (Telugu) add.
+  - `modules/voicer.py`: `run_voiceover` calls `expand_numbers_in_text` before `synthesize` for manual/regen paths.
+  - `requirements.txt`: `num2words`, `open-tamil` add.
+- Reason: Raw numerals (1999, 2005, etc.) TTS par galat padhte the; ab pipeline language ke hisaab se spoken words/script me convert karke Omnivoice aur baaki backends consistent rahen.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Telugu + Odia narration; OmniVoice `ory` mapping; Edge voices; TTS language validation
+- Changes:
+  - `modules/tts_lang_support.py`: naya — `SUPPORTED_PIPELINE_LANGS`, `resolve_omnivoice_language_tag` (Odia `or` → `ory`), Edge default Neural voices (te/or/ta/… + hi hinglish via config), `assert_tts_backend_supports_language`.
+  - `backends/tts/omnivoice_tts.py`: `_effective_omnivoice_lang`; clone + design HTTP bodies me `language` tag; `_build_design_params` mapped language.
+  - `backends/tts/edge_tts.py`: narration language ke hisaab se multi-regional voices; Edge par assert.
+  - `modules/voicer.py`: `run_voiceover` se pehle `assert_tts_backend_supports_language`.
+  - `modules/scripter.py`: `VOICEOVER_LANG_META` me Odia (`or`).
+  - `modules/tts_number_normalize.py`: Odia numbers → English words fallback (num2words me Odia nahi).
+  - `core/config_manager.py`: `allowed_langs` me `hinglish`, `te`, `or`; `.env` template comment.
+  - `gui/tabs/settings_tab.py`: Telugu + Odia dropdown; OmniVoice hint.
+  - `gui/tabs/documentary_tab.py`: narration language buttons — saari supported list (do rows).
+  - `backends/tts/elevenlabs.py`: docstring — multilingual regional langs.
+- Reason: User ne Telugu aur Odisha (Odia) add karne ko kaha; OmniVoice official list me dono hain (Odia API tag `ory`); Edge/ElevenLabs ke saath clear error jab combination supported na ho.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Lightweight installer — FFmpeg download on first run (not bundled in .exe)
+- Changes:
+  - `core/ffmpeg_bootstrap.py`: naya — BtbN zip download/extract to `%LOCALAPPDATA%\GhostCreatorAI\ffmpeg`, `prepare_ffmpeg_runtime`, thread lock.
+  - `config.py`: `get_ffmpeg_executable` / `get_ffprobe_executable` — pehle user cache, phir `<exe>/ffmpeg`, phir `_MEIPASS/ffmpeg`, phir PATH.
+  - `gui/app.py`: frozen Win32 par `_prepare_ffmpeg_on_first_run` modal dialog.
+  - `build.bat`: `--add-data ffmpeg` hata; `--hidden-import core.ffmpeg_bootstrap` add.
+  - `installer_v4.iss`: comments update; `[UninstallDelete]` me AppData `ffmpeg` folder optional clean.
+  - `ensure_ffmpeg.ps1`: comment — ab sirf dev/local `python gui/app.py` ke liye.
+  - `modules/voicer.py`: module-level `_FFMPEG` hata, call time `get_ffmpeg_executable()`.
+  - `backends/tts/omnivoice_tts.py`: `_ensure_pydub_ffmpeg()` sirf `synthesize` se.
+  - `core/clip_manager.py`: `ffprobe`/`ffmpeg` ab `get_*_executable()`.
+  - `modules/error_analyst.py`: ffmpeg troubleshooting text update.
+- Reason: User chhota installer; FFmpeg ~100MB bundle se hata kar pehli run par download + cache.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: FFmpeg setup UI — progress bar + doc (no system Python for end users)
+- Changes:
+  - `core/ffmpeg_bootstrap.py`: `progress_ratio` callback (0.0–1.0); download ~88%%, extract/install 92–100%%; module docstring — PyInstaller .exe me embedded Python se chalta hai.
+  - `gui/app.py`: first-run dialog me `CTkProgressBar` + taller window.
+- Reason: User ko download/extract dauran visual progress; doubt clear — end user ko alag Python ki zaroorat nahi.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Ghost license–gated in-app auto-update + website APIs
+- Changes:
+  - `core/update_checker.py`: naya — `GHOST_SITE_ORIGIN` se POST `/api/license/ghost-update-check`, JWT ke saath installer download + optional SHA-256 verify, Inno `/CLOSEAPPLICATIONS /SP-` launch.
+  - `gui/tabs/settings_tab.py`: license block me app version + "Check for updates"; threaded check, download progress dialog, success par installer launch + `os._exit(0)`.
+  - `build.bat`: `--hidden-import core.update_checker` (PyInstaller).
+  - `maya-assistant-website/README.md`: env vars `GHOST_*` update flow + API table rows `ghost-update-check` / `ghost/desktop/installer` + closing ``` fix for `.env` block.
+  - (Website codebase) `src/lib/ghostLicenseDeskAuth.ts`, `src/lib/ghostInstallerGithub.ts`, `src/app/api/license/ghost-update-check/route.ts`, `src/app/api/ghost/desktop/installer/route.ts` — seat = GhostLicense only, semver + JWT, GitHub stream.
+- Reason: User ne Ghost purchase verify ke bina sirf license se desktop update + getmaya side secure download chaha; dono taraf implement.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: App version bump 4.2.2 (match Vercel `GHOST_APP_LATEST_VERSION`)
+- Changes:
+  - `config.py`: `APP_VERSION = "4.2.2"`.
+  - `installer_v4.iss`: `MyAppVersion` 4.2.2; `OutputBaseFilename` `GhostCreatorAI_v4.2.2_Setup`.
+  - `build.bat`: banner/footer v4.2.2.
+  - `core/ffmpeg_bootstrap.py`, `gui/app.py`, `core/__init__.py`, `gui/__init__.py`, `backends/__init__.py`, `setup.bat`, `README.md`: branding strings 4.2.2.
+- Reason: Production site par `GHOST_APP_LATEST_VERSION=4.2.2`; shipped app `current_version` match + installer filename aligned.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Logo watermark (PNG/JPG) — Settings + Ghost Editor + FFmpeg overlay
+- Changes:
+  - `core/config_manager.py`: `documentary.logo_*` defaults (`enabled`, `path`, `position`, `scale`, `margin`, `opacity`).
+  - `modules/documentary_assembler.py`: `_normalize_logo_spec`, `_apply_logo_watermark` (overlay after subs); `assemble_documentary(..., logo_watermark=)`; pipeline/editor context support.
+  - `gui/tabs/settings_tab.py`: Core → LOGO WATERMARK — browse copies to `watermark_assets/user_logo.*`, SAVE persists.
+  - `gui/components/clip_editor.py`: tab 🖼 LOGO — per-render on/off, corner, size, margin, opacity; `on_done` passes `logo_watermark` dict.
+  - `gui/tabs/documentary_tab.py` / `gui/tabs/history_tab.py`: `on_done` + re-assemble pass `logo_watermark`.
+  - `core/pipeline_runner.py`: Step 5 `assemble_documentary` uses `_doc_regen_ctx["logo_watermark"]`.
+- Reason: Users long videos par corner logo chahte — ek baar Settings mein image, Editor mein position/size tweak, FFmpeg se final MP4 par burn.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Idea Workshop — dynamic start (no rigid topic→style→format→tone wizard)
+- Changes:
+  - `modules/scripter.py`: `_CONSULTANT_SYSTEM` + model ack — natural chat, emit `<<PLAN_START>>` on user start phrases or when AI judges ready; smart defaults; no four-step form.
+  - `gui/tabs/documentary_tab.py`: friendlier opening hint; `_coerce_workshop_*` normalizes plan FORMAT/STYLE/TONE from free text (e.g. “Long ~3 min”, “Cinematic type”).
+- Reason: User chahta tha ke fixed steps ke bina discussion se hi “okay start / generate” par turant video pipeline chale, baaki fields auto-fill.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Ghost Editor — fix `_replace_voiceover` / `_apply_voice_trim` merge (syntax)
+- Changes:
+  - `gui/components/clip_editor.py`: `_replace_voiceover` ko wapas proper `try`/`except` ke sath; `_apply_voice_trim` alag method restore — double `try` merge se `SyntaxError` fix (Filmora-style timeline + muxed voice preview path ab import/py_compile clean).
+- Reason: A prior edit accidentally merged voice replace aur trim into ek broken block; app `clip_editor` load nahi ho sakta tha.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: History → Ghost Editor from any run video + post-edit Direct Upload handoff
+- Changes:
+  - `gui/tabs/history_tab.py`: `_open_ghost_editor_for_run` — full multi-clip jab `documentary_editor.json` + `voiceover.mp3` dono hon; warna final MP4 se single-clip mode (`_ghost_editor_from_video_audio.m4a` FFmpeg extract, fallback `voiceover.mp3`); `_after_ghost_editor_assemble` success ke baad optional “Open Direct Upload” prompt; card button `✂️ Ghost (video)` jab sirf MP4 available; incomplete snap par video fallback.
+  - `gui/app.py`: `open_direct_upload_with_video()` — `CTkTabview.set` se 📤 UPLOAD tab + `upload_tab` prefill.
+  - `gui/tabs/direct_upload_tab.py`: `set_video_for_upload()`; browse flow refactor.
+- Reason: User history ki last generation ka video Ghost mein kholna chahta tha bina purane snapshot ke, aur edit ke baad YouTube upload tab par seedha path chahiye.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Ghost Editor — fix `config` import (ImportError)
+- Changes:
+  - `gui/components/clip_editor.py`: `config` ab `core.config_manager` se; `get_ffmpeg_executable` root `config.py` se — `from config import config` galat tha (root module me `config` object nahi).
+- Reason: History se Ghost (video) kholte waqt `ImportError: cannot import name 'config' from 'config'`.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Ghost Editor Filmora-style timeline + History multi-clip priority + segment sync on DONE
+- Changes:
+  - `gui/components/clip_editor.py`: ruler drag = playhead scrub; ruler tap (no drag) = split at time (video **or** VOICE focus = same synced split: `split_clip` + `script_segments` voiceover word-split + SRT regen); MUSIC row click = `_browse_music`; clip list **+ Add clip**; **Delete/BackSpace** removes clip + matching segment; move/reorder/sync split/remove/split tab keep `script_segments` length aligned; `on_done` eighth arg `script_segments` list.
+  - `gui/tabs/history_tab.py`: jab `documentary_editor.json` + per-segment clips resolve hon to **multi-clip** kholo; `voiceover.mp3` na ho to final MP4 se audio extract (jor pahle); card **Ghost Editor** jab clips+segments+audio source ready; `assemble_documentary` + `on_done` updated segments use karte hain.
+  - `gui/tabs/documentary_tab.py`: `on_done` saves `script["segments"]` when editor returns.
+- Reason: User chahta tha history par sab clips timeline par, ruler se split/scrub, music row se browse, clips add/remove, aur DONE par edited segments assembly mein jayein — Filmora-like control.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Ghost Editor `_build_voice_tab` restore + History newest-10 sort
+- Changes:
+  - `gui/components/clip_editor.py`: `_tl_y_track` ke andar galti se chhap gaya voice-tab UI hata kar `_build_voice_tab(self, parent)` dubara — `AttributeError: _build_voice_tab` / missing `srt_list_frame` fix.
+  - `gui/tabs/history_tab.py`: `_run_sort_epoch` — folder `*_YYYYMMDD_HHMMSS`, phir `history_entry` timestamps, warna `metadata.json` mtime; sab runs sort `reverse=True`, top **10** (latest pehle).
+- Reason: App crash on Ghost open; user ko 10 recent runs real chronological order mein chahiye.
+
+---
+
+- Date/Time: 2026-04-30
+- Task: Ghost Editor — preview title + BGM mux + Filmora ruler zoom + split cue + music context menu
+- Changes:
+  - `gui/components/clip_editor.py`: VLC preview FFmpeg mux — optional SRT burn, `drawtext` title from `metadata.json` / temp title file, voice + background `amix` (`bg_volume`); fast stream-copy path jab koi overlay/mix nahi; ruler pe dominant horizontal drag = zoom (right=in, left=out), wheel = pan; ruler hover pe ✂ + dashed line (video/voice split mode); clip joints pe gold split markers; MUSIC row left = focus/playhead, right-click = browse / volume ±10% / reset; help + preview blurb text update.
+- Reason: Title preview mein dikhna chahiye; timeline Filmora jaisa zoom/split feedback; BGM preview aur narration saath sunna; music volume ko timeline se control.
+
+---
+
+- Date/Time: 2026-05-01
+- Task: Ghost Editor — remove right panel, Filmora-style timeline, ASSETS rename, context menus
+- Changes:
+  - `gui/components/clip_editor.py`:
+    - Right panel (tabview: VOICE/TRIM/SPLIT/SUBTITLES/MUSIC/LOGO) removed from layout; all internal widgets now created via `_create_hidden_widgets()` in a hidden CTkFrame — all existing logic unchanged.
+    - `_build_ui` restructured: header → preview+ASSETS row (side-by-side) → full-width timeline → footer.
+    - New `_build_assets_panel()`: ASSETS panel (renamed from CLIPS) with `+ Video`, `+ Music`, `+ Voice` buttons.
+    - `_build_preview_row(parent)`: now accepts parent parameter for inline packing.
+    - Timeline canvas: track heights increased (VIDEO 76px, VOICE 56px, MUSIC 46px, RULER 32px); window resized to 1460×960.
+    - `_timeline_redraw`: Filmora-style blocks — gradient fill (top highlight + bottom dark strip), left/right handles, clip number + name + duration text, gold split markers with ruler triangle, playhead triangle, waveform fills with track background.
+    - `_tl_right_press`: video track right-click → context menu (Preview / Trim / Split / Replace / Move / Remove); voice track → Replace / Trim; music track → Browse / ±vol / Reset (same as before).
+    - New context dialogs: `_show_trim_dialog`, `_show_split_dialog`, `_show_voice_dialog`, `_show_subtitles_dialog`, `_show_logo_dialog` — all accessible from footer buttons or right-click menus.
+    - `_logo_spec_for_export`: refactored to use instance vars (`_logo_apply`, `_logo_pos`, `_logo_scale`, `_logo_margin`, `_logo_opacity`) set by logo dialog; no longer reads from widget state.
+    - `_on_done_clicked`: exports `self.srt_entries` directly (subtitle dialog updates them); no longer calls `_save_srt`.
+    - Stats label text: "Clips:" → "Assets:".
+- Reason: User requested removal of bottom-right control panel, full timeline-based editing (like Filmora), better timeline visuals, ASSETS naming for the clip list.
+
+---
+
+- Date/Time: 2026-05-01
+- Task: Ghost Editor — fix ruler drag (scrub) + Filmora film-strip clip visuals
+- Changes:
+  - `gui/components/clip_editor.py`:
+    - `_tl_motion`: ruler plain drag now always scrubs playhead; Ctrl+drag triggers zoom (removed old "dominant horizontal = zoom" heuristic).
+    - `_tl_release`: scrub drag no longer triggers split; quick tap (no movement, no Ctrl) still splits.
+    - `_tl_wheel`: plain scroll = pan; Ctrl+scroll = zoom.
+    - Timeline help text updated to describe new controls.
+    - `_timeline_redraw` video clip blocks: complete Filmora-style redesign — teal/cyan color scheme, film-strip perforation bands at top & bottom, CLIP_GAP separation between adjacent clips, clip #/name/duration text, teal split tick on ruler.
+    - Waveform tracks: bottom-up filled bar style (Filmora default), bright peak highlight line, subtle strip bands at track edges.
+- Reason: User could not drag ruler to scrub; clips visually needed Filmora film-strip look.
+
+---
+
+## 2026-05-01 — Feature Batch: Lag Fix, Shortcuts, Undo/Redo, Subtitle Track, Audio Splits, Continuous Playback
+
+- Task: Implement 6 major features: timeline lag fix, keyboard shortcuts, undo/redo, subtitle timeline track, audio split markers, continuous playback with VLC poll ticker.
+- Changes:
+  - `gui/components/clip_editor.py`:
+    - **Lag Fix**: Added `_timeline_redraw_schedule()` debounce method with 14 ms `after()` coalescing and dirty-flag (`_redraw_pending`). All hot-path event handlers (`_tl_press`, `_tl_motion`, `_tl_release`, `_tl_wheel`, `_tl_motion_hover`, `<Configure>`) now call `_timeline_redraw_schedule()` instead of direct `_timeline_redraw()`. Waveform loops changed from per-pixel to capped `_TL_MAX_BARS=480` bar blocks using `create_rectangle` for batched draw calls.
+    - **Keyboard Shortcuts**: Bound `<Control-z>` → `_undo`, `<Control-Z>` → `_redo` (Ctrl+Shift+Z), `<space>` → `_kbd_play_pause`, `<Control-b>` → `_kbd_split`. Space key guarded against Entry/Text widgets.
+    - **Undo/Redo**: Added `_push_undo()` snapshot method (deep-copies clips, srt_entries, script_segments, voice/music splits, selected_clip_idx, playhead into `deque(maxlen=30)`). Added `_undo()`, `_redo()`, `_restore_state()`. `_push_undo()` inserted before every destructive operation: `_move_clip`, `_remove_clip`, `_replace_clip`, `_apply_trim`, `_apply_split`, `_split_timeline_at_global_time`, `_add_clip_dialog`, `_srt_add_at_playhead`, `_srt_delete_cue`, `_srt_edit_inline`.
+    - **Subtitle Track**: Added `SUBTITLE_TRACK_H=34` constant. Added subtitle track row in `_timeline_redraw` (dark background, amber cue blocks with text label, selection highlight). `_tl_y_track` updated to return `"subs"`. `_tl_press` handles click-to-select cue. `_tl_double_click` handler + `<Double-Button-1>` binding for inline editing. Right-click on subs track shows "Add/Edit/Delete cue" context menu. New methods: `_srt_add_at_playhead`, `_srt_delete_cue`, `_srt_edit_inline`. `_srt_blocks` list tracks cue canvas positions.
+    - **Audio Split Markers**: `_voice_splits` and `_music_splits` lists store split point times. `_split_timeline_at_global_time` now handles voice/music focus tracks by appending visual split markers instead of rejecting. `_kbd_split` (Ctrl+B) splits video, voice, music, or subs depending on `_tl_focus_track`. Split markers rendered as orange `✂` dividers on waveform tracks.
+    - **Continuous Playback**: Added `_continuous_play_from_playhead()` which starts mux for the clip at playhead. Added `_vlc_tick()` poll method (every 80 ms): updates `_playhead_sec` from VLC position, auto-advances to next clip when current clip ends (`vlc_ended` state). `_preview_from_playhead` and `_kbd_play_pause` now call `_continuous_play_from_playhead`. `_preview_pause`/`_preview_stop` set `_vlc_poll_active=False` to stop the ticker.
+    - **Module-level helper**: Added `_srt_time_to_sec()` wrapper for SRT timestamp parsing.
+- Reason: User requested lag fix, Ctrl+Z/Shift+Z undo/redo, Space play/pause, Ctrl+B split, subtitle timeline track, audio split markers, and continuous preview playback through all clips.
+
+---
+
+## 2026-05-01 — Timeline UI Redesign + Lag Fix (Round 2)
+
+- Task: Redesign timeline to match Ghost Editor reference project (`C:\Users\hunte\OneDrive\Desktop\Ghost editor`); fix subtitle track cut-off; fix perceived lag from debounce.
+- Changes:
+  - `gui/components/clip_editor.py`:
+    - **Class constants updated**: `TRACK_LABEL_W=96` (was 72), `RULER_H=28` (was 32), `TRACK_GAP=4` added (gap between tracks). New `_TL_*` colour palette constants matching Ghost Editor reference: `_TL_BG="#0E0E12"`, `_TL_PANEL="#16161C"`, `_TL_PANEL_ALT="#1C1C25"`, `_TL_BORDER="#262631"`, `_TL_VID="#7C5CFF"`, `_TL_VOICE="#5EE6D0"`, `_TL_MUSIC="#E87CFF"`, `_TL_SUBS="#FFB65E"`, `_TL_PLAYHEAD="#FF5E7A"`.
+    - **Canvas height fixed**: Added `SUBTITLE_TRACK_H` + three `TRACK_GAP`s to canvas height calculation so subtitle row is never cut off.
+    - **Lag fix**: Removed `_timeline_redraw_schedule()` calls from all hot-path events (`_tl_press`, `_tl_motion` scrub+zoom, `_tl_release`). These now call `_timeline_redraw()` directly for instant response. `_timeline_redraw_schedule()` retained only for hover (`_tl_motion_hover`) and resize (`<Configure>`).
+    - **`_timeline_redraw` fully rewritten**: New Ghost-Editor-reference visual style: dark `#0E0E12` bg; `#1C1C25` gutter with 4 px accent bar on left per track; `#16161C` lane fill; major ruler ticks in `#5EE6D0` cyan with `MM:SS` labels in `#8A8A96`; minor ticks in `#262631`; video clip blocks use purple gradient bands + left accent strip + border, title text in "Segoe UI"; waveform uses centred bar style (half-height symmetric) in muted accent colours (`#3ABFA0` voice, `#B060CC` music); subtitle cues are `#FFB65E`-bordered amber blocks; playhead in `#FF5E7A` with triangle knob; focused-track glow: 3 px accent bar on the lane's left inner edge; track gap rows drawn as `#0E0E12` separators.
+    - **`_tl_y_track` updated**: Uses `TRACK_GAP` offsets so gap zones between tracks return "none" (not misidentified as an adjacent track).
+    - **`tl_wrap` background**: Updated from `"#080e14"` to `self._TL_BG` (`"#0E0E12"`).
+- Reason: User reported timeline looked bad, subtitle track was cut off, and lag persisted despite earlier debounce fix (debounce caused perceived delay on scrub/click actions).
+
+---
+
+## 2026-05-01 — Ruler UX Redesign, Assets Panel, Speed Control, Selection Highlight
+
+- Task: Filmora-style ruler interaction (tap=split, drag=scrub, top-zone drag=zoom); always-on scissor icon; +SRT import in Assets; per-clip speed menu; white selection border.
+- Changes:
+  - `gui/components/clip_editor.py`:
+    - **Ruler dual-zone**: Top 45% of ruler = zoom zone (drag left=out, right=in); bottom 55% = scrub/split zone (drag=scrub playhead, tap=split). `_ruler_is_zoom_zone()` helper. Zone labels "ZOOM" / "SPLIT" in gutter. `_tl_press` sets mode at press time based on zone. `_tl_motion` routes to zoom or scrub. Removed Ctrl+drag requirement for zoom.
+    - **Scissor icon**: Always drawn at horizontal center of the ruler scrub zone (not just on hover). Hover still highlights the scrub position with a white dashed line.
+    - **`_tl_ruler_hover_y`**: Stored in `_tl_motion_hover` so scissor hover rendering can check zone.
+    - **Assets panel redesign**: Header renamed to "IMPORT MEDIA". Buttons row now has 4 buttons: `+ Video`, `+ Audio`, `+ Voice`, `+ SRT`. Button colours use the track accent palette. Added "VIDEO CLIPS" section label.
+    - **`_import_srt_file()`**: New method — opens file dialog for `.srt` files, parses them (via `load_srt` or manual regex fallback), pushes undo, replaces `self.srt_entries`. Shows cue count in status bar.
+    - **Speed control**: `_clip_speeds: dict[int, float]` added to `__init__` and undo snapshot. `_set_clip_speed(idx, speed)` and `_set_voice_speed(speed)` methods. Right-click on VIDEO clip shows "Speed (Nx)" cascade submenu with options 0.25×–3.0×. Right-click on VOICE track shows similar submenu. Speed badge (e.g. "1.5×") drawn on clip block when speed ≠ 1.0.
+    - **White selection border**: Selected clip block now uses 2 px white border (`#FFFFFF`), unselected remains 1 px `#5030AA`. Makes active clip instantly visible.
+- Reason: User requested Filmora-style ruler, scissor icon, SRT import, speed change menu, and visible clip selection.
+
+---
+
+## 2026-05-01 — Ruler Fix v2 + Scissor Tracks Playhead + Fine-grained Speed
+
+- Changes:
+  - `gui/components/clip_editor.py`:
+    - **`RULER_H` increased to 44 px** (was 28 px) — ruler was too narrow to click reliably.
+    - **Removed dual-zone ruler** — replaced with single unified strip: drag = scrub, tap = split, Ctrl+drag = zoom.
+    - **`_ruler_is_zoom_zone()` deleted** — mode now determined by Ctrl key state at press time.
+    - **`_tl_press` rewritten** — always moves playhead immediately on any ruler click.
+    - **`_tl_motion` simplified** — Ctrl+drag = zoom, plain drag = scrub.
+    - **`_tl_release` simplified** — scrub-mode tap → split attempt.
+    - **Scissor icon tracks playhead** — drawn at playhead X position on ruler (with glow circle), not a fixed center.
+    - **Speed menus** — fine-grained steps: 0.5, 0.75, 0.9, 0.95, 1.0, 1.05, 1.10, 1.15, 1.20, 1.25, 1.5, 1.75, 2.0×. Max is now 2.0× (removed 3.0×).
+- Reason: User reported ruler not clickable/draggable, scissor icon missing, and needed fine-grained speed steps (1.05/1.10/1.15) with max 2×.
+
+---
+
+## 2026-05-01 — Track Selection Highlight for Voice / Music / Subs
+
+- Changes:
+  - `gui/components/clip_editor.py`:
+    - **Focus track highlight** — when voice, music, or subtitle track is clicked (selected), the entire track lane now shows a **white 1px border outline** in addition to the coloured left-edge accent bar. Previously only a 3px left-edge glow was drawn, which was barely noticeable.
+- Reason: User reported that clicking voice/music/subtitle tracks showed no visible selection highlight on those lanes.
+
+---
+
+## 2026-05-01 — Per-Segment Selection Highlight for Voice / Music / Subs
+
+- Changes:
+  - `gui/components/clip_editor.py`:
+    - Added `_selected_voice_seg: int`, `_selected_music_seg: int`, `_voice_seg_blocks`, `_music_seg_blocks` in `__init__`.
+    - Added `_seg_blocks_for()` helper in `_timeline_redraw` — builds a list of `(canvas_x0, canvas_x1, seg_idx)` for each split-separated segment given the track's duration and split points.
+    - Voice waveform draw: after drawing waveform, iterates `_voice_seg_blocks` and draws a 2px white outline around only the `_selected_voice_seg` block when voice is focused.
+    - Music waveform draw: same pattern with `_music_seg_blocks` / `_selected_music_seg`.
+    - Subtitle track already draws per-cue `#FFDD88` border on `_srt_selected_idx` — no change needed.
+    - `_tl_press` (voice branch): on click, finds which segment in `_voice_seg_blocks` contains `e.x` and stores it in `_selected_voice_seg`.
+    - `_tl_press` (music branch): same for `_selected_music_seg`.
+    - Focus track highlight: removed the "white border around entire track lane"; replaced with a thicker (5px) coloured left-edge accent bar only — segment-level selection provides the white outline now.
+- Reason: User wanted only the clicked split-segment to get a white highlight, not the entire track lane.
+
+---
+
+## 2026-05-01 — Voice & Music Volume Control (0–100%)
+
+- Changes:
+  - `gui/components/clip_editor.py`:
+    - Added `self._voice_volume = 1.0` in `__init__` (voice gain 0.0–1.0).
+    - Added `_show_volume_dialog(track)` method — small centred popup with a 0–100 CTkSlider, live % label, Apply/Cancel buttons. Works for both `"voice"` and `"music"` tracks.
+    - Voice right-click menu: added `"🔊 Set Volume (0–100%)…"` as the first item, current % shown in header.
+    - Music right-click menu: added `"🔊 Set Volume (0–100%)…"` as the first item, current % shown in header. Kept existing +10%/-10%/Reset quick options.
+    - `_ffmpeg_mux_preview` — added `voice_gain` parameter; voice FFmpeg filter now uses `volume={vg}` instead of hard-coded `volume=1`. All callers pass `voice_gain=self._voice_volume`.
+  - `modules/documentary_assembler.py`:
+    - `assemble_documentary` — added `narration_volume: float = 1.0` parameter.
+    - `_assemble` — added `narration_volume: float = 1.0` parameter; passes it to `_mix_background_music`.
+    - `_mix_background_music` — added `narration_volume` param; filter chain now applies `[0:a]volume={vg}` on voice before amix.
+- Reason: User requested ability to adjust voice and music volume in 0–100% range via right-click context menu on those tracks.
+
+---
+
+## 2026-05-01 — Idea Workshop Redesign: Ghost AI Premium Chat UI
+
+- Changes:
+  - `gui/tabs/documentary_tab.py`:
+    - **`_build_idea_workshop` fully rewritten** — new premium dark chat panel:
+      - Panel uses `#060C16` bg, `#3A1880` purple border, rounded corners.
+      - Toggle header now reads `[ GHOST AI ] — Idea Workshop`.
+      - Status badge (top-right) shows `⬡ GHOST AI  ● ONLINE` with colour-coded dot.
+      - Session counter label: "Session: N turns  •  ∞ unlimited".
+      - Chat log uses `#030811` bg with rich per-role text tags: `user_hdr/user_body`, `ai_hdr/ai_body`, `sys_hdr/sys_body`, `plan_hdr/plan_body`.
+      - SEND button restyled (purple, rounded, "SEND ↵"). GENERATE NOW → "⚡ CREATE NOW". Clear → "⟳ New".
+      - USE THIS TOPIC button restyled green rounded card.
+    - **`_workshop_append` rewritten** — messages appear as visual chat bubbles using Unicode box chars (`╭─ YOU ─╮ │ │ ╰──╯` for user, `⬡ GHOST AI ──` header+separator for AI, `★ PLAN CONFIRMED` for plan).
+    - **`_toggle_workshop`** — updated text to Ghost AI branding.
+    - **Thinking animation** — `_workshop_set_thinking()` + `_animate_thinking_dots()`: status dot turns amber, label shows "Ghost AI is thinking ●●●" with animated cycling dots.
+    - **Unlimited conversation** — `_chat_history` no longer trimmed. Last 30 turns sent to API for efficiency; full history kept in memory across the session.
+    - **Turn counter** — `_workshop_turns` incremented per exchange, displayed in session label.
+    - **`_workshop_send` — smart start detection**: `_user_wants_to_start()` checks message for ~20 start-intent phrases (start, generate, banao, bana do, chalo banao, go ahead, create now, shuru karo, etc.) and immediately triggers generation without a Gemini round-trip.
+    - **All remaining `_workshop_append` calls** updated to new (who, text, kind) signature.
+- Reason: User requested premium AI chat redesign, Ghost AI branding replacing Gemini label, unlimited conversational sessions, and smart video-creation intent detection.

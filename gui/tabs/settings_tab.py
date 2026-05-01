@@ -2,12 +2,15 @@
 gui/tabs/settings_tab.py — Settings Tab Cyberpunk
 """
 
+import tempfile
 import threading
+import shutil
 
 import customtkinter as ctk
 from pathlib import Path
 from tkinter import filedialog
 
+from config import APP_VERSION
 from core.config_manager import config
 
 # === BLUE AI PALETTE ===
@@ -87,6 +90,14 @@ OMNIVOICE_MODE_OPTIONS = {
     "Sound Design": "design",
 }
 OMNIVOICE_MODE_REV = {v: k for k, v in OMNIVOICE_MODE_OPTIONS.items()}
+
+_LOGO_POS_TO_LABEL = {
+    "bottom_right": "Bottom-right",
+    "bottom_left": "Bottom-left",
+    "top_right": "Top-right",
+    "top_left": "Top-left",
+}
+_LOGO_LABEL_TO_POS = {v: k for k, v in _LOGO_POS_TO_LABEL.items()}
 
 
 class SettingsTab(ctk.CTkFrame):
@@ -580,7 +591,7 @@ class SettingsTab(ctk.CTkFrame):
         self._omnivoice_language.pack(side="left", padx=5)
         self._omnivoice_language.bind("<FocusIn>",  lambda e: self._omnivoice_language.configure(border_width=2, border_color=ACCENT_PRI))
         self._omnivoice_language.bind("<FocusOut>", lambda e: self._omnivoice_language.configure(border_width=1, border_color=BORDER))
-        self._hint(omni_inner, "WebUI style controls: profile + style + quality + tags. Language hint optional (hi/en etc).")
+        self._hint(omni_inner, "WebUI: profile + style + quality. Pipeline language maps to OmniVoice (Odia→ory, Telugu te, Tamil ta). Optional LANGUAGE HINT overrides when set.")
 
         alt_tts = self._add_foldable(
             tts_config, "Edge TTS & ElevenLabs", start_open=False
@@ -725,7 +736,7 @@ class SettingsTab(ctk.CTkFrame):
         )
         self._chk_video_preview = ctk.CTkCheckBox(
             c00,
-            text="Pause for video preview",
+            text="Pause for Ghost Editor (before assembly)",
             variable=self._video_preview_var,
             font=("Share Tech Mono", 12, "bold"),
             text_color=TEXT_SEC,
@@ -733,7 +744,7 @@ class SettingsTab(ctk.CTkFrame):
             hover_color=BG_CARD, checkmark_color=ACCENT_PRI, corner_radius=0,
         )
         self._chk_video_preview.pack(anchor="w", padx=10, pady=(2, 1))
-        _hint_lbl(c00, "Opens media player before upload so you can approve or cancel")
+        _hint_lbl(c00, "Opens Ghost Editor after downloads so you can trim clips before the final render")
 
         # [0,1] Language picker
         c01 = _cell(0, 1)
@@ -746,6 +757,8 @@ class SettingsTab(ctk.CTkFrame):
             ("bn",       "🔵 Bengali"),
             ("gu",       "🟢 Gujarati"),
             ("ta",       "🔴 Tamil"),
+            ("te",       "🟣 Telugu"),
+            ("or",       "🟤 Odia (Odisha)"),
         ]
         cur_lang = config.get("pipeline.language", "hi")
         # Dropdown fits all options and is responsive
@@ -1173,7 +1186,7 @@ class SettingsTab(ctk.CTkFrame):
             lang_warn_card,
             text=(
                 "Zyaadatar Ollama models sirf ENGLISH mein output dete hain.\n"
-                "Hindi (Devanagari), Marathi, Bengali, Gujarati, Tamil script\n"
+                "Hindi (Devanagari), Marathi, Bengali, Gujarati, Tamil, Telugu, Odia script\n"
                 "produce nahi kar sakte — script English mein hi aayegi."
             ),
             font=("Share Tech Mono", 12), text_color="#FFCC66",
@@ -1359,7 +1372,182 @@ class SettingsTab(ctk.CTkFrame):
 
         self._refresh_profile_menu()
 
-    # ── Browse helpers ────────────────────────────────────────────────────
+        # ── After Run: Video Editor ───────────────────────────────────────
+        ctk.CTkFrame(section, fg_color=ACCENT_PRI, height=1).pack(fill="x", pady=(18, 5), padx=5)
+        ctk.CTkLabel(section, text=">> [ PRE-UPLOAD VIDEO EDITOR ]",
+                     font=("Orbitron", 14, "bold"), text_color=TEXT_SEC).pack(anchor="w", padx=10)
+
+        editor_info = ctk.CTkFrame(section, fg_color="#0A0F1A", corner_radius=0,
+                                   border_width=1, border_color=BORDER)
+        editor_info.pack(fill="x", pady=(5, 10), padx=5)
+        ctk.CTkLabel(
+            editor_info,
+            text=(
+                "🎬  When enabled, opens a timeline editor BEFORE uploading to YouTube.\n"
+                "   • Trim, split, remove, replace, or add video clips\n"
+                "   • Edit subtitle text and timing (SRT)\n"
+                "   • Add background music with custom volume\n"
+                "   • Export clips, audio, or subtitles separately"
+            ),
+            font=("Share Tech Mono", 11), text_color="#8899BB",
+            justify="left", anchor="w",
+        ).pack(anchor="w", padx=12, pady=10)
+
+        editor_row = ctk.CTkFrame(section, fg_color="transparent")
+        editor_row.pack(fill="x", pady=5, padx=10)
+        ctk.CTkLabel(editor_row, text="Enable Pre-Upload Editor:",
+                     font=("Share Tech Mono", 12), text_color=TEXT_PRI).pack(side="left")
+        self._editor_enabled_var = ctk.BooleanVar(value=bool(config.get("editor.enabled", False)))
+        self._editor_sw = ctk.CTkSwitch(
+            editor_row,
+            text="", variable=self._editor_enabled_var,
+            fg_color=BORDER, progress_color=ACCENT_PRI,
+            button_color=TEXT_PRI,
+        )
+        self._editor_sw.pack(side="left", padx=10)
+        self._editor_state_lbl = ctk.CTkLabel(
+            editor_row,
+            text="ON — editor opens after assembly" if self._editor_enabled_var.get() else "OFF — skip directly to upload",
+            font=("Share Tech Mono", 11),
+            text_color=ACCENT_PRI if self._editor_enabled_var.get() else TEXT_HINT,
+        )
+        self._editor_state_lbl.pack(side="left", padx=5)
+        self._editor_enabled_var.trace_add("write", self._on_editor_toggle)
+
+        self._build_logo_watermark_section(section)
+
+    def _build_logo_watermark_section(self, section):
+        ctk.CTkFrame(section, fg_color=ACCENT_PRI, height=1).pack(fill="x", pady=(18, 5), padx=5)
+        ctk.CTkLabel(
+            section, text=">> [ LOGO WATERMARK ]",
+            font=("Orbitron", 14, "bold"), text_color=TEXT_SEC,
+        ).pack(anchor="w", padx=10)
+
+        hint = ctk.CTkFrame(section, fg_color="#0A0F1A", corner_radius=0, border_width=1, border_color=BORDER)
+        hint.pack(fill="x", pady=(5, 10), padx=5)
+        ctk.CTkLabel(
+            hint,
+            text=(
+                "🖼  Choose a PNG or JPG once — saved path is reused for every export.\n"
+                "   In Ghost Editor you can turn the overlay on/off per render and set corner + size."
+            ),
+            font=("Share Tech Mono", 11), text_color="#8899BB",
+            justify="left", anchor="w",
+        ).pack(anchor="w", padx=12, pady=10)
+
+        row_on = ctk.CTkFrame(section, fg_color="transparent")
+        row_on.pack(fill="x", pady=4, padx=10)
+        self._logo_enabled_var = ctk.BooleanVar(value=bool(config.get("documentary.logo_enabled", False)))
+        ctk.CTkLabel(row_on, text="Enable logo on exports (default):", font=("Share Tech Mono", 12), text_color=TEXT_PRI).pack(side="left")
+        ctk.CTkSwitch(
+            row_on, text="", variable=self._logo_enabled_var,
+            fg_color=BORDER, progress_color=ACCENT_PRI, button_color=TEXT_PRI,
+        ).pack(side="left", padx=10)
+
+        row_p = ctk.CTkFrame(section, fg_color="transparent")
+        row_p.pack(fill="x", pady=6, padx=10)
+        self._logo_path_entry = ctk.CTkEntry(row_p, placeholder_text="No image selected…")
+        self._logo_path_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        lp = (config.get("documentary.logo_path") or "").strip()
+        if lp:
+            self._logo_path_entry.insert(0, lp)
+        ctk.CTkButton(
+            row_p, text="BROWSE…", width=100, corner_radius=0,
+            command=self._browse_logo_watermark,
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            row_p, text="CLEAR", width=72, corner_radius=0, fg_color="transparent",
+            border_width=1, border_color=BORDER,
+            command=lambda: self._logo_path_entry.delete(0, "end"),
+        ).pack(side="left", padx=4)
+
+        row_pos = ctk.CTkFrame(section, fg_color="transparent")
+        row_pos.pack(fill="x", pady=6, padx=10)
+        ctk.CTkLabel(row_pos, text="Default corner:", font=("Share Tech Mono", 12), text_color=TEXT_PRI).pack(side="left")
+        pos_vals = list(_LOGO_LABEL_TO_POS.keys())
+        _pkey = str(config.get("documentary.logo_position", "bottom_right") or "bottom_right")
+        _plab = _LOGO_POS_TO_LABEL.get(_pkey, "Bottom-right")
+        self._logo_position_menu = ctk.CTkOptionMenu(row_pos, values=pos_vals, width=160)
+        self._logo_position_menu.set(_plab if _plab in pos_vals else pos_vals[0])
+        self._logo_position_menu.pack(side="left", padx=10)
+
+        row_sc = ctk.CTkFrame(section, fg_color="transparent")
+        row_sc.pack(fill="x", pady=6, padx=10)
+        ctk.CTkLabel(row_sc, text="Size (% of video width):", font=("Share Tech Mono", 12), text_color=TEXT_PRI).pack(side="left")
+        self._logo_scale_slider = ctk.CTkSlider(row_sc, from_=0.06, to=0.35, number_of_steps=29)
+        self._logo_scale_slider.set(float(config.get("documentary.logo_scale", 0.15)))
+        self._logo_scale_slider.pack(side="left", fill="x", expand=True, padx=10)
+        self._logo_scale_lbl = ctk.CTkLabel(row_sc, text="", width=44, font=("Share Tech Mono", 11), text_color=TEXT_HINT)
+        self._logo_scale_lbl.pack(side="left")
+        self._logo_scale_slider.configure(command=self._on_logo_scale_slide)
+        self._on_logo_scale_slide(self._logo_scale_slider.get())
+
+        row_mg = ctk.CTkFrame(section, fg_color="transparent")
+        row_mg.pack(fill="x", pady=6, padx=10)
+        ctk.CTkLabel(row_mg, text="Edge margin (px):", font=("Share Tech Mono", 12), text_color=TEXT_PRI).pack(side="left")
+        self._logo_margin_entry = ctk.CTkEntry(row_mg, width=56)
+        self._logo_margin_entry.pack(side="left", padx=10)
+        self._logo_margin_entry.insert(0, str(int(config.get("documentary.logo_margin", 24))))
+
+        row_op = ctk.CTkFrame(section, fg_color="transparent")
+        row_op.pack(fill="x", pady=(6, 12), padx=10)
+        ctk.CTkLabel(row_op, text="Opacity:", font=("Share Tech Mono", 12), text_color=TEXT_PRI).pack(side="left")
+        self._logo_opacity_slider = ctk.CTkSlider(row_op, from_=0.25, to=1.0, number_of_steps=15)
+        self._logo_opacity_slider.set(float(config.get("documentary.logo_opacity", 1.0)))
+        self._logo_opacity_slider.pack(side="left", fill="x", expand=True, padx=10)
+        self._logo_opacity_lbl = ctk.CTkLabel(row_op, text="", width=36, font=("Share Tech Mono", 11), text_color=TEXT_HINT)
+        self._logo_opacity_lbl.pack(side="left")
+        self._logo_opacity_slider.configure(command=self._on_logo_opacity_slide)
+        self._on_logo_opacity_slide(self._logo_opacity_slider.get())
+
+    def _on_logo_scale_slide(self, val):
+        try:
+            self._logo_scale_lbl.configure(text=f"{float(val)*100:.0f}%")
+        except Exception:
+            pass
+
+    def _on_logo_opacity_slide(self, val):
+        try:
+            self._logo_opacity_lbl.configure(text=f"{float(val)*100:.0f}%")
+        except Exception:
+            pass
+
+    def _browse_logo_watermark(self):
+        from tkinter import messagebox
+        p = filedialog.askopenfilename(
+            title="Logo image (PNG or JPEG)",
+            filetypes=[
+                ("PNG / JPEG", "*.png *.jpg *.jpeg"),
+                ("PNG", "*.png"),
+                ("JPEG", "*.jpg *.jpeg"),
+            ],
+        )
+        if not p:
+            return
+        src = Path(p)
+        ext = src.suffix.lower()
+        if ext not in (".png", ".jpg", ".jpeg"):
+            messagebox.showerror("Logo", "Choose a PNG or JPG file.")
+            return
+        dest_dir = config.path.parent / "watermark_assets"
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / f"user_logo{ext}"
+            shutil.copy2(src, dest)
+        except OSError as exc:
+            messagebox.showerror("Logo", str(exc))
+            return
+        self._logo_path_entry.delete(0, "end")
+        self._logo_path_entry.insert(0, str(dest.resolve()))
+
+    def _on_editor_toggle(self, *_):
+        val = self._editor_enabled_var.get()
+        self._editor_state_lbl.configure(
+            text="ON — editor opens after assembly" if val else "OFF — skip directly to upload",
+            text_color=ACCENT_PRI if val else TEXT_HINT,
+        )
+
+
     def _browse_ref_audio(self):
         path = filedialog.askopenfilename(
             title="Locate Reference Audio File",
@@ -1517,6 +1705,9 @@ class SettingsTab(ctk.CTkFrame):
         if hasattr(self, "_video_preview_var"):
             config.set("video_preview_enabled", bool(self._video_preview_var.get()))
 
+        if hasattr(self, "_editor_enabled_var"):
+            config.set("editor.enabled", bool(self._editor_enabled_var.get()))
+
         if hasattr(self, "_provider_var"):
             _prov_map = {"Gemini": "gemini", "Ollama": "ollama"}
             provider = _prov_map.get(self._provider_var.get(), "gemini")
@@ -1533,6 +1724,20 @@ class SettingsTab(ctk.CTkFrame):
         config.set("pipeline.upload_enabled",       bool(self._upload_enabled_var.get()))
         config.set("pipeline.upload_mode",           self._upload.get())
         config.set("pipeline.output_folder",         self._output_dir.get().strip())
+
+        if hasattr(self, "_logo_enabled_var"):
+            config.set("documentary.logo_enabled", bool(self._logo_enabled_var.get()))
+            config.set("documentary.logo_path", self._logo_path_entry.get().strip())
+            config.set(
+                "documentary.logo_position",
+                _LOGO_LABEL_TO_POS.get(self._logo_position_menu.get(), "bottom_right"),
+            )
+            config.set("documentary.logo_scale", float(self._logo_scale_slider.get()))
+            try:
+                config.set("documentary.logo_margin", int(self._logo_margin_entry.get().strip() or "24"))
+            except ValueError:
+                config.set("documentary.logo_margin", 24)
+            config.set("documentary.logo_opacity", float(self._logo_opacity_slider.get()))
 
         config.save()
         self.app_ref.update_backend_labels()
@@ -1571,6 +1776,17 @@ class SettingsTab(ctk.CTkFrame):
         )
         self._lic_status_lbl.pack(side="left", padx=6)
 
+        row_v = ctk.CTkFrame(self._lic_card, fg_color="transparent")
+        row_v.pack(fill="x", padx=14, pady=(0, 4))
+        ctk.CTkLabel(
+            row_v, text="VERSION:",
+            font=("Share Tech Mono", 12, "bold"), text_color=TEXT_SEC, width=80, anchor="w",
+        ).pack(side="left")
+        ctk.CTkLabel(
+            row_v, text=f"v{APP_VERSION}",
+            font=("Share Tech Mono", 12), text_color=ACCENT_SEC, anchor="w",
+        ).pack(side="left", padx=6)
+
         row2 = ctk.CTkFrame(self._lic_card, fg_color="transparent")
         row2.pack(fill="x", padx=14, pady=(0, 10))
         ctk.CTkLabel(
@@ -1605,8 +1821,173 @@ class SettingsTab(ctk.CTkFrame):
             command=self._deactivate_license,
         ).pack(side="left")
 
+        ctk.CTkButton(
+            btn_row,
+            text="⬆  Check for updates",
+            font=("Share Tech Mono", 12, "bold"),
+            text_color=ACCENT_SEC, fg_color="transparent",
+            hover_color=BG_CARD, border_color=ACCENT_SEC, border_width=1, corner_radius=0,
+            command=self._check_for_updates,
+        ).pack(side="left", padx=(16, 0))
+
         # Load status immediately
         self._recheck_license()
+
+    def _check_for_updates(self) -> None:
+        threading.Thread(target=self._do_check_updates, daemon=True).start()
+
+    def _do_check_updates(self) -> None:
+        try:
+            from core.update_checker import post_update_check
+
+            data = post_update_check()
+        except Exception as exc:
+            data = {"success": False, "error": "exception", "message": str(exc)}
+        try:
+            self.winfo_toplevel().after(0, lambda: self._handle_update_check_response(data))
+        except Exception:
+            pass
+
+    def _handle_update_check_response(self, data: dict) -> None:
+        from tkinter import messagebox
+
+        if not data.get("success"):
+            messagebox.showerror(
+                "Update check",
+                data.get("message")
+                or data.get("error")
+                or "Could not check for updates.",
+            )
+            return
+
+        if not data.get("update_available"):
+            lv = data.get("latest_version", "?")
+            msg = (data.get("message") or "").strip()
+            if msg:
+                messagebox.showinfo("Updates", msg)
+            else:
+                messagebox.showinfo(
+                    "Up to date",
+                    f"You have the latest release (app v{APP_VERSION}; server latest v{lv}).",
+                )
+            return
+
+        token = data.get("download_token")
+        if not token:
+            messagebox.showerror(
+                "Update",
+                "Server reported a new version but did not provide a download. Try again later.",
+            )
+            return
+
+        notes = (data.get("release_notes") or "").strip()
+        latest = data.get("latest_version", "?")
+        intro = f"Version {latest} is available (you have v{APP_VERSION})."
+        if not messagebox.askyesno(
+            "Update available",
+            f"{intro}\n\n{notes}\n\nDownload and install now? The app will close when setup runs.",
+        ):
+            return
+
+        self._run_update_download_dialog(data, token)
+
+    def _run_update_download_dialog(self, data: dict, token: str) -> None:
+        from tkinter import messagebox
+
+        import tkinter as tk
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Downloading update")
+        dlg.geometry("480x180")
+        dlg.transient(self.winfo_toplevel())
+        dlg.grab_set()
+        dlg.configure(fg_color=BG_MAIN)
+        lbl = ctk.CTkLabel(
+            dlg,
+            text="Preparing download…",
+            font=("Share Tech Mono", 12),
+            text_color=TEXT_PRI,
+        )
+        lbl.pack(padx=24, pady=(16, 8))
+        pbar = ctk.CTkProgressBar(
+            dlg,
+            width=400,
+            height=14,
+            corner_radius=4,
+            fg_color=BORDER,
+            progress_color=ACCENT_PRI,
+        )
+        pbar.set(0)
+        pbar.pack(padx=24, pady=(0, 16))
+
+        latest = str(data.get("latest_version", "setup")).replace("/", "-")
+        safe_name = f"GhostCreator_update_{latest}.exe"
+        dest = Path(tempfile.gettempdir()) / safe_name
+        sha = data.get("installer_sha256") or None
+        if isinstance(sha, str) and not sha.strip():
+            sha = None
+
+        def tick() -> None:
+            dlg.update_idletasks()
+            try:
+                self.winfo_toplevel().update_idletasks()
+            except tk.TclError:
+                pass
+
+        def work() -> None:
+            try:
+                from core.update_checker import download_installer, launch_installer
+
+                def prog_msg(t: str) -> None:
+                    dlg.after(0, lambda x=t: lbl.configure(text=x))
+
+                def prog_r(r: float) -> None:
+                    dlg.after(0, lambda u=r: pbar.set(max(0.0, min(1.0, u))))
+
+                download_installer(
+                    token,
+                    dest,
+                    progress=prog_msg,
+                    progress_ratio=prog_r,
+                    ui_tick=tick,
+                    sha256_expected=sha,
+                )
+                dlg.after(0, lambda: _done_ok())
+            except Exception as exc:
+                dlg.after(0, lambda: _done_err(exc))
+
+        def _done_ok() -> None:
+            try:
+                dlg.grab_release()
+            except tk.TclError:
+                pass
+            try:
+                dlg.destroy()
+            except tk.TclError:
+                pass
+            try:
+                from core.update_checker import launch_installer
+
+                launch_installer(dest)
+            except Exception as exc:
+                messagebox.showerror("Update", str(exc))
+                return
+            import os
+
+            os._exit(0)
+
+        def _done_err(exc: BaseException) -> None:
+            try:
+                dlg.grab_release()
+            except tk.TclError:
+                pass
+            try:
+                dlg.destroy()
+            except tk.TclError:
+                pass
+            messagebox.showerror("Download failed", str(exc))
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _recheck_license(self):
         self._lic_status_lbl.configure(text="⟳  checking…", text_color=TEXT_HINT)
@@ -1618,7 +1999,11 @@ class SettingsTab(ctk.CTkFrame):
             valid, message = is_licensed()
         except Exception as exc:
             valid, message = False, str(exc)
-        self.after(0, self._update_lic_status, valid, message)
+        try:
+            self.winfo_toplevel().after(0, self._update_lic_status, valid, message)
+        except Exception:
+            pass
+
 
     def _update_lic_status(self, valid: bool, message: str):
         if valid:

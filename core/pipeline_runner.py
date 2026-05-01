@@ -120,6 +120,10 @@ class PipelineRunner:
         self._video_preview_action: str | None = None  # approve|cancel|regen_audio|regen_video
         self.pending_video_path: str | None = None
         self.waiting_for_video_preview = False
+        
+        self._editor_event = threading.Event()
+        self.waiting_for_editor = False
+        
         # Documentary-only: regen from preview reuses this context
         self._doc_regen_ctx: dict | None = None
 
@@ -143,6 +147,8 @@ class PipelineRunner:
         self._video_preview_action = None
         self.pending_video_path = None
         self.waiting_for_video_preview = False
+        self._editor_event.clear()
+        self.waiting_for_editor = False
         self._doc_regen_ctx = None
 
         self.running = True
@@ -161,6 +167,7 @@ class PipelineRunner:
         self._video_preview_action = "cancel"
         self._script_review_event.set()
         self._video_preview_event.set()
+        self._editor_event.set()
         # Wake any blocked retry wait so the thread can exit
         self._retry_event.set()
         self._emit(0, "Pipeline stopped by user", "WARNING")
@@ -216,6 +223,9 @@ class PipelineRunner:
     def cancel_from_video_preview(self) -> None:
         """Called by GUI when user cancels from the video preview window."""
         self.set_video_preview_decision("cancel")
+
+    def approve_editor(self) -> None:
+        self._editor_event.set()
 
     def apply_documentary_preview_script(self, approved_data: dict) -> bool:
         """
@@ -327,6 +337,9 @@ class PipelineRunner:
             progress_callback=_a,
             playback_speed=_pb_speed,
             burn_subtitles=_burn,
+            subtitle_style=ctx.get("subtitle_style"),
+            bg_music_path=ctx.get("bg_music"),
+            bg_music_volume=float(ctx.get("bg_vol", 0.25)),
         )
         return vp
 
@@ -370,6 +383,9 @@ class PipelineRunner:
             progress_callback=_a,
             playback_speed=_pb_speed,
             burn_subtitles=_burn,
+            subtitle_style=ctx.get("subtitle_style"),
+            bg_music_path=ctx.get("bg_music"),
+            bg_music_volume=float(ctx.get("bg_vol", 0.25)),
         )
         return vp
 
@@ -486,6 +502,17 @@ class PipelineRunner:
                 _json.dumps(script["metadata"], ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+            # Full script snapshot for Ghost Editor / History re-edit (not just YouTube metadata)
+            (run_dir / "documentary_editor.json").write_text(
+                _json.dumps({
+                    "title": script.get("title", title),
+                    "voiceover_text": script["voiceover_text"],
+                    "segments": script["segments"],
+                    "language": language,
+                    "aspect_ratio": aspect_ratio,
+                }, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         except Exception:
             pass
         try:
@@ -559,11 +586,93 @@ class PipelineRunner:
                     return
                 self._emit(4, "🔄 Retrying footage download …", "INFO")
 
+        # ── Step 4.5: Ghost Editor — voice-synced clips + SRT BEFORE final assembly ──
+        if config.get("video_preview_enabled", True):
+            if not self.running:
+                return
+            from core.clip_manager import generate_srt_from_segments, load_clips
+            from modules.documentary_assembler import (
+                _audio_duration_sec,
+                _normalized_segment_durations,
+                _resolution,
+                _make_filler,
+                _trim_or_loop_clip,
+                _vf_scale,
+            )
+
+            audio_dur = _audio_duration_sec(audio_path)
+            srt_entries = generate_srt_from_segments(script["segments"], audio_dur)
+            durations = _normalized_segment_durations(script["segments"], audio_dur)
+            vf = _vf_scale(aspect_ratio)
+            w, h = _resolution(aspect_ratio)
+            n_seg = len(script["segments"])
+
+            clips_for_edit = run_dir / "clips_for_edit"
+            clips_for_edit.mkdir(exist_ok=True)
+            edit_paths: list[Path] = []
+            last_good: Path | None = None
+
+            self._emit(
+                4,
+                f"🕐 Voiceover: {audio_dur:.1f}s total — syncing footage to timeline (before editor) …",
+                "INFO",
+            )
+            for i in range(n_seg):
+                dur = durations[i]
+                dst = clips_for_edit / f"e_{i:02d}.mp4"
+                src = clips[i] if i < len(clips) else None
+                self._emit(4, f"  ✂️  Clip {i+1}/{n_seg}: {dur:.1f}s", "INFO")
+                if src and Path(src).exists() and Path(src).stat().st_size > 5000:
+                    try:
+                        _trim_or_loop_clip(Path(src), dst, dur, vf)
+                        last_good = dst
+                    except Exception as exc:
+                        log.warning("Pre-edit trim failed for clip %s: %s", i + 1, exc)
+                        _make_filler(dst, dur, w, h, last_good, clips_for_edit, i)
+                        last_good = dst
+                else:
+                    _make_filler(dst, dur, w, h, last_good, clips_for_edit, i)
+                    last_good = dst
+                edit_paths.append(dst)
+
+            clip_infos = load_clips(edit_paths, script["segments"], target_durations=durations)
+
+            self._doc_regen_ctx = {
+                "run_dir": run_dir,
+                "script": script,
+                "language": language,
+                "aspect_ratio": aspect_ratio,
+                "clips": clip_infos,
+                "audio_path": audio_path,
+                "srt": srt_entries,
+                "subtitle_style": None,
+            }
+            self.waiting_for_editor = True
+            self._editor_event.clear()
+            self._emit(4, "✂️ Opening Ghost Editor — trim clips to match timing, then DONE …", "INFO")
+            self._editor_event.wait()
+            self.waiting_for_editor = False
+
+            if not self.running:
+                return
+
+            clips = self._doc_regen_ctx.get("clips", clip_infos)
+            srt_entries = self._doc_regen_ctx.get("srt", srt_entries)
+            _style = self._doc_regen_ctx.get("subtitle_style")
+            _apath = self._doc_regen_ctx.get("audio_path")
+            if _apath is not None:
+                audio_path = Path(_apath)
+            _style = None
+
         # ── Step 5: Assemble documentary (with retry) ─────────────────────
         from modules.documentary_assembler import assemble_documentary, wants_burned_subtitles
 
         def _asm_progress(msg: str) -> None:
             self._emit(5, msg, "INFO")
+
+        _ctx = getattr(self, "_doc_regen_ctx", None) or {}
+        _bg_music = _ctx.get("bg_music")
+        _bg_vol = float(_ctx.get("bg_vol", 0.25))
 
         _pb_speed = float(config.get("documentary.playback_speed", 1.0))
         _burn = wants_burned_subtitles(config)
@@ -585,6 +694,10 @@ class PipelineRunner:
                     progress_callback=_asm_progress,
                     playback_speed=_pb_speed,
                     burn_subtitles=_burn,
+                    subtitle_style=_style,
+                    bg_music_path=_bg_music,
+                    bg_music_volume=_bg_vol,
+                    logo_watermark=_ctx.get("logo_watermark"),
                 )
                 self._emit(5, f"Documentary rendered: {video_path}", "SUCCESS")
                 break  # success
@@ -596,66 +709,6 @@ class PipelineRunner:
                 if not self.running:
                     return
                 self._emit(5, "🔄 Retrying assembly …", "INFO")
-
-        # ── Step 5.5: Video preview (loop: approve, or regen audio/video, then re-preview) ─
-        if config.get("video_preview_enabled", True):
-            if not self.running:
-                return
-            self._doc_regen_ctx = {
-                "run_dir": run_dir,
-                "script": script,
-                "language": language,
-                "aspect_ratio": aspect_ratio,
-                "clips": clips,
-                "audio_path": audio_path,
-                "last_video_path": str(video_path),
-            }
-            try:
-                while self.running:
-                    video_path = Path(self._doc_regen_ctx["last_video_path"])
-                    self._video_preview_action = None
-                    self.pending_video_path = str(video_path)
-                    self.waiting_for_video_preview = True
-                    self._video_preview_event.clear()
-                    self._emit(5, "🎬 Video ready — waiting for your preview …", "INFO")
-                    self._video_preview_event.wait()
-                    self.waiting_for_video_preview = False
-
-                    if not self.running:
-                        return
-                    act = self._video_preview_action
-                    self._video_preview_action = None
-
-                    if act == "approve":
-                        self._emit(5, "Video approved ✓ — continuing …", "SUCCESS")
-                        break
-                    if act in (None, "cancel"):
-                        return
-                    if act == "regen_audio":
-                        if not self.running:
-                            return
-                        try:
-                            self._emit(3, "🎙️ Regenerating voiceover (uses current Settings) …", "INFO")
-                            new_vp = self._documentary_regen_audio(config, self._doc_regen_ctx)
-                            self._doc_regen_ctx["last_video_path"] = str(new_vp)
-                        except Exception as exc:
-                            log.error("Regen audio failed: %s", exc, exc_info=True)
-                            self._emit(5, f"❌ Regen audio failed: {exc}", "ERROR")
-                        continue
-                    if act == "regen_video":
-                        if not self.running:
-                            return
-                        try:
-                            self._emit(4, "📹 Regenerating footage (uses current Settings) …", "INFO")
-                            new_vp = self._documentary_regen_video(config, self._doc_regen_ctx)
-                            self._doc_regen_ctx["last_video_path"] = str(new_vp)
-                        except Exception as exc:
-                            log.error("Regen video failed: %s", exc, exc_info=True)
-                            self._emit(5, f"❌ Regen video failed: {exc}", "ERROR")
-                        continue
-                    return
-            finally:
-                self._doc_regen_ctx = None
 
         # ── Step 6: Upload ────────────────────────────────────────────────
         if not self.running:

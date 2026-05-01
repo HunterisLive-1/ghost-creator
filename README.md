@@ -1,6 +1,6 @@
 <div align="center">
 
-# 👻 Hunter Ghost Creator AI v4.1
+# 👻 Hunter Ghost Creator AI v4.2.2
 
 ### Fully Automated YouTube Shorts Pipeline — Now with GUI + Swappable Backends
 ### by [HunterIsLive](https://github.com/HunterisLive-1)
@@ -17,7 +17,7 @@
 > **One click → Trending research → Hindi/English script → AI voice → 6× AI images → 9:16 Short → YouTube upload.**
 > Now with a full GUI, 5 TTS options, 6 image backends, and 5–10× faster rendering via FFmpeg.
 
-![Ghost Creator Banner](https://img.shields.io/badge/🚀%20Ghost%20Creator%20AI%20v4.1-GUI%20%2B%20Swappable%20Backends-blueviolet?style=for-the-badge)
+![Ghost Creator Banner](https://img.shields.io/badge/🚀%20Ghost%20Creator%20AI%20v4.2.2-GUI%20%2B%20Swappable%20Backends-blueviolet?style=for-the-badge)
 
 </div>
 
@@ -106,7 +106,7 @@ Ghost Creator AI is a **zero-touch YouTube Shorts factory**. Give it a topic (or
 ### Pipeline Tab
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  👻 Ghost Creator AI                              v4.1 🟢 │
+│  👻 Ghost Creator AI                              v4.2.2 🟢 │
 ├─────────────────────────────────────────────────────────┤
 │  ▶ Pipeline  |  ⚙ Settings  |  📋 History               │
 ├─────────────────────────────────────────────────────────┤

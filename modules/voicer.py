@@ -20,8 +20,8 @@ from pathlib import Path
 
 from config import get_base_dir, get_ffmpeg_executable, get_logger
 from core.config_manager import config
-
-_FFMPEG = get_ffmpeg_executable()
+from modules.tts_lang_support import assert_tts_backend_supports_language
+from modules.tts_number_normalize import expand_numbers_in_text
 
 # Suppress CMD window flash on Windows for all subprocess calls
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -139,7 +139,12 @@ def run_voiceover(
     if not valid:
         raise ValueError(f"TTS backend {backend.name} config error: {error}")
 
+    tts_backend_id = (config.get("tts.backend") or "omnivoice").strip().lower()
+    assert_tts_backend_supports_language(tts_backend_id, language)
+
     log.info(f"Generating voiceover with {backend.name} ({len(text)} chars, lang={language})")
+
+    text = expand_numbers_in_text(text, language)
 
     # Run the async synthesize method
     result = asyncio.run(backend.synthesize(text, language, voiceover_path))
@@ -266,7 +271,7 @@ def _apply_voice_post_process(audio_path: Path) -> Path:
 
     for label, af in _voice_post_filter_candidates(lufs):
         cmd = [
-            _FFMPEG, "-y",
+            get_ffmpeg_executable(), "-y",
             "-i", str(audio_path),
             "-af", af,
             "-vn",

@@ -1,1 +1,1 @@
-# core/ — Ghost Creator AI v4.1 core modules
+# core/ — Ghost Creator AI v4.2.2 core modules

@@ -59,6 +59,7 @@ class VideoPreviewWindow(ctk.CTkToplevel):
         on_regen_audio=None,
         on_regen_video=None,
         on_edit_plan=None,
+        on_edit_clips=None,
     ):
         super().__init__(parent)
         self._video_path = video_path
@@ -67,12 +68,14 @@ class VideoPreviewWindow(ctk.CTkToplevel):
         self._on_regen_audio = on_regen_audio
         self._on_regen_video = on_regen_video
         self._on_edit_plan = on_edit_plan
+        self._on_edit_clips = on_edit_clips
         self._has_doc_regen = bool(on_regen_audio and on_regen_video)
         self._has_edit_plan = bool(on_edit_plan)
+        self._has_edit_clips = bool(on_edit_clips)
 
         self.title("🎬 Video Preview — Step 5 of 6")
-        _h = 520 if (self._has_doc_regen and self._has_edit_plan) else (480 if self._has_doc_regen else 380)
-        _mh = 440 if (self._has_doc_regen and self._has_edit_plan) else (400 if self._has_doc_regen else 340)
+        _h = 580 if (self._has_doc_regen and self._has_edit_plan) else (480 if self._has_doc_regen else 380)
+        _mh = 480 if (self._has_doc_regen and self._has_edit_plan) else (400 if self._has_doc_regen else 340)
         self.geometry(f"640x{_h}")
         self.minsize(560, _mh)
         self.configure(fg_color=BG_MAIN)
@@ -171,6 +174,21 @@ class VideoPreviewWindow(ctk.CTkToplevel):
                 height=40,
                 command=self._do_edit_plan,
             ).pack(fill="x", padx=20, pady=(0, 4))
+            
+        # ── Documentary: edit clips (Timeline) ───────────────────────────
+        if self._on_edit_clips:
+            ctk.CTkButton(
+                self,
+                text="✂️  EDIT CLIPS (TIMELINE)…",
+                font=("Orbitron", 11, "bold"),
+                fg_color="#330044",
+                hover_color="#A020F0",
+                border_color="#A020F0",
+                border_width=1,
+                text_color="#A020F0",
+                height=40,
+                command=self._do_edit_clips,
+            ).pack(fill="x", padx=20, pady=(0, 4))
 
         # ── Documentary: regen row (re-reads Settings) ────────────────────
         if self._has_doc_regen:
@@ -260,3 +278,9 @@ class VideoPreviewWindow(ctk.CTkToplevel):
             return
         self.destroy()
         self._on_edit_plan()
+
+    def _do_edit_clips(self):
+        if not self._on_edit_clips:
+            return
+        self.destroy()
+        self._on_edit_clips()

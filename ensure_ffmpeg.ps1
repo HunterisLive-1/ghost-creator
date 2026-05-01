@@ -1,5 +1,5 @@
-# Ensures ffmpeg\ffmpeg.exe + ffmpeg\ffprobe.exe exist for PyInstaller --add-data.
-# If missing, downloads BtbN win64 GPL build (same layout every release).
+# Ensures ffmpeg\ffmpeg.exe + ffmpeg\ffprobe.exe in the repo (for `python gui/app.py`).
+# NOT used by PyInstaller anymore — the installed .exe downloads FFmpeg on first run to AppData.
 # Run from repo root: powershell -ExecutionPolicy Bypass -File ensure_ffmpeg.ps1
 
 Set-StrictMode -Version Latest

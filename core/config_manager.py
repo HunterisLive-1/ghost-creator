@@ -97,6 +97,13 @@ DEFAULT_CONFIG: dict = {
     "documentary.segments": 0,          # 0 = auto (~1 per 12s, max 100); else fixed clip count
     "documentary.playback_speed": 1.0,  # final doc: 1.0 = normal speed (video + voice in sync)
     "documentary.burn_subtitles": False,  # long-form only: hardcoded white bold subs at bottom
+    # Logo watermark (PNG/JPG), applied after subs/music on final export. Path stored in user data dir.
+    "documentary.logo_enabled": False,
+    "documentary.logo_path": "",
+    "documentary.logo_position": "bottom_right",
+    "documentary.logo_scale": 0.15,
+    "documentary.logo_margin": 24,
+    "documentary.logo_opacity": 1.0,
     "img2video_enabled": False,
     "img2video_backend": "kling_standard",
     "img2video_duration": "5",
@@ -261,7 +268,7 @@ VIDEO_WIDTH={VIDEO_WIDTH}
 VIDEO_HEIGHT={VIDEO_HEIGHT}
 
 # ── PIPELINE SETTINGS ────────────────────────────────────────────
-# Script + voiceover language: hi en mr bn gu ta (Hindi, English, Marathi, Bengali, Gujarati, Tamil)
+# Script + voiceover language: hi en mr bn gu ta te or hinglish (Odia uses ISO `or`; OmniVoice tag `ory`)
 LANGUAGE={LANGUAGE}
 
 # YouTube upload visibility: unlisted | public | draft
@@ -558,7 +565,7 @@ class ConfigManager:
             self.set("cinematic_effects", cinematic_effects)
             changed = True
 
-        allowed_langs = ("hi", "en", "mr", "bn", "gu", "ta")
+        allowed_langs = ("hi", "hinglish", "en", "mr", "bn", "gu", "ta", "te", "or")
         plang = self.get("pipeline.language", DEFAULT_CONFIG["pipeline"]["language"])
         if plang not in allowed_langs:
             self.set("pipeline.language", DEFAULT_CONFIG["pipeline"]["language"])
