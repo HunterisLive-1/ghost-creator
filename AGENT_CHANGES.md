@@ -1108,3 +1108,66 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
     - **`_workshop_send` — smart start detection**: `_user_wants_to_start()` checks message for ~20 start-intent phrases (start, generate, banao, bana do, chalo banao, go ahead, create now, shuru karo, etc.) and immediately triggers generation without a Gemini round-trip.
     - **All remaining `_workshop_append` calls** updated to new (who, text, kind) signature.
 - Reason: User requested premium AI chat redesign, Ghost AI branding replacing Gemini label, unlimited conversational sessions, and smart video-creation intent detection.
+
+---
+
+## 2026-05-01 — Build v4.3.0: Fix missing hidden-imports + version bump
+
+- Changes:
+  - `build.bat`:
+    - Added 6 missing `--hidden-import` entries that would cause import errors in the frozen .exe:
+      - `gui.tabs.history_tab`
+      - `core.clip_manager`
+      - `core.vlc_helper`
+      - `modules.error_analyst`
+      - `modules.tts_lang_support`
+      - `modules.tts_number_normalize`
+    - Added `--hidden-import vlc` (python-vlc module used by clip editor preview).
+    - Added `--collect-all pydub` (pydub has data files that must be collected).
+    - Bumped version label to v4.3.0.
+  - `installer_v4.iss`:
+    - Bumped `MyAppVersion` from 4.2.2 → 4.3.0.
+    - Updated `OutputBaseFilename` to `GhostCreatorAI_v4.3.0_Setup`.
+- Reason: User asked to verify build correctness before running build.bat + Inno Setup. Several new modules added since v4.2.2 were missing from the PyInstaller hidden-import list, which would have caused `ModuleNotFoundError` at runtime in the frozen .exe.
+
+---
+
+## 2026-05-01 — Website: Ghost Creator Flash Sale ₹199 + v4.2.2 version
+
+- Changes:
+  - `maya-assistant-website/src/app/ghost-creator/page.tsx`:
+    - Version badge updated: `v4.0 PRO · Windows App` → `v4.2.2 PRO · Windows App`.
+    - Added `SALE_END = new Date("2026-05-16T23:59:59+05:30")`, `isSaleActive`, `daysLeft` logic.
+    - `price` variable now returns `"199"` while sale is active, otherwise falls back to `NEXT_PUBLIC_PRICE_GHOST || "579"`.
+    - Added orange flash-sale banner right below Navbar: "🔥 FLASH SALE — Ghost Creator AI sirf ₹199 (was ₹579) · X din baaki · Ends 16 May 2026".
+    - Pricing section updated: shows ₹999 struck → ₹579 struck (when sale active) → ₹199 large; sale badge with countdown; note "Price wapas ₹579 ho jaayegi 16 May ke baad".
+    - Download filename updated: `GhostCreatorAI_v4_Setup.exe` → `GhostCreatorAI_v4.2.2_Setup.exe` (both `a.download` attribute and button text).
+  - `maya-assistant-website/src/app/page.tsx`:
+    - Ghost Creator cross-sell section: added orange flash-sale badge "🔥 FLASH SALE — sirf 15 din · Ends 16 May 2026".
+    - Feature bullet updated: "Lifetime access for just ₹579" → "Lifetime access — was ₹579, ab sirf ₹199".
+    - Buy button: changed gradient to orange/red, text → "🔥 Buy Now ₹199".
+    - Price badge on image card: "₹579" → "🔥 ₹199 ~~₹579~~".
+- Reason: User requested 15-day flash sale at ₹199 for Ghost Creator, and version number update to 4.2.2 across the website.
+
+---
+
+## 2026-05-01 — Website: Sale fully env-controlled (no hardcoded dates/prices)
+
+- Changes:
+  - `maya-assistant-website/src/app/ghost-creator/page.tsx`:
+    - Removed hardcoded `SALE_END` date and `daysLeft` calculation entirely.
+    - Sale is now controlled by 3 env vars: `NEXT_PUBLIC_GHOST_SALE_ACTIVE`, `NEXT_PUBLIC_GHOST_SALE_PRICE`, `NEXT_PUBLIC_GHOST_SALE_LABEL`.
+    - Banner and pricing section render conditionally only when `NEXT_PUBLIC_GHOST_SALE_ACTIVE=true`; end-date text comes from `NEXT_PUBLIC_GHOST_SALE_LABEL`.
+  - `maya-assistant-website/src/app/page.tsx`:
+    - Flash sale badge, feature bullet, buy button, and price badge all read from the same 3 env vars.
+    - When sale is off, everything reverts to normal blue styling and `NEXT_PUBLIC_PRICE_GHOST` price.
+- Reason: User wanted to control sale entirely from `.env` — turn on/off, change price, change end label — without touching code.
+
+---
+
+- Date/Time: 2026-05-01 19:46
+- Task: PyInstaller — reduce build noise / optional submodule warnings
+- Changes:
+  - `build.bat`: `PYTHONWARNINGS=ignore::SyntaxWarning` add kiya (tamil/pydub etc. ke hundreds of SyntaxWarning logs kam); PyInstaller `--exclude-module` add: `google.genai.tests`, `pytest`, `tensorboard`, `torch.utils.tensorboard`, `urllib3.contrib.emscripten` (yeh sab app runtime ke liye zaroori nahi, analysis warnings kam).
+  - `GhostCreatorAI.spec`: `Analysis(..., excludes=[...])` mein same module names mirror kiye taaki spec se build karne par bhi match rahe.
+- Reason: User ke build log mein submodule collection aur third-party SyntaxWarning spam aa raha tha; exclusions se PyInstaller WARNINGS kam aur log readable; aborted build dubara clean chalayenge to zyada clear output milega.
