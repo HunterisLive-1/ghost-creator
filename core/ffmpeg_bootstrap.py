@@ -207,6 +207,67 @@ def ensure_ffmpeg_downloaded(
         return dest
 
 
+_pydub_patched = False
+
+
+def configure_pydub_subprocess() -> None:
+    """
+    Patch pydub so that:
+      1. It uses our cached ffmpeg / ffprobe binaries (frozen or dev).
+      2. Its subprocess calls never spawn a visible CMD window on Windows.
+
+    Safe to call multiple times (idempotent).  Call once at app startup,
+    before any AudioSegment operations.
+    """
+    global _pydub_patched
+    if _pydub_patched:
+        return
+    _pydub_patched = True
+
+    try:
+        import pydub
+        import pydub.utils
+
+        # ── point pydub at our ffmpeg / ffprobe binaries ──────────────────
+        ff_dir = runtime_ffmpeg_dir()
+        ff_n, fp_n = _exe_names()
+        ff_exe = ff_dir / ff_n
+        fp_exe = ff_dir / fp_n
+
+        # Also check PATH fallbacks
+        if not ff_exe.is_file():
+            _found = shutil.which("ffmpeg")
+            if _found:
+                ff_exe = Path(_found)
+        if not fp_exe.is_file():
+            _found = shutil.which("ffprobe")
+            if _found:
+                fp_exe = Path(_found)
+
+        if ff_exe.is_file():
+            pydub.AudioSegment.converter = str(ff_exe)
+        if fp_exe.is_file():
+            pydub.AudioSegment.ffprobe = str(fp_exe)
+
+        # ── suppress CMD window flash on Windows ──────────────────────────
+        if sys.platform == "win32":
+            import subprocess as _sp
+
+            _OrigPopen = pydub.utils.Popen
+
+            class _SilentPopen(_OrigPopen):  # type: ignore[misc]
+                def __init__(self, args, **kwargs):
+                    kwargs.setdefault("creationflags", _sp.CREATE_NO_WINDOW)
+                    # Ensure null handles so a windowless parent doesn't cause hangs
+                    kwargs.setdefault("stdin", _sp.DEVNULL)
+                    super().__init__(args, **kwargs)
+
+            pydub.utils.Popen = _SilentPopen
+
+    except Exception:
+        pass  # pydub not installed or import failed — waveforms just won't render
+
+
 def prepare_ffmpeg_runtime(*, progress=None, progress_ratio=None, ui_tick=None) -> None:
     """
     For frozen Windows .exe only: download FFmpeg if missing.

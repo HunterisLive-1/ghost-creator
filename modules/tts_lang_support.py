@@ -91,9 +91,9 @@ def assert_tts_backend_supports_language(backend_name: str | None, pipeline_lang
     Raise ValueError with a user-facing message if this backend cannot
     synthesize the pipeline language in Ghost.
 
-    - OmniVoice: multilingual (Telugu/Odia supported; Odia uses tag ``ory``).
+    - OmniVoice:  multilingual (Telugu/Odia supported; Odia uses tag ``ory``).
     - ElevenLabs: ``eleven_multilingual_v2`` — allowed (choose a multilingual voice).
-    - Edge TTS: only languages with a known Neural voice mapping.
+    - Edge TTS:   only languages with a known Neural voice mapping.
     """
     b = (backend_name or "").strip().lower()
     lang = normalize_pipeline_language(pipeline_lang)
@@ -112,5 +112,6 @@ def assert_tts_backend_supports_language(backend_name: str | None, pipeline_lang
                 f"{', '.join(sorted(EDGE_TTS_SUPPORTED_LANGS))}."
             )
         return
+
     if b in ("omnivoice", "elevenlabs"):
         return

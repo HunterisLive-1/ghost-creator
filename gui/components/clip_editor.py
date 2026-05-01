@@ -93,6 +93,13 @@ def _compute_waveform_envelope(path: Path, n_bars: int) -> list[float]:
         from pydub import AudioSegment
     except ImportError:
         return []
+    # Ensure pydub uses our bundled ffmpeg and never shows a CMD window.
+    # This is idempotent so calling it each time is safe.
+    try:
+        from core.ffmpeg_bootstrap import configure_pydub_subprocess
+        configure_pydub_subprocess()
+    except Exception:
+        pass
     try:
         audio = AudioSegment.from_file(str(path))
         if len(audio) < 1:

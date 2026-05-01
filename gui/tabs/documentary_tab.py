@@ -969,29 +969,8 @@ class DocumentaryTab(ctk.CTkFrame):
             command=self._save_segments,
         ).pack(side="left", padx=(8, 20))
 
-        # Max clip duration
-        ctk.CTkLabel(row1, text="Max clip dur:",
-                     font=("Share Tech Mono", 12), text_color=TEXT_SEC,
-                     ).pack(side="left")
-
-        self._clip_dur_var = tk.StringVar(
-            value=str(int(config.get("documentary.max_clip_duration", 120)))
-        )
-        ctk.CTkOptionMenu(
-            row1,
-            values=["30", "60", "90", "120", "180", "300"],
-            variable=self._clip_dur_var,
-            width=90,
-            font=("Share Tech Mono", 12),
-            fg_color=BG_MAIN, button_color=ACCENT_DOC,
-            button_hover_color=ACCENT_PRI, text_color=TEXT_PRI,
-            dropdown_fg_color=BG_CARD, dropdown_text_color=TEXT_PRI,
-            dropdown_hover_color=BG_MAIN, corner_radius=0,
-            command=self._save_clip_dur,
-        ).pack(side="left", padx=(8, 20))
-        ctk.CTkLabel(row1, text="s",
-                     font=("Share Tech Mono", 11), text_color=TEXT_SEC,
-                     ).pack(side="left")
+        # Max clip duration is auto-calculated in the pipeline (total_duration / n_clips)
+        # so no manual control needed here.
 
         row3 = ctk.CTkFrame(inner, fg_color="transparent")
         row3.pack(fill="x", pady=(12, 0))
@@ -1033,12 +1012,6 @@ class DocumentaryTab(ctk.CTkFrame):
     def _save_segments(self, val: str) -> None:
         try:
             config.set("documentary.segments", 0 if val == "Auto" else int(val))
-        except ValueError:
-            pass
-
-    def _save_clip_dur(self, val: str) -> None:
-        try:
-            config.set("documentary.max_clip_duration", int(val))
         except ValueError:
             pass
 

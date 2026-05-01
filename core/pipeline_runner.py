@@ -15,12 +15,39 @@ Usage:
 
 import queue
 import re
+import subprocess
+import sys
 import threading
 from datetime import datetime
 from pathlib import Path
 from config import get_logger, OUTPUT_DIR
 
 log = get_logger("pipeline")
+
+_NO_WINDOW: int = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+
+def _has_gpu() -> bool:
+    """
+    Return True if an NVIDIA CUDA GPU is available.
+    Fast check — uses nvidia-smi (always present on CUDA systems).
+    Falls back to torch.cuda.is_available() if nvidia-smi is not on PATH.
+    """
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, timeout=5,
+            creationflags=_NO_WINDOW,
+        )
+        return r.returncode == 0 and bool(r.stdout.strip())
+    except Exception:
+        pass
+    try:
+        import torch  # type: ignore[import-untyped]
+        return torch.cuda.is_available()
+    except ImportError:
+        pass
+    return False
 
 
 def _make_run_dir(title: str, config, fallback: Path) -> Path:
@@ -356,8 +383,15 @@ class PipelineRunner:
 
         script = ctx["script"]
         run_dir = Path(ctx["run_dir"])
-        self._emit(4, f"📹 Re-downloading {len(script['segments'])} footage clips …", "INFO")
-        max_clip_dur = int(config.get("documentary.max_clip_duration", 120))
+        n_segs = len(script["segments"])
+        self._emit(4, f"📹 Re-downloading {n_segs} footage clips …", "INFO")
+        # Auto-calculate: spread total audio duration evenly, with a small buffer
+        try:
+            from modules.documentary_assembler import _probe_duration as _pd
+            _audio_dur = _pd(Path(ctx["audio_path"]))
+        except Exception:
+            _audio_dur = float(ctx.get("target_duration", 600))
+        max_clip_dur = max(30, int(_audio_dur / max(1, n_segs)) + 20)
         clips_dir = run_dir / "clips"
         clips = fetch_clips(
             script["segments"],
@@ -524,6 +558,18 @@ class PipelineRunner:
             pass
 
         # ── Step 3: Voiceover (with retry) ───────────────────────────────
+        # OmniVoice GPU check — warn CPU-only users before they wait hours
+        _tts_backend = config.get("tts.backend", "omnivoice")
+        if _tts_backend == "omnivoice" and not _has_gpu():
+            self._emit(
+                3,
+                "⚠️  OmniVoice GPU Warning: CUDA GPU not detected on this system.\n"
+                "   OmniVoice runs on CPU but is extremely slow (2–5 hrs for a 10-min video).\n"
+                "   Recommended for CPU users: switch to Edge TTS (free, all Indian languages).\n"
+                "   Settings → AUDIO SUBROUTINE → change backend, then retry.",
+                "WARNING",
+            )
+
         from modules.voicer import run_voiceover
 
         def _voice_progress(msg: str) -> None:
@@ -559,7 +605,10 @@ class PipelineRunner:
         def _fetch_progress(msg: str) -> None:
             self._emit(4, msg, "INFO")
 
-        max_clip_dur = int(config.get("documentary.max_clip_duration", 120))
+        # Auto-calculate max clip duration: evenly divide total voiceover duration
+        # across clips with a small buffer, clamped to a sensible range.
+        _auto_clip_dur = max(30, int(target_duration / max(1, num_segs)) + 20)
+        max_clip_dur = _auto_clip_dur
         clips_dir = run_dir / "clips"
         clips: list | None = None
         while True:

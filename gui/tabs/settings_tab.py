@@ -30,14 +30,15 @@ TEXT_HINT   = "#4A6080"
 # ── Per-backend beginner descriptions ─────────────────────────────────────────
 TTS_DESCRIPTIONS = {
     "omnivoice": (
-        "🎙️ OmniVoice — local clone/design. run.bat (server) ya pip. Reference .wav, GPU help.\n"
-        "   Details: neeche fold \"OmniVoice\" mein."
+        "🎙️ OmniVoice — local voice cloning. GPU strongly recommended (CPU = 2–5 hrs/video).\n"
+        "   Hindi/all Indian languages ✅. run.bat (server) ya pip. Details: neeche 'OmniVoice' fold."
     ),
     "edge_tts": (
-        "✅ Edge TTS — free cloud, no key. Hindi/English voices neeche \"Edge TTS & ElevenLabs\" fold mein."
+        "✅ Edge TTS — free cloud, no API key. Hindi/English/regional Indian voices.\n"
+        "   Internet required. Fast & reliable — best choice for CPU users with Indian languages."
     ),
     "elevenlabs": (
-        "⭐ ElevenLabs — API key chahiye; neeche Voice ID + tuning fold mein (paid, best quality)."
+        "⭐ ElevenLabs — API key chahiye; paid cloud, best quality. Details: neeche fold mein."
     ),
 }
 
@@ -118,7 +119,6 @@ class SettingsTab(ctk.CTkFrame):
         self._build_api_keys_section(scroll)
         self._build_tts_section(scroll)
         self._build_video_format_section(scroll)
-        self._build_script_generation_section(scroll)
         self._build_pipeline_section(scroll)
         self._build_license_section(scroll)
 
@@ -989,8 +989,19 @@ class SettingsTab(ctk.CTkFrame):
         else:
             self._upload.configure(state="disabled")
 
-    # ── Section: Script Generation ────────────────────────────────────────
-    def _build_script_generation_section(self, parent):
+    # _build_script_generation_section removed — functionality merged into
+    # the "AI SCRIPT PROVIDER" cell in _build_video_format_section (quick grid).
+
+    def _on_provider_switch(self, value: str):
+        self._gemini_frame.pack_forget()
+        self._ollama_frame.pack_forget()
+        if value == "Ollama":
+            self._ollama_frame.pack(fill="x")
+        else:
+            self._gemini_frame.pack(fill="x")
+
+    # ── (legacy placeholder — kept for grep-ability) ──────────────────────
+    def _build_script_generation_section_REMOVED(self, parent):
         # Model IDs verified from Google AI Studio Rate Limit page (Mar 2026)
         # Format: "Display · RPM/RPD · Cost"
         GEMINI_MODELS = [
@@ -1209,14 +1220,6 @@ class SettingsTab(ctk.CTkFrame):
 
         # Show correct frame on init
         self._on_provider_switch(self._provider_var.get())
-
-    def _on_provider_switch(self, value: str):
-        self._gemini_frame.pack_forget()
-        self._ollama_frame.pack_forget()
-        if value == "Ollama":
-            self._ollama_frame.pack(fill="x")
-        else:
-            self._gemini_frame.pack(fill="x")
 
     # ── Ollama helpers ────────────────────────────────────────────────────
     def _probe_ollama_async(self):

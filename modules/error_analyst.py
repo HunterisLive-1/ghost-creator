@@ -34,8 +34,7 @@ PIPELINE STEPS (in order):
   Step 2 — SCRIPT     : Generates narration script using Gemini AI (JSON output).
                         Requires: Gemini API key in Settings → API Keys.
   Step 3 — VOICE      : Synthesises narration audio using selected TTS backend.
-                        Backends: Edge TTS (free), ElevenLabs (paid), Chatterbox (local GPU),
-                                  Google TTS (paid JSON key), Kokoro (free local).
+                        Backends: Edge TTS (free cloud), ElevenLabs (paid cloud), OmniVoice (local GPU).
   Step 4 — FOOTAGE    : Downloads video clips from YouTube / Pexels using yt-dlp.
                         Requires: yt-dlp installed + internet + valid Pexels API key (if Pexels).
   Step 5 — ASSEMBLY   : Assembles video using FFmpeg. FFmpeg must be in PATH.

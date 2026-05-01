@@ -1171,3 +1171,66 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
   - `build.bat`: `PYTHONWARNINGS=ignore::SyntaxWarning` add kiya (tamil/pydub etc. ke hundreds of SyntaxWarning logs kam); PyInstaller `--exclude-module` add: `google.genai.tests`, `pytest`, `tensorboard`, `torch.utils.tensorboard`, `urllib3.contrib.emscripten` (yeh sab app runtime ke liye zaroori nahi, analysis warnings kam).
   - `GhostCreatorAI.spec`: `Analysis(..., excludes=[...])` mein same module names mirror kiye taaki spec se build karne par bhi match rahe.
 - Reason: User ke build log mein submodule collection aur third-party SyntaxWarning spam aa raha tha; exclusions se PyInstaller WARNINGS kam aur log readable; aborted build dubara clean chalayenge to zyada clear output milega.
+
+---
+
+- Date/Time: 2026-05-01 20:39
+- Task: Fix EXE/Installer "Not Responding" + continuous CMD flashing when Ghost Editor opens
+- Root causes found & fixed:
+  1. **pydub subprocess CMD flashing** — pydub's `AudioSegment.from_file()` calls ffprobe/ffmpeg via `subprocess.Popen` without `CREATE_NO_WINDOW`, causing CMD windows to flash repeatedly during waveform generation.
+  2. **pydub ffmpeg path unknown in frozen env** — pydub didn't know about `%LOCALAPPDATA%\GhostCreatorAI\ffmpeg`; it tried to run bare `ffmpeg` which either hangs or fails.
+  3. **`multiprocessing.freeze_support()` missing** — Required for `--onefile` frozen exe; missing it can cause subprocess spawning to deadlock.
+  4. **`sys.stdout`/`sys.stderr` are `None`** in `--windowed` frozen exe — any stray `print()` or logging write crashes the app.
+  5. **`core/clip_manager.py` subprocess calls missing `CREATE_NO_WINDOW`** — `get_clip_duration()` spawns ffprobe per clip (up to 14 calls) without the flag.
+- Changes:
+  - `core/ffmpeg_bootstrap.py`: Added `configure_pydub_subprocess()` function — sets `pydub.AudioSegment.converter` / `.ffprobe` to our cached binaries, patches `pydub.utils.Popen` to use `CREATE_NO_WINDOW` + `stdin=DEVNULL`.
+  - `gui/app.py`: (a) Redirect `sys.stdout`/`sys.stderr` to devnull when frozen; (b) Call `configure_pydub_subprocess()` early in `_init_main_ui()`; (c) Add `multiprocessing.freeze_support()` inside `if __name__ == '__main__':` guard.
+  - `gui/components/clip_editor.py`: Call `configure_pydub_subprocess()` inside `_compute_waveform_envelope()` as a safety fallback before any pydub usage.
+  - `core/clip_manager.py`: Added `_NO_WINDOW` constant; applied `creationflags=_NO_WINDOW` to all three `subprocess.run()` calls in `get_clip_duration()` and `_run_ffmpeg()`.
+- Reason: Running the compiled EXE/installer resulted in "Ghost Editor (Not Responding)" and continuous CMD window flashing immediately after clip sync when the Ghost Editor opened. The same code ran fine via `python gui/app.py` because pydub finds ffmpeg on venv PATH and cmd windows are visible. In `--windowed` frozen exe, these subprocess calls expose the bugs.
+
+---
+
+- Date/Time: 2026-05-01 21:01
+- Task: AI Workshop language fix + more discussion + auto clip-dur + remove duplicate Script Generation
+- Changes:
+  - `modules/scripter.py` — `_CONSULTANT_SYSTEM` prompt updated:
+    1. **Language rule**: AI now detects user's language and replies in the same language (English → English, Hindi/Hinglish → Hindi). PLAN block values (TOPIC, META_TITLE, META_TAGS) are always in English for YouTube metadata.
+    2. **More discussion required**: AI now requires at least 3–4 meaningful exchanges before auto-emitting the PLAN block. Previously it started after 1–2 messages. Explicit start commands (rule 1) still trigger immediately. Updated acknowledgement model message to match.
+  - `gui/tabs/documentary_tab.py` — Footage Settings:
+    - Removed "Max clip dur:" dropdown and label from UI.
+    - Removed `_save_clip_dur()` method.
+    - Clip duration is now fully auto-calculated in the pipeline.
+  - `core/pipeline_runner.py`:
+    - Main pipeline: `max_clip_dur` now auto-calculated as `(total_duration / n_segments) + 20s buffer` instead of reading `documentary.max_clip_duration` from config.
+    - Regen path (`_documentary_regen_video`): same auto-calculation using actual audio file duration via `_probe_duration`.
+  - `gui/tabs/settings_tab.py`:
+    - Removed `self._build_script_generation_section(scroll)` call from `_init_ui`.
+    - Deleted the entire `_build_script_generation_section` method body (renamed to `_REMOVED` as tombstone).
+    - Moved `_on_provider_switch` to sit right after the removed section comment so it's still defined and available (previously it was inside the removed section's block area).
+    - The "AI SCRIPT PROVIDER" quick-grid cell (c11) already contained Gemini model dropdown + Ollama URL/model entry — this is now the single source of truth.
+- Reason: User requested: (1) AI replies in English when user speaks English; (2) AI should have more conversation before auto-starting; (3) clip duration should be smart/auto; (4) duplicate Script Generation section removed from settings.
+
+---
+
+- Date/Time: 2026-05-01 21:21
+- Task: Kokoro TTS — added then immediately removed (Hindi not supported)
+- Changes:
+  - `backends/tts/kokoro_tts.py`: Created then deleted — Kokoro TTS only supports English/French/Italian/Japanese/Chinese, NOT Hindi or any Indian language.
+  - `modules/voicer.py`: kokoro entry added then removed from BACKEND_MAP.
+  - `modules/tts_lang_support.py`: Kokoro language constants added then removed.
+  - `gui/tabs/settings_tab.py`: Kokoro description added then removed from TTS_DESCRIPTIONS. OmniVoice description updated to note GPU requirement.
+  - `core/pipeline_runner.py`: Added `_has_gpu()` utility + OmniVoice GPU warning (kept). Kokoro mention in warning text replaced with Edge TTS.
+  - `modules/error_analyst.py`: Removed stale Kokoro mention from backend list.
+- Reason: User requested Kokoro TTS for CPU users, but Kokoro v1.0 doesn't support Hindi/Indian languages. User confirmed to remove it entirely. GPU warning for OmniVoice and _has_gpu() utility were kept as they are useful regardless.
+
+---
+
+- Date/Time: 2026-05-01 21:26
+- Task: Version sync to 4.2.2 across all files
+- Changes:
+  - `installer_v4.iss`: `#define MyAppVersion` changed from `"4.2.0"` → `"4.2.2"` (was the only mismatch).
+  - `config.py`: Already `APP_VERSION = "4.2.2"` ✅
+  - `build.bat`: Already says `v4.2.2` in echo labels ✅
+  - `README.md`: Already `v4.2.2` ✅
+- Reason: User requested all version strings be `4.2.2`.

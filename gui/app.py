@@ -7,6 +7,15 @@ import tkinter as tk
 from pathlib import Path
 import customtkinter as ctk
 
+# In --windowed frozen exe, stdout/stderr are None; redirect to devnull so
+# any stray print() or logging call doesn't crash the app.
+if getattr(sys, "frozen", False):
+    import os
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")
+
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
@@ -136,6 +145,12 @@ class GhostCreatorApp(ctk.CTk):
 
     # ── Main UI (built only after license is confirmed) ───────────────────────
     def _init_main_ui(self):
+        # Patch pydub subprocess early so waveform builds never flash CMD windows
+        try:
+            from core.ffmpeg_bootstrap import configure_pydub_subprocess
+            configure_pydub_subprocess()
+        except Exception:
+            pass
         self._prepare_ffmpeg_on_first_run()
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True)
@@ -245,5 +260,9 @@ class GhostCreatorApp(ctk.CTk):
             self.dot_canvas.create_oval(6, 6, 14, 14, fill=ACCENT_RED, outline="", tags="dot")
 
 if __name__ == "__main__":
+    # Required for PyInstaller --onefile frozen exe so child processes
+    # (e.g. spawned by pydub/ffprobe) don't re-execute the whole app.
+    import multiprocessing
+    multiprocessing.freeze_support()
     app = GhostCreatorApp()
     app.mainloop()

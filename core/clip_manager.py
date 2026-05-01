@@ -19,6 +19,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,11 @@ from typing import Optional
 from config import get_logger, get_ffmpeg_executable, get_ffprobe_executable
 
 log = get_logger("clip_manager")
+
+# Suppress CMD window flash in frozen Windows exe
+_NO_WINDOW: int = (
+    subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+)
 
 
 # ── Data classes ──────────────────────────────────────────────────────────────
@@ -67,6 +73,7 @@ def get_clip_duration(path: Path) -> float:
             [fp_bin, "-v", "quiet", "-print_format", "json",
              "-show_streams", str(path)],
             capture_output=True, text=True, timeout=20,
+            creationflags=_NO_WINDOW,
         )
         data = json.loads(result.stdout)
         for stream in data.get("streams", []):
@@ -79,6 +86,7 @@ def get_clip_duration(path: Path) -> float:
             [fp_bin, "-v", "quiet", "-print_format", "json",
              "-show_format", str(path)],
             capture_output=True, text=True, timeout=20,
+            creationflags=_NO_WINDOW,
         )
         data2 = json.loads(result2.stdout)
         dur = data2.get("format", {}).get("duration")
@@ -125,7 +133,9 @@ def _run_ffmpeg(args: list[str], timeout: int = 180) -> None:
     """Run an ffmpeg command, raising RuntimeError on failure."""
     cmd = [get_ffmpeg_executable(), "-y"] + args
     log.debug("ffmpeg: %s", " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    result = subprocess.run(
+        cmd, capture_output=True, timeout=timeout, creationflags=_NO_WINDOW,
+    )
     if result.returncode != 0:
         err = result.stderr.decode("utf-8", errors="replace")[-600:]
         raise RuntimeError(f"FFmpeg error:\n{err}")

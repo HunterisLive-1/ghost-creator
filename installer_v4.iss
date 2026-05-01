@@ -1,5 +1,5 @@
 #define MyAppName "Ghost Creator AI"
-#define MyAppVersion "4.3.0"
+#define MyAppVersion "4.2.2"
 #define MyAppPublisher "HunterIsLive"
 #define MyAppURL "https://getmaya.online"
 #define MyAppExeName "GhostCreatorAI.exe"
@@ -19,7 +19,7 @@ DefaultDirName={autopf}\GhostCreatorAI
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=installer_output
-OutputBaseFilename=GhostCreatorAI_v4.3.0_Setup
+OutputBaseFilename=GhostCreatorAI_v4.2.2_Setup
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\icon.ico
 Compression=lzma2/ultra64
