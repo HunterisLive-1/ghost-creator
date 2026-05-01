@@ -232,8 +232,16 @@ class DocumentaryTab(ctk.CTkFrame):
                 self._on_dur_slider()
             if hasattr(self, "_dur_range_lbl"):
                 self._dur_range_lbl.configure(text="3 min – 2 hrs")
+            # Long-form documentaries are always landscape 16:9
+            config.set("aspect_ratio", "16:9")
+            if save:
+                try:
+                    config.save()
+                except OSError:
+                    pass
         if hasattr(self, "_refresh_burn_subs_state"):
             self._refresh_burn_subs_state()
+        self._refresh_doc_aspect_lbl()
 
     # ── Idea Workshop ─────────────────────────────────────────────────────────
     def _build_idea_workshop(self):
@@ -1413,6 +1421,9 @@ class DocumentaryTab(ctk.CTkFrame):
         config.set("tts.backend", voice_backend)
 
         self._reset_steps()
+        # Long-form is always landscape 16:9; short-form uses saved preference
+        if self._doc_mode == "long":
+            config.set("aspect_ratio", "16:9")
         ar = str(config.get("aspect_ratio", "9:16"))
         self._append_log(
             f"🎬 Documentary pipeline started — mode={self._doc_mode}, "

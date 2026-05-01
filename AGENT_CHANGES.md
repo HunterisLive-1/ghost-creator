@@ -1234,3 +1234,13 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
   - `build.bat`: Already says `v4.2.2` in echo labels ✅
   - `README.md`: Already `v4.2.2` ✅
 - Reason: User requested all version strings be `4.2.2`.
+
+---
+
+- Date/Time: 2026-05-01 21:50
+- Task: Fix aspect ratio bug — Long Form was using 9:16 instead of 16:9
+- Changes:
+  - `gui/tabs/documentary_tab.py`:
+    - In `_apply_mode()`: when mode switches to `"long"`, now automatically sets `config aspect_ratio = "16:9"` and calls `_refresh_doc_aspect_lbl()`.
+    - In `_on_run()`: added safety enforcement — if `_doc_mode == "long"`, force `aspect_ratio = "16:9"` in config before reading `ar` for the pipeline log.
+- Reason: User reported `aspect=9:16` in log when Long Form was selected. Long-form documentaries should always be landscape 16:9. The saved config defaulted to 9:16 (from Short Form preference) and was never overridden when switching to Long mode.
