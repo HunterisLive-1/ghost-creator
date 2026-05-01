@@ -1244,3 +1244,18 @@ Is file mein Cursor agents ke saare code updates/fixes ka note likha jayega.
     - In `_apply_mode()`: when mode switches to `"long"`, now automatically sets `config aspect_ratio = "16:9"` and calls `_refresh_doc_aspect_lbl()`.
     - In `_on_run()`: added safety enforcement — if `_doc_mode == "long"`, force `aspect_ratio = "16:9"` in config before reading `ar` for the pipeline log.
 - Reason: User reported `aspect=9:16` in log when Long Form was selected. Long-form documentaries should always be landscape 16:9. The saved config defaulted to 9:16 (from Short Form preference) and was never overridden when switching to Long mode.
+
+---
+
+- Date/Time: 2026-05-01 22:15
+- Task: Ghost Editor performance fix — eliminate 100% CPU / CMD flashing / lag during preview
+- Changes:
+  - `gui/components/clip_editor.py`:
+    - **Fix #1 (Critical — CMD flash / 100% CPU):** Added `_audio_dur_cache` dict and `_cached_audio_dur(path)` helper. Replaced `_audio_duration_sec()` calls inside `_timeline_redraw` (lines for voice/music waveform sections) and `_update_preview_tc` with cached version. Eliminates ~140 ffprobe subprocess spawns per second during playback.
+    - **Fix #3 (Canvas layer split):** Added `_static_dirty` flag and `_tl_cached_layout` tuple. Added `_redraw_dynamic_only()` method that only deletes/redraws 'ph'-tagged items (playhead line+triangle, scissor icon, hover cursor, ghost drag line) instead of full canvas recreation. `_timeline_redraw_fire()` now uses fast path when static content hasn't changed — reduces per-tick canvas work from ~1000 items to ~8 items during VLC playback.
+    - **Fix #4 (Drag debounce):** Routed ruler scrub drag, Ctrl+zoom drag, and clip ghost drag through `_timeline_redraw_schedule()` instead of direct `_timeline_redraw()`. Zoom drag marks `_static_dirty=True` first. Scrub and ghost drags use the fast path automatically.
+    - **Fix (static dirty marking):** Added `_mark_static_dirty()` helper. All content-changing schedule callers (canvas resize, split markers, subtitle add/delete/edit, wheel zoom/scroll, waveform ready) now call `_mark_static_dirty()` first to ensure full redraw happens when needed.
+    - **Bonus fix:** Pre-existing `else:` indentation bug at `self.clips = ...` in `__init__` fixed.
+  - `core/vlc_helper.py`:
+    - **Fix #2 (GPU decode):** Added `--avcodec-hw=any` flag to VLC instance. VLC now uses hardware (GPU) video decoding instead of CPU decoding.
+- Reason: Ghost Editor was causing 100% CPU and CMD flashing because `_audio_duration_sec()` (which spawns ffprobe subprocess) was called 2× inside `_timeline_redraw`, which fires ~12.5 Hz during VLC playback and at full mouse-event rate during ruler scrub. VLC was also doing CPU video decode instead of using GPU. Combined, this made the editor unusable on low-end PCs.

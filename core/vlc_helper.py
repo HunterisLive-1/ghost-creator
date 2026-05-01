@@ -55,7 +55,7 @@ def get_vlc_instance() -> tuple[object | None, str | None]:
 
     try:
         import vlc  # type: ignore[import-untyped]
-        inst = vlc.Instance("--quiet", "--no-video-title-show")
+        inst = vlc.Instance("--quiet", "--no-video-title-show", "--avcodec-hw=any")
         if inst is None:
             return None, "VLC instance could not be created."
         return inst, None

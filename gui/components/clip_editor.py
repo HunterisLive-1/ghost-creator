@@ -320,7 +320,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
         self.minsize(1100, 740)
         self.configure(fg_color=BG_MAIN)
         self.grab_set()
-
+        
         if clips and (clips[0] is None or not isinstance(clips[0], ClipInfo)):
             self.clips = load_clips(list(clips), script_segments)
         else:
@@ -331,7 +331,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
         self.run_dir = Path(run_dir)
         self.aspect_ratio = aspect_ratio
         self.on_done = on_done
-
+        
         self.bg_music_path  = None
         self.bg_volume      = 0.3   # music mix  0.0–1.5
         self._voice_volume  = 1.0   # voice volume 0.0–1.0
@@ -356,6 +356,15 @@ class ClipEditorWindow(ctk.CTkToplevel):
         self._music_env: list[float] | None = None
         self._preview_mux_path = self.run_dir / "_ghost_editor_preview_mux.mp4"
         self._wave_gen = 0
+
+        # ── audio duration cache (avoid ffprobe in hot redraw path) ──────
+        self._audio_dur_cache: dict = {}
+
+        # ── static/dynamic canvas layer state ────────────────────────────
+        # True  → next redraw is a full redraw (delete+recreate everything)
+        # False → only dynamic items (playhead, ghost, hover) are redrawn
+        self._static_dirty: bool = True
+        self._tl_cached_layout: tuple | None = None  # saved from last full draw
 
         # ── redraw throttle ───────────────────────────────────────────────
         self._redraw_pending = False
@@ -382,7 +391,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
         self._vlc_poll_active = False
         self._preview_clip_idx = 0
         self._preview_clip_tl_start = 0.0       # global timeline sec at clip start
-
+        
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._load_preview_meta_title()
         self._ensure_segments_match_clips()
@@ -480,12 +489,12 @@ class ClipEditorWindow(ctk.CTkToplevel):
         self._timeline_canvas.bind("<Motion>", self._tl_motion_hover)
         self._timeline_canvas.bind("<Button-3>", self._tl_right_press)
         self._timeline_canvas.bind("<MouseWheel>", self._tl_wheel)
-        self._timeline_canvas.bind("<Configure>", lambda _e: self._timeline_redraw_schedule())
+        self._timeline_canvas.bind("<Configure>", lambda _e: (self._mark_static_dirty(), self._timeline_redraw_schedule()))
 
         # Footer
         footer = ctk.CTkFrame(self, fg_color=BG_SEC, corner_radius=0, border_width=1, border_color=BORDER)
         footer.pack(fill="x", padx=10, pady=(5, 10))
-
+        
         self.btn_assemble = ctk.CTkButton(
             footer,
             text="🎬 RE-ASSEMBLE",
@@ -497,13 +506,13 @@ class ClipEditorWindow(ctk.CTkToplevel):
             command=self._do_assemble,
         )
         self.btn_assemble.pack(side="left", padx=15, pady=12)
-
+        
         self.prog_bar = ctk.CTkProgressBar(footer, width=200, progress_color=ACCENT_DOC)
         self.prog_bar.set(0)
         self.prog_bar.pack(side="left", padx=8)
         self.lbl_status = ctk.CTkLabel(footer, text="Ready", font=("Share Tech Mono", 12), text_color=TEXT_HINT)
         self.lbl_status.pack(side="left")
-
+        
         self.btn_done = ctk.CTkButton(
             footer,
             text="✅ DONE / UPLOAD",
@@ -978,6 +987,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
             self._push_undo()
             self._music_splits.append(float(t))
             self._music_splits.sort()
+            self._mark_static_dirty()
             self._timeline_redraw_schedule()
             self.lbl_status.configure(text=f"Music split marker at {t:.2f}s.", text_color=ACCENT_GRN)
             return
@@ -985,6 +995,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
             self._push_undo()
             self._voice_splits.append(float(t))
             self._voice_splits.sort()
+            self._mark_static_dirty()
             self._timeline_redraw_schedule()
             self.lbl_status.configure(text=f"Voice split marker at {t:.2f}s.", text_color=ACCENT_GRN)
             return
@@ -1122,12 +1133,14 @@ class ClipEditorWindow(ctk.CTkToplevel):
             self._push_undo()
             self._voice_splits.append(t)
             self._voice_splits.sort()
+            self._mark_static_dirty()
             self._timeline_redraw_schedule()
             self.lbl_status.configure(text=f"Voice split marker at {t:.2f}s.", text_color=ACCENT_GRN)
         elif ft == "music":
             self._push_undo()
             self._music_splits.append(t)
             self._music_splits.sort()
+            self._mark_static_dirty()
             self._timeline_redraw_schedule()
             self.lbl_status.configure(text=f"Music split marker at {t:.2f}s.", text_color=ACCENT_GRN)
         elif ft == "subs":
@@ -1512,10 +1525,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
         if not hasattr(self, "lbl_preview_tc"):
             return
         vd = self._timeline_total_duration()
-        try:
-            ad = _audio_duration_sec(self.audio_path)
-        except Exception:
-            ad = 0.0
+        ad = self._cached_audio_dur(self.audio_path)
         ph = float(getattr(self, "_playhead_sec", 0.0))
         self.lbl_preview_tc.configure(
             text=(
@@ -1552,7 +1562,24 @@ class ClipEditorWindow(ctk.CTkToplevel):
             return
         self._narration_env = narration or None
         self._music_env = music or None
+        self._static_dirty = True
         self._timeline_redraw()
+
+    def _cached_audio_dur(self, path) -> float:
+        """Return audio duration in seconds, cached per file path. Never spawns a subprocess in the hot draw path."""
+        if path is None:
+            return 0.0
+        key = str(path)
+        if key not in self._audio_dur_cache:
+            try:
+                self._audio_dur_cache[key] = _audio_duration_sec(path)
+            except Exception:
+                self._audio_dur_cache[key] = 0.0
+        return self._audio_dur_cache[key]
+
+    def _mark_static_dirty(self) -> None:
+        """Mark static content as changed so the next scheduled redraw is a full redraw."""
+        self._static_dirty = True
 
     # ── debounced redraw ─────────────────────────────────────────────────
     def _timeline_redraw_schedule(self, ghost_x: int | None = None) -> None:
@@ -1566,12 +1593,71 @@ class ClipEditorWindow(ctk.CTkToplevel):
         self._redraw_pending = False
         gx = getattr(self, "_pending_ghost_x", None)
         self._pending_ghost_x = None
+        # Fast path: static content unchanged — only redraw dynamic items (playhead/ghost/hover)
+        if not self._static_dirty and self._tl_cached_layout is not None:
+            self._redraw_dynamic_only(ghost_x=gx)
+            return
         self._timeline_redraw(ghost_x=gx)
+
+    def _redraw_dynamic_only(self, ghost_x: int | None = None) -> None:
+        """Partial redraw: delete and recreate only the 'ph'-tagged dynamic items.
+        Used during VLC playback ticks and ruler scrub where only the playhead moves."""
+        c = self._timeline_canvas
+        if not c.winfo_exists():
+            return
+        layout = self._tl_cached_layout
+        if layout is None:
+            self._static_dirty = True
+            self._timeline_redraw_schedule()
+            return
+        total_d, pps, x0, usable, total_h, vs = layout
+        C_PH    = self._TL_PLAYHEAD
+        C_SUBS  = self._TL_SUBS
+        TL_TEXT = self._TL_TEXT
+        rh          = self.RULER_H
+        RULER_MID   = rh // 2
+        RULER_TICK  = rh - 4
+
+        c.delete("ph")
+
+        ph  = max(0.0, min(total_d, float(self._playhead_sec)))
+        phx = x0 + (ph - vs) * pps
+
+        # Scissor icon tracks the playhead on the ruler
+        if x0 <= phx <= x0 + usable:
+            c.create_oval(phx - 9, rh // 2 - 9, phx + 9, rh // 2 + 9,
+                          fill="#1a2535", outline=C_SUBS, width=1, tags="ph")
+            c.create_text(phx, rh // 2, text="✂",
+                          anchor="center", fill=C_SUBS,
+                          font=("Segoe UI Symbol", 13, "bold"), tags="ph")
+
+        # Hover cursor on ruler
+        hx = getattr(self, "_tl_ruler_hover_x", None)
+        if hx is not None and x0 <= hx <= x0 + usable:
+            c.create_line(hx, RULER_MID, hx, RULER_TICK,
+                          fill="#FFFFFF", width=1, dash=(3, 2), tags="ph")
+
+        # Ghost drag line (clip reorder)
+        if ghost_x is not None and self._drag_tl.get("idx") is not None:
+            y_vid0 = rh
+            y_vid1 = y_vid0 + self.VIDEO_TRACK_H
+            c.create_line(ghost_x, y_vid0, ghost_x, y_vid1,
+                          fill=TL_TEXT, width=2, dash=(4, 3), tags="ph")
+
+        # Playhead vertical line and triangle knob
+        if x0 - 2 <= phx <= x0 + usable + 2:
+            c.create_line(phx, 0, phx, total_h, fill=C_PH, width=2, tags="ph")
+            c.create_polygon(phx - 5, 0, phx + 5, 0, phx, 8,
+                             fill=C_PH, outline="", tags="ph")
+
+        self._update_preview_tc()
 
     def _timeline_redraw(self, ghost_x: int | None = None) -> None:  # noqa: C901
         c = self._timeline_canvas
         if not c.winfo_exists():
             return
+        # Full redraw clears the dirty flag; layout is saved at the end
+        self._static_dirty = False
         c.delete("all")
         try:
             w = int(c.winfo_width())
@@ -1710,17 +1796,16 @@ class ClipEditorWindow(ctk.CTkToplevel):
         # ── Scissor icon tracks the playhead on the ruler ────────────────────
         _ph_x = x0 + (self._playhead_sec - vs) * pps
         if x0 <= _ph_x <= x0 + usable:
-            # Small glow behind scissor so it's visible over any background
             c.create_oval(_ph_x - 9, rh // 2 - 9, _ph_x + 9, rh // 2 + 9,
-                          fill="#1a2535", outline=C_SUBS, width=1)
+                          fill="#1a2535", outline=C_SUBS, width=1, tags="ph")
             c.create_text(_ph_x, rh // 2, text="✂",
                           anchor="center", fill=C_SUBS,
-                          font=("Segoe UI Symbol", 13, "bold"))
+                          font=("Segoe UI Symbol", 13, "bold"), tags="ph")
 
         # Hover cursor on ruler
         hx = getattr(self, "_tl_ruler_hover_x", None)
         if hx is not None and x0 <= hx <= x0 + usable:
-            c.create_line(hx, RULER_MID, hx, RULER_TICK, fill="#FFFFFF", width=1, dash=(3, 2))
+            c.create_line(hx, RULER_MID, hx, RULER_TICK, fill="#FFFFFF", width=1, dash=(3, 2), tags="ph")
 
         # Zoom indicator badge
         if self._tl_zoom > 1.05:
@@ -1845,10 +1930,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
             return blocks
 
         # ── voice waveform ───────────────────────────────────────────────────
-        try:
-            ad = _audio_duration_sec(self.audio_path)
-        except Exception:
-            ad = total_d
+        ad = self._cached_audio_dur(self.audio_path) or total_d
         self._voice_seg_blocks = _seg_blocks_for(ad, self._voice_splits, y_n0, y_n1)
         if not _draw_waveform(self._narration_env, y_n0, y_n1, ad,
                               "#3ABFA0", self._voice_splits):
@@ -1863,10 +1945,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
 
         # ── music waveform ───────────────────────────────────────────────────
         mus = self._active_music_path()
-        try:
-            mdur = _audio_duration_sec(mus) if mus else 0.0
-        except Exception:
-            mdur = 0.0
+        mdur = self._cached_audio_dur(mus) if mus else 0.0
         self._music_seg_blocks = _seg_blocks_for(mdur or total_d, self._music_splits, y_m0, y_m1)
         if not _draw_waveform(self._music_env if mus else None,
                               y_m0, y_m1, mdur, "#B060CC", self._music_splits):
@@ -1909,15 +1988,14 @@ class ClipEditorWindow(ctk.CTkToplevel):
         ph  = max(0.0, min(total_d, float(self._playhead_sec)))
         phx = x0 + (ph - vs) * pps
         if x0 - 2 <= phx <= x0 + usable + 2:
-            c.create_line(phx, 0, phx, total_h, fill=C_PH, width=2)
-            # Triangle knob at ruler top (pointing down)
+            c.create_line(phx, 0, phx, total_h, fill=C_PH, width=2, tags="ph")
             c.create_polygon(phx - 5, 0, phx + 5, 0, phx, 8,
-                             fill=C_PH, outline="")
+                             fill=C_PH, outline="", tags="ph")
 
         # ── drag ghost ───────────────────────────────────────────────────────
         if ghost_x is not None and self._drag_tl.get("idx") is not None:
             c.create_line(ghost_x, y_vid0, ghost_x, y_vid1,
-                          fill=TL_TEXT, width=2, dash=(4, 3))
+                          fill=TL_TEXT, width=2, dash=(4, 3), tags="ph")
 
         # ── focus track highlight: left-edge accent bar only ─────────────────
         ft = self._tl_focus_track
@@ -1929,8 +2007,10 @@ class ClipEditorWindow(ctk.CTkToplevel):
         }
         if ft in ft_map:
             fy0, fy1, fc = ft_map[ft]
-            # Bright left-edge accent bar marks the active track
             c.create_rectangle(LW, fy0, LW + 5, fy1, fill=fc, outline="")
+
+        # Save layout so the fast path can do partial redraws without recomputing
+        self._tl_cached_layout = (total_d, pps, x0, usable, total_h, vs)
 
         self._update_preview_tc()
 
@@ -1985,6 +2065,8 @@ class ClipEditorWindow(ctk.CTkToplevel):
             # Plain wheel → pan left / right
             step = -(delta / 120.0) * vis * 0.15
             self._tl_view_start = max(0.0, min(max(0.0, total - vis), self._tl_view_start + step))
+        # Zoom/scroll changes static content — full redraw required
+        self._mark_static_dirty()
         self._timeline_redraw_schedule()
 
     def _music_vol_delta(self, d: float) -> None:
@@ -2228,6 +2310,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
         for i, e in enumerate(self.srt_entries):
             self.srt_entries[i] = SrtEntry(i + 1, e.start, e.end, e.text)
         self._srt_selected_idx = idx
+        self._mark_static_dirty()
         self._timeline_redraw_schedule()
         self.lbl_status.configure(text="Subtitle cue added.", text_color=ACCENT_GRN)
 
@@ -2239,6 +2322,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
         for i, e in enumerate(self.srt_entries):
             self.srt_entries[i] = SrtEntry(i + 1, e.start, e.end, e.text)
         self._srt_selected_idx = -1
+        self._mark_static_dirty()
         self._timeline_redraw_schedule()
         self.lbl_status.configure(text="Subtitle cue deleted.", text_color=ACCENT_WARN)
 
@@ -2277,6 +2361,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
             new_txt = txt_box.get("1.0", "end").strip()
             self._push_undo()
             self.srt_entries[idx] = SrtEntry(idx + 1, _sec_to_srt_time(ns), _sec_to_srt_time(ne), new_txt)
+            self._mark_static_dirty()
             self._timeline_redraw_schedule()
             dlg.destroy()
 
@@ -2358,17 +2443,18 @@ class ClipEditorWindow(ctk.CTkToplevel):
 
             mode = rp.get("mode", "scrub")
             if mode == "zoom":
-                # Ctrl+drag: left drag = zoom out, right drag = zoom in
+                # Ctrl+drag → zoom changes static content, must do full redraw
                 zlx = int(rp.get("zlx", e.x))
                 delta = (e.x - zlx) * 0.007
                 self._tl_zoom = max(0.2, min(40.0, self._tl_zoom * (1.0 + delta)))
                 rp["zlx"] = e.x
-                self._timeline_redraw()
+                self._mark_static_dirty()
+                self._timeline_redraw_schedule()
                 return
 
-            # Scrub mode: move playhead as user drags
+            # Scrub mode: only playhead moves — fast path via debounce is fine
             self._playhead_sec = self._time_from_canvas_x(e.x)
-            self._timeline_redraw()
+            self._timeline_redraw_schedule()
             return
 
         if self._drag_tl["idx"] is None:
@@ -2377,7 +2463,8 @@ class ClipEditorWindow(ctk.CTkToplevel):
         yv1 = yv0 + self.VIDEO_TRACK_H
         if e.y < yv0 or e.y > yv1:
             return
-        self._timeline_redraw(ghost_x=e.x)
+        # Clip ghost drag — only the ghost line changes, fast path is fine
+        self._timeline_redraw_schedule(ghost_x=e.x)
 
     def _tl_release(self, e):
         rp = self._ruler_ptr
@@ -2823,7 +2910,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
         self.prog_bar.set(0)
         mp = self.ent_music_path.get().strip() if hasattr(self, "ent_music_path") else ""
         self.bg_music_path = mp or None
-
+        
         def run():
             try:
                 import datetime
@@ -2833,10 +2920,10 @@ class ClipEditorWindow(ctk.CTkToplevel):
                 out_name = f"documentary_edited_{datetime.datetime.now().strftime('%H%M%S')}.mp4"
                 _pb_speed = float(config.get("documentary.playback_speed", 1.0))
                 _burn = wants_burned_subtitles(config)
-
+                
                 def prog(msg):
                     self.after(0, lambda m=msg: self.lbl_status.configure(text=m[:56]))
-
+                
                 logo_wm = self._logo_spec_for_export()
                 vp = assemble_documentary(
                     clips=self.clips,
@@ -2857,7 +2944,7 @@ class ClipEditorWindow(ctk.CTkToplevel):
                 self.after(0, self._on_assemble_done, vp)
             except Exception as e:
                 self.after(0, self._on_assemble_error, str(e))
-
+                
         threading.Thread(target=run, daemon=True).start()
 
     def _on_assemble_done(self, vp):
