@@ -39,7 +39,7 @@ def _load_metadata() -> dict:
     }
 
 
-def run_documentary_cli(topic: str | None = None) -> None:
+def run_documentary_cli(topic: str | None = None, upload: bool = False) -> None:
     """Research → documentary script → voice → footage → assemble → optional upload (unattended)."""
     from core.pipeline_runner import PipelineRunner
     from modules.researcher import find_trending_topic
@@ -48,6 +48,10 @@ def run_documentary_cli(topic: str | None = None) -> None:
         topic = find_trending_topic()
     dur = int(config.get("target_duration", 180) or 180)
     config.set("target_duration", max(60, min(dur, 600)))
+
+    # --upload flag: force YouTube upload regardless of config.json setting
+    if upload:
+        config.set("pipeline.upload_enabled", True)
 
     prev_script_review = bool(config.get("script_review_enabled", True))
     prev_video_preview = bool(config.get("video_preview_enabled", True))
@@ -134,6 +138,11 @@ Examples:
         help="Skip generation — upload an existing MP4",
     )
     parser.add_argument("--video-file", type=str, default=None, help="Path to MP4 (with --from-video)")
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Force YouTube upload after generation (overrides config upload_enabled=false)",
+    )
 
     args = parser.parse_args()
 
@@ -141,7 +150,7 @@ Examples:
         if args.from_video:
             run_from_video(video_file=Path(args.video_file) if args.video_file else None)
         else:
-            run_documentary_cli(topic=args.topic)
+            run_documentary_cli(topic=args.topic, upload=args.upload)
     except KeyboardInterrupt:
         log.warning("Interrupted by user.")
         sys.exit(0)
