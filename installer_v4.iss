@@ -6,6 +6,17 @@
 #define MyAppExeName "GhostCreatorAI.exe"
 #define MyAppApiExeName "GhostCreatorAPI.exe"
 
+; Compile-time checks (run when you Build in Inno Setup — NOT when end user installs).
+; Note: #ifexist does not expand {#define} constants — use literal file names.
+#ifexist "release\win-unpacked\GhostCreatorAI.exe"
+#else
+  #error "Missing build output: release\win-unpacked\GhostCreatorAI.exe. Run build-electron.bat first."
+#endif
+#ifexist "dist-api\GhostCreatorAPI.exe"
+#else
+  #error "Missing build output: dist-api\GhostCreatorAPI.exe. Run build-electron.bat or build-api.bat first."
+#endif
+
 ; Build before compiling this installer:
 ;   1. build-electron.bat   (cleans old output, builds API exe + Electron release\win-unpacked)
 ;   2. Open this script in Inno Setup Compiler and Compile
@@ -122,20 +133,6 @@ begin
       Result := 2;
   end else
     Result := 1;
-end;
-
-function InitializeSetup(): Boolean;
-begin
-  Result := True;
-  if not FileExists(ExpandConstant('{src}\release\win-unpacked\{#MyAppExeName}')) then begin
-    MsgBox('Missing build output: release\win-unpacked\{#MyAppExeName}' + #13#10 + #13#10 +
-      'Run build-electron.bat first, then compile this installer.', mbError, MB_OK);
-    Result := False;
-  end else if not FileExists(ExpandConstant('{src}\dist-api\{#MyAppApiExeName}')) then begin
-    MsgBox('Missing build output: dist-api\{#MyAppApiExeName}' + #13#10 + #13#10 +
-      'Run build-electron.bat (or build-api.bat) first, then compile this installer.', mbError, MB_OK);
-    Result := False;
-  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
