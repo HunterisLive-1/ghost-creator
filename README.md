@@ -10,7 +10,7 @@
 [![Chatterbox](https://img.shields.io/badge/Chatterbox-TTS%20Local%20Free-black)](https://github.com/resemble-ai/chatterbox)
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-Local%20AI-orange)](https://github.com/comfyanonymous/ComfyUI)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-Direct%20Render-green)](https://ffmpeg.org)
-[![CustomTkinter](https://img.shields.io/badge/GUI-CustomTkinter-blueviolet)](https://github.com/TomSchimansky/CustomTkinter)
+[![Electron](https://img.shields.io/badge/GUI-Electron%20%2B%20React-47848F?logo=electron&logoColor=white)](https://www.electronjs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows)](https://microsoft.com)
 
@@ -101,7 +101,7 @@ Ghost Creator AI is a **zero-touch YouTube Shorts factory**. Give it a topic (or
 
 ## 🖥️ GUI Screenshots
 
-> Launch with `python gui/app.py`
+> Launch with `npm run electron:dev` (requires `npm install` + Python venv)
 
 ### Pipeline Tab
 ```
@@ -162,7 +162,8 @@ Ghost Creator AI is a **zero-touch YouTube Shorts factory**. Give it a topic (or
 
 | Tool | Version | Why | Download |
 |------|---------|-----|----------|
-| **Python** | 3.10 or 3.12 | Main language | [python.org](https://www.python.org/downloads/) |
+| **Python** | 3.10 or 3.12 | Main language + API backend | [python.org](https://www.python.org/downloads/) |
+| **Node.js** | 18+ | Electron + React GUI | [nodejs.org](https://nodejs.org/) |
 | **Git** | Any | Clone the repo | [git-scm.com](https://git-scm.com/downloads) |
 | **Google Chrome** | Latest | YouTube upload automation | [google.com/chrome](https://www.google.com/chrome/) |
 | **FFmpeg** | Any | Video rendering (required) | [ffmpeg.org](https://ffmpeg.org/download.html) or `winget install ffmpeg` |
@@ -224,7 +225,7 @@ It will automatically:
 | `[3/8]` | Creates `venv` virtual environment |
 | `[4/8]` | Installs Ghost Creator core dependencies |
 | `[5/8]` | Sets up Chatterbox TTS server |
-| `[6/8]` | Installs GUI dependencies (customtkinter, Pillow) |
+| `[7/10]` | Installs FastAPI + Electron deps (Python API, npm) |
 | `[7/8]` | Installs Playwright Chromium browser |
 | `[8/8]` | Creates `config.json` from defaults (migrates `.env` if found) |
 
@@ -277,8 +278,12 @@ Launch the app and go to **⚙ Settings** tab:
 # Activate venv first
 venv\Scripts\activate.bat
 
-# GUI mode (recommended)
-python gui/app.py
+# GUI mode (recommended — Electron + React)
+npm install
+npm run electron:dev
+
+# API backend only (for debugging)
+python -m api.server
 
 # CLI mode (unchanged, fully backward compatible)
 python main.py
@@ -448,12 +453,12 @@ python main.py --from-video
 ```
 Hunter-Ghost-Creator/
 │
-├── gui/                          # GUI application
-│   ├── app.py                    # Main window (customtkinter)
-│   └── tabs/
-│       ├── pipeline_tab.py       # Run controls, progress, live log
-│       ├── settings_tab.py       # API keys, backend selection
-│       └── history_tab.py        # Past Shorts history
+├── electron/                     # Electron main process + Python bridge
+├── src/                          # React renderer (Documentary, Upload, Settings, History)
+├── api/                          # FastAPI local backend (wraps core/ + modules/)
+│   ├── server.py                 # uvicorn entry — spawned by Electron
+│   └── routes/                   # REST + WebSocket endpoints
+├── package.json                  # Node/Electron toolchain
 │
 ├── backends/                     # Swappable backend system
 │   ├── base.py                   # Abstract base classes
@@ -498,8 +503,9 @@ Hunter-Ghost-Creator/
 ### GUI won't launch
 ```powershell
 venv\Scripts\activate.bat
-pip install customtkinter Pillow
-python gui/app.py
+pip install -r requirements.txt
+npm install
+npm run electron:dev
 ```
 
 ### FFmpeg not found
@@ -550,7 +556,9 @@ Use real **Google Chrome** (not Chromium). Install from [google.com/chrome](http
 
 ## 📜 License
 
-MIT License — see [LICENSE](LICENSE)
+**MIT License** — free and open source. No activation or license key required.
+
+See [LICENSE](LICENSE) for the full text.
 
 ---
 
@@ -560,6 +568,6 @@ MIT License — see [LICENSE](LICENSE)
 
 *Ghost Creator AI — Automate your YouTube Shorts. Stay Ghost. Stay Consistent.*
 
-**[🌐 getmaya.online](https://getmaya.online)**
+**[GitHub Repository](https://github.com/HunterisLive-1/Hunter-Ghost-Creator)**
 
 </div>

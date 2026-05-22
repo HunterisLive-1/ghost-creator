@@ -11,7 +11,7 @@ Steps:
   5. Replace audio with the voiceover (strip original clip audio)
 
 Optional: burn Hindi (or any) voiceover as white bold text at the bottom (long-form only — see pipeline).
-Optional: PNG/JPG logo watermark (corner + scale) after subs/music — see Settings and Ghost Editor.
+Optional: PNG/JPG logo watermark (corner + scale) after subs/music — see Settings.
 """
 from __future__ import annotations
 
@@ -62,12 +62,75 @@ def _ffmpeg(
     if result.returncode != 0:
         err = (result.stderr or "") + (result.stdout or "")
         if len(err) > 6000:
-            lines = [L for L in err.splitlines() if any(
-                k in L for k in ("Error", "error", "Invalid", "invalid", "failed", "No such", "Could not", "not find")
-            )]
-            head = "\n".join(lines[:80]) if lines else err[:3000]
+            keys = (
+                "error", "invalid", "failed", "no such", "could not", "not find",
+                "cannot", "unsupported", "unknown decoder", "codec", "bitrate",
+                "matches no streams", "divide", "opening", "permission",
+            )
+            lines = [L for L in err.splitlines() if any(k in L.lower() for k in keys)]
+            head = "\n".join(lines[:100]) if lines else "\n".join(err.splitlines()[:40])
             err = f"{head}\n--- stderr tail ---\n{err[-3500:]}"
         raise RuntimeError(f"FFmpeg failed:\n{err}")
+
+
+def _concat_demuxer_paths_line(p: Path) -> str:
+    """Concat demuxer line: absolute path with forward slashes (FFmpeg-friendly on Windows)."""
+    s = Path(p).resolve().as_posix()
+    return f"file '{s}'"
+
+
+def _concat_video_segments(concat_txt: Path, concat_out: Path) -> None:
+    """
+    Join segment videos. Prefer ``-c copy``; retry with ``libx264`` when clips mix stream-copy +
+    transcoded GOP/SAR/etc. (often breaks demuxed MPEG-TS or mixed H.264 params).
+    """
+    try:
+        _ffmpeg(
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_txt),
+            "-c",
+            "copy",
+            str(concat_out),
+            timeout=1800,
+            cwd=str(concat_txt.parent),
+        )
+        return
+    except RuntimeError as exc:
+        log.warning(
+            "Concat stream-copy failed; re-encoding concatenated spine (libx264). First line: %s",
+            str(exc).strip().splitlines()[0][:220],
+        )
+        try:
+            if concat_out.is_file():
+                concat_out.unlink()
+        except OSError:
+            pass
+    _ffmpeg(
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(concat_txt),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-crf",
+        "22",
+        "-preset",
+        "fast",
+        "-pix_fmt",
+        "yuv420p",
+        str(concat_out),
+        timeout=7200,
+        cwd=str(concat_txt.parent),
+    )
 
 
 def _path_needs_ffmpeg_workaround(p: Path) -> bool:
@@ -306,6 +369,12 @@ def _normalize_logo_spec(logo_watermark: dict | None) -> dict | None:
     def _clip(v: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, float(v)))
 
+    def _logo_scale_fraction(raw: object) -> float:
+        x = float(raw if raw is not None else 0.15)
+        if x > 1.0:
+            x = x / 100.0
+        return _clip(x, 0.05, 0.45)
+
     if logo_watermark is None:
         if not bool(_cfg.get("documentary.logo_enabled", False)):
             return None
@@ -321,7 +390,7 @@ def _normalize_logo_spec(logo_watermark: dict | None) -> dict | None:
         return {
             "path": path,
             "position": pos,
-            "scale": _clip(float(_cfg.get("documentary.logo_scale", 0.15)), 0.05, 0.45),
+            "scale": _logo_scale_fraction(_cfg.get("documentary.logo_scale", 0.15)),
             "margin": int(max(0, min(120, int(_cfg.get("documentary.logo_margin", 24))))),
             "opacity": _clip(float(_cfg.get("documentary.logo_opacity", 1.0)), 0.05, 1.0),
         }
@@ -340,7 +409,7 @@ def _normalize_logo_spec(logo_watermark: dict | None) -> dict | None:
     pos = str(logo_watermark.get("position") or _cfg.get("documentary.logo_position", "bottom_right"))
     if pos not in _LOGO_POSITIONS:
         pos = "bottom_right"
-    scale = _clip(float(logo_watermark.get("scale", _cfg.get("documentary.logo_scale", 0.15))), 0.05, 0.45)
+    scale = _logo_scale_fraction(logo_watermark.get("scale", _cfg.get("documentary.logo_scale", 0.15)))
     margin = int(logo_watermark.get("margin", _cfg.get("documentary.logo_margin", 24)))
     margin = max(0, min(120, margin))
     opacity = _clip(float(logo_watermark.get("opacity", _cfg.get("documentary.logo_opacity", 1.0))), 0.05, 1.0)
@@ -648,16 +717,11 @@ def _assemble(
     _notify(progress_callback, "  🔗 Concatenating clips …")
     concat_txt = tmp / "concat.txt"
     concat_txt.write_text(
-        "\n".join(f"file '{p}'" for p in trimmed),
+        "\n".join(_concat_demuxer_paths_line(p) for p in trimmed),
         encoding="utf-8",
     )
     concat_out = tmp / "concat.mp4"
-    _ffmpeg(
-        "-f", "concat", "-safe", "0",
-        "-i", str(concat_txt),
-        "-c", "copy",
-        str(concat_out),
-    )
+    _concat_video_segments(concat_txt, concat_out)
 
     # ── 5. Attach voiceover, strip original audio; optional same-factor speedup ─
     _notify(progress_callback, "  🎵 Attaching voiceover …")

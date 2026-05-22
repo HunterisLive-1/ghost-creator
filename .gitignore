@@ -2,7 +2,13 @@
 # Ghost Creator AI — .gitignore
 # ============================================================
 
-# ── Python ──────────────────────────────────────────────────
+# ── Node / Electron ───────────────────────────────────────────
+node_modules/
+dist-electron/
+release/
+build-api/
+dist-api/
+*.tsbuildinfo
 __pycache__/
 *.py[cod]
 *$py.class
@@ -23,7 +29,7 @@ virtualenv/
 .env
 .env.local
 config.json
-build.bat
+# build.bat removed — use build-api.bat + build-electron.bat
 
 # ── Generated Media (large files — never commit) ─────────────
 output/
@@ -56,6 +62,9 @@ _cb_health.txt
 /GhostCreatorAI.exe
 installer_output/
 ffmpeg/
+
+# ── Ghost Editor (Shotcut portable — not shipped) ───────────
+ghost_editor/
 
 # ── IDE ──────────────────────────────────────────────────────
 .vscode/

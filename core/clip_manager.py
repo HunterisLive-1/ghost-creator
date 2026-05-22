@@ -428,7 +428,6 @@ def export_clips_zip(clips: list[ClipInfo], output_path: Path) -> Path:
     return output_path
 
 
-# Aliases expected by gui/components/clip_editor.py
 export_srt_file = write_srt
 export_clips_to_zip = export_clips_zip
 

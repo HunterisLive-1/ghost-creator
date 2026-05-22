@@ -6,10 +6,11 @@
 # --- Core ---
 python-dotenv>=1.0.0
 
-# --- GUI ---
-customtkinter>=5.2.0
-# Optional: Ghost Editor video preview (requires 64-bit VLC on Windows)
-python-vlc>=3.0.20123
+# --- GUI / API ---
+# customtkinter removed — GUI is Electron + React
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.0.0
 
 # --- Research ---
 pytrends>=4.9.2
@@ -39,9 +40,6 @@ numpy>=1.26.0
 
 # --- YouTube uploader ---
 playwright>=1.43.0
-
-# --- License ---
-cryptography>=42.0.0
 
 # --- Documentary mode (footage download) ---
 yt-dlp>=2024.1.1

@@ -43,8 +43,11 @@ Name: "desktopicon"; Description: "Create a &Desktop shortcut"; GroupDescription
 Name: "startmenuicon"; Description: "Create a &Start Menu shortcut"; GroupDescription: "Additional icons:"
 
 [Files]
-; Main executable from PyInstaller output
-Source: "dist\GhostCreatorAI.exe"; DestDir: "{app}"; DestName: "GhostCreatorAI.exe"; Flags: ignoreversion
+; Electron app (run: npm run electron:build — output in release\win-unpacked)
+Source: "release\win-unpacked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; Python API sidecar (run: build-api.bat)
+Source: "dist-api\GhostCreatorAPI.exe"; DestDir: "{app}\resources"; Flags: ignoreversion
 
 ; App icon for shortcuts
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
@@ -52,11 +55,8 @@ Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; Optional legacy workflow file (unused; Gemini-only image pipeline)
 Source: "workflow_api.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
-; FFmpeg is downloaded on first launch of the frozen app to:
-;   {userappdata}\GhostCreatorAI\ffmpeg
-; (see core/ffmpeg_bootstrap.py — keeps the installer small.)
-; config.json is generated automatically in %LOCALAPPDATA%\GhostCreatorAI on first run
-; Note: OmniVoice TTS server path can be set in the App Settings inside the UI.
+; FFmpeg is downloaded on first launch to {localappdata}\GhostCreatorAI\ffmpeg
+; config.json is generated in %LOCALAPPDATA%\GhostCreatorAI on first run
 
 [Icons]
 ; Desktop shortcut

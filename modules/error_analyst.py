@@ -37,8 +37,7 @@ PIPELINE STEPS (in order):
                         Backends: Edge TTS (free cloud), ElevenLabs (paid cloud), OmniVoice (local GPU).
   Step 4 — FOOTAGE    : Downloads video clips from YouTube / Pexels using yt-dlp.
                         Requires: yt-dlp installed + internet + valid Pexels API key (if Pexels).
-  Step 5 — ASSEMBLY   : Assembles video using FFmpeg. FFmpeg must be in PATH.
-                        (After assembly, the Ghost Editor allows manual trim/split/music edits).
+  Step 5 — ASSEMBLY   : Assembles video using FFmpeg. FFmpeg must be available (first-run download or PATH).
   Step 6 — UPLOAD     : Optional YouTube upload via Playwright + Chrome.
                         (There is also a standalone Direct Upload tab for external videos).
 
@@ -59,8 +58,8 @@ COMMON ERRORS AND THEIR FIXES:
   • "quota exceeded"         → Gemini free tier limit hit. Wait or use a different key.
   • "yt-dlp" / "ytdlp" error → yt-dlp not installed. Run: pip install -U yt-dlp
                                Or yt-dlp is outdated: Run: pip install -U yt-dlp
-  • "ffmpeg not found"       → Installed .exe: allow first-run FFmpeg download (Internet) or install FFmpeg on PATH.
-                               Dev: winget install ffmpeg — or run ensure_ffmpeg.ps1. Needed for Assembly / Ghost Editor.
+  • "ffmpeg not found"       → Allow first-run FFmpeg download (Internet) or install FFmpeg on PATH.
+                               Dev: winget install ffmpeg — or run ensure_ffmpeg.ps1. Needed for assembly, TTS post-process, and clip tools.
   • "Chatterbox" connection  → Chatterbox TTS server not running. Switch to Edge TTS (free)
                                in Settings → Voice Engine → Edge TTS.
   • "ComfyUI" error          → ComfyUI not running. Switch to Pollinations or Gemini Imagen.
@@ -70,7 +69,7 @@ COMMON ERRORS AND THEIR FIXES:
   • "JSON decode" / parse    → Gemini returned malformed JSON. Usually a quota/temp issue.
                                Retry the pipeline (click RETRY STEP button).
   • "CUDA out of memory"     → GPU VRAM full. Switch TTS to Edge TTS, images to Pollinations.
-  • "Permission denied"      → Output folder is read-only or file is locked by Ghost Editor.
+  • "Permission denied"      → Output folder is read-only or file is locked by another app.
   • "Playwright" / Chrome    → Chrome not installed or profile not set up.
                                Run: python setup_chrome_profile.py
 
@@ -82,7 +81,8 @@ FILES AND FOLDERS:
 
 HOW TO RUN:
   • Always activate venv first: venv\\Scripts\\activate.bat
-  • Then: python gui/app.py
+  • GUI: npm run electron:dev
+  • CLI: python main.py
 
 ════════════════════════════════════════════════════════
 YOUR TASK:

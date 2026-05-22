@@ -142,16 +142,7 @@ class PipelineRunner:
         self.pending_script_data: dict | None = None
         self.waiting_for_script_review = False
 
-        self._video_preview_event = threading.Event()
-        self._video_preview_approved: bool = False
-        self._video_preview_action: str | None = None  # approve|cancel|regen_audio|regen_video
-        self.pending_video_path: str | None = None
-        self.waiting_for_video_preview = False
-        
-        self._editor_event = threading.Event()
-        self.waiting_for_editor = False
-        
-        # Documentary-only: regen from preview reuses this context
+        # Documentary-only: clip sync context for assembly / History re-render
         self._doc_regen_ctx: dict | None = None
 
         # Per-step retry
@@ -168,14 +159,6 @@ class PipelineRunner:
         self._approved_script = None
         self.pending_script_data = None
         self.waiting_for_script_review = False
-
-        self._video_preview_event.clear()
-        self._video_preview_approved = False
-        self._video_preview_action = None
-        self.pending_video_path = None
-        self.waiting_for_video_preview = False
-        self._editor_event.clear()
-        self.waiting_for_editor = False
         self._doc_regen_ctx = None
 
         self.running = True
@@ -190,12 +173,8 @@ class PipelineRunner:
     def stop(self) -> None:
         """Request the pipeline to stop after the current step."""
         self.running = False
-        # Wake a blocked video preview wait (worker treats as cancel)
-        self._video_preview_action = "cancel"
+        # Wake a blocked script review or retry wait so the thread can exit
         self._script_review_event.set()
-        self._video_preview_event.set()
-        self._editor_event.set()
-        # Wake any blocked retry wait so the thread can exit
         self._retry_event.set()
         self._emit(0, "Pipeline stopped by user", "WARNING")
         log.info("Pipeline stop requested by user")
@@ -223,36 +202,6 @@ class PipelineRunner:
         self.waiting_for_script_review = False
         self._approved_script = None
         self.stop()
-
-    def set_video_preview_decision(self, action: str) -> None:
-        """
-        GUI calls this when the user acts on the video preview modal.
-        actions: 'approve' | 'cancel' | 'regen_audio' | 'regen_video' (documentary only for regen_*).
-        """
-        valid = ("approve", "cancel", "regen_audio", "regen_video")
-        if action not in valid:
-            return
-        if action == "approve":
-            self._video_preview_approved = True
-        else:
-            self._video_preview_approved = False
-        self._video_preview_action = action
-        self.waiting_for_video_preview = False
-        if action == "cancel":
-            self.stop()
-        else:
-            self._video_preview_event.set()
-
-    def approve_video_preview(self) -> None:
-        """Called by GUI when user approves the video preview and wants to continue."""
-        self.set_video_preview_decision("approve")
-
-    def cancel_from_video_preview(self) -> None:
-        """Called by GUI when user cancels from the video preview window."""
-        self.set_video_preview_decision("cancel")
-
-    def approve_editor(self) -> None:
-        self._editor_event.set()
 
     def apply_documentary_preview_script(self, approved_data: dict) -> bool:
         """
@@ -536,15 +485,30 @@ class PipelineRunner:
                 _json.dumps(script["metadata"], ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
-            # Full script snapshot for Ghost Editor / History re-edit (not just YouTube metadata)
+            # Full script snapshot for History re-render (not just YouTube metadata)
+            doc_snap = {
+                "title": script.get("title", title),
+                "voiceover_text": script["voiceover_text"],
+                "segments": script["segments"],
+                "language": language,
+                "aspect_ratio": aspect_ratio,
+            }
+            _lp = (str(config.get("documentary.logo_path", "") or "")).strip()
+            if (
+                bool(config.get("documentary.logo_enabled", False))
+                and _lp
+                and Path(_lp).is_file()
+            ):
+                doc_snap["logo_watermark"] = {
+                    "enabled": True,
+                    "path": _lp,
+                    "position": str(config.get("documentary.logo_position", "bottom_right")),
+                    "scale": float(config.get("documentary.logo_scale", 0.15)),
+                    "margin": int(config.get("documentary.logo_margin", 24)),
+                    "opacity": float(config.get("documentary.logo_opacity", 1.0)),
+                }
             (run_dir / "documentary_editor.json").write_text(
-                _json.dumps({
-                    "title": script.get("title", title),
-                    "voiceover_text": script["voiceover_text"],
-                    "segments": script["segments"],
-                    "language": language,
-                    "aspect_ratio": aspect_ratio,
-                }, ensure_ascii=False, indent=2),
+                _json.dumps(doc_snap, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
         except Exception:
@@ -635,83 +599,69 @@ class PipelineRunner:
                     return
                 self._emit(4, "🔄 Retrying footage download …", "INFO")
 
-        # ── Step 4.5: Ghost Editor — voice-synced clips + SRT BEFORE final assembly ──
-        if config.get("video_preview_enabled", True):
-            if not self.running:
-                return
-            from core.clip_manager import generate_srt_from_segments, load_clips
-            from modules.documentary_assembler import (
-                _audio_duration_sec,
-                _normalized_segment_durations,
-                _resolution,
-                _make_filler,
-                _trim_or_loop_clip,
-                _vf_scale,
-            )
+        # ── Step 4.5: Voice-synced clips before FFmpeg assembly ─────────────
+        if not self.running:
+            return
+        from core.clip_manager import generate_srt_from_segments, load_clips
+        from modules.documentary_assembler import (
+            _audio_duration_sec,
+            _normalized_segment_durations,
+            _resolution,
+            _make_filler,
+            _trim_or_loop_clip,
+            _vf_scale,
+        )
 
-            audio_dur = _audio_duration_sec(audio_path)
-            srt_entries = generate_srt_from_segments(script["segments"], audio_dur)
-            durations = _normalized_segment_durations(script["segments"], audio_dur)
-            vf = _vf_scale(aspect_ratio)
-            w, h = _resolution(aspect_ratio)
-            n_seg = len(script["segments"])
+        audio_dur = _audio_duration_sec(audio_path)
+        srt_entries = generate_srt_from_segments(script["segments"], audio_dur)
+        durations = _normalized_segment_durations(script["segments"], audio_dur)
+        vf = _vf_scale(aspect_ratio)
+        w, h = _resolution(aspect_ratio)
+        n_seg = len(script["segments"])
 
-            clips_for_edit = run_dir / "clips_for_edit"
-            clips_for_edit.mkdir(exist_ok=True)
-            edit_paths: list[Path] = []
-            last_good: Path | None = None
+        clips_for_edit = run_dir / "clips_for_edit"
+        clips_for_edit.mkdir(exist_ok=True)
+        edit_paths: list[Path] = []
+        last_good: Path | None = None
 
-            self._emit(
-                4,
-                f"🕐 Voiceover: {audio_dur:.1f}s total — syncing footage to timeline (before editor) …",
-                "INFO",
-            )
-            for i in range(n_seg):
-                dur = durations[i]
-                dst = clips_for_edit / f"e_{i:02d}.mp4"
-                src = clips[i] if i < len(clips) else None
-                self._emit(4, f"  ✂️  Clip {i+1}/{n_seg}: {dur:.1f}s", "INFO")
-                if src and Path(src).exists() and Path(src).stat().st_size > 5000:
-                    try:
-                        _trim_or_loop_clip(Path(src), dst, dur, vf)
-                        last_good = dst
-                    except Exception as exc:
-                        log.warning("Pre-edit trim failed for clip %s: %s", i + 1, exc)
-                        _make_filler(dst, dur, w, h, last_good, clips_for_edit, i)
-                        last_good = dst
-                else:
+        self._emit(
+            4,
+            f"🕐 Voiceover: {audio_dur:.1f}s total — syncing footage to narration …",
+            "INFO",
+        )
+        for i in range(n_seg):
+            dur = durations[i]
+            dst = clips_for_edit / f"e_{i:02d}.mp4"
+            src = clips[i] if i < len(clips) else None
+            self._emit(4, f"  ✂️  Clip {i+1}/{n_seg}: {dur:.1f}s", "INFO")
+            if src and Path(src).exists() and Path(src).stat().st_size > 5000:
+                try:
+                    _trim_or_loop_clip(Path(src), dst, dur, vf)
+                    last_good = dst
+                except Exception as exc:
+                    log.warning("Pre-edit trim failed for clip %s: %s", i + 1, exc)
                     _make_filler(dst, dur, w, h, last_good, clips_for_edit, i)
                     last_good = dst
-                edit_paths.append(dst)
+            else:
+                _make_filler(dst, dur, w, h, last_good, clips_for_edit, i)
+                last_good = dst
+            edit_paths.append(dst)
 
-            clip_infos = load_clips(edit_paths, script["segments"], target_durations=durations)
+        clip_infos = load_clips(edit_paths, script["segments"], target_durations=durations)
 
-            self._doc_regen_ctx = {
-                "run_dir": run_dir,
-                "script": script,
-                "language": language,
-                "aspect_ratio": aspect_ratio,
-                "clips": clip_infos,
-                "audio_path": audio_path,
-                "srt": srt_entries,
-                "subtitle_style": None,
-            }
-            self.waiting_for_editor = True
-            self._editor_event.clear()
-            self._emit(4, "✂️ Opening Ghost Editor — trim clips to match timing, then DONE …", "INFO")
-            self._editor_event.wait()
-            self.waiting_for_editor = False
+        self._doc_regen_ctx = {
+            "run_dir": run_dir,
+            "script": script,
+            "language": language,
+            "aspect_ratio": aspect_ratio,
+            "clips": clip_infos,
+            "audio_path": audio_path,
+            "srt": srt_entries,
+            "subtitle_style": None,
+        }
 
-            if not self.running:
-                return
-
-            clips = self._doc_regen_ctx.get("clips", clip_infos)
-            srt_entries = self._doc_regen_ctx.get("srt", srt_entries)
-            _style = self._doc_regen_ctx.get("subtitle_style")
-            _apath = self._doc_regen_ctx.get("audio_path")
-            if _apath is not None:
-                audio_path = Path(_apath)
-            _style = None
+        clips = clip_infos
+        _style = None
 
         # ── Step 5: Assemble documentary (with retry) ─────────────────────
         from modules.documentary_assembler import assemble_documentary, wants_burned_subtitles

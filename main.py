@@ -54,9 +54,7 @@ def run_documentary_cli(topic: str | None = None, upload: bool = False) -> None:
         config.set("pipeline.upload_enabled", True)
 
     prev_script_review = bool(config.get("script_review_enabled", True))
-    prev_video_preview = bool(config.get("video_preview_enabled", True))
     config.set("script_review_enabled", False)
-    config.set("video_preview_enabled", False)
 
     q: queue.Queue = queue.Queue()
     runner = PipelineRunner(q, run_id=0)
@@ -83,7 +81,6 @@ def run_documentary_cli(topic: str | None = None, upload: bool = False) -> None:
                 break
     finally:
         config.set("script_review_enabled", prev_script_review)
-        config.set("video_preview_enabled", prev_video_preview)
 
 
 def run_from_video(video_file: Path | None = None) -> None:

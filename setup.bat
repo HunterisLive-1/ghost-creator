@@ -229,14 +229,26 @@ echo.
 :: ================================================================
 :: STEP 5b — Install GUI Dependencies (v2)
 :: ================================================================
-echo  [7/10] Installing GUI dependencies (customtkinter, edge-tts)...
+echo  [7/10] Installing API + GUI dependencies (FastAPI, edge-tts, Node/Electron)...
 
 call venv\Scripts\activate.bat
-pip install customtkinter Pillow edge-tts >nul 2>&1
+pip install fastapi "uvicorn[standard]" pydantic Pillow edge-tts >nul 2>&1
 if %ERRORLEVEL% neq 0 (
-    echo        [!] Some GUI packages failed to install.
+    echo        [!] Some Python packages failed to install.
 ) else (
-    echo        [OK] GUI dependencies installed!
+    echo        [OK] Python API dependencies installed!
+)
+
+where npm >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo        [!] Node.js/npm not found — install from https://nodejs.org then run: npm install
+) else (
+    call npm install
+    if %ERRORLEVEL% neq 0 (
+        echo        [!] npm install failed.
+    ) else (
+        echo        [OK] Electron/React dependencies installed!
+    )
 )
 echo.
 
@@ -365,8 +377,10 @@ echo    2. Record your voice (10-30 sec) as:
 echo       my_voice_reference.wav  ^(in this folder^)
 echo.
 echo    3. Launch Ghost Creator AI:
-echo       - GUI mode:  python gui\app.py
-echo       - CLI mode:  python main.py
+echo       - Install Node deps:  npm install
+echo       - GUI mode ^(dev^):   npm run electron:dev
+echo       - API only ^(dev^):   python -m api.server
+echo       - CLI mode:          python main.py
 echo.
 echo    4. ^(Optional^) OmniVoice TTS: start local server if using that backend.
 echo.
