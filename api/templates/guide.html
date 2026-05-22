@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{TITLE}} — Ghost Creator AI v{{VERSION}}</title>
+  <style>
+    :root {
+      --bg: #050A10;
+      --bg-panel: #0A1219;
+      --border: #1A2836;
+      --text: #D8E8F0;
+      --text-muted: #7A9BB0;
+      --accent: #00D4FF;
+      --accent-dim: #007799;
+      --link: #4DC8FF;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 12px 20px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .topbar h1 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.04em;
+    }
+    .topbar-links a {
+      color: var(--link);
+      text-decoration: none;
+      margin-left: 16px;
+      font-size: 0.875rem;
+    }
+    .topbar-links a:hover { text-decoration: underline; }
+    .quick-links {
+      background: #0D1822;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin-bottom: 24px;
+      font-size: 0.875rem;
+    }
+    .quick-links strong { color: var(--accent); }
+    .quick-links a { color: var(--link); }
+    .layout {
+      display: flex;
+      min-height: calc(100vh - 52px);
+    }
+    .sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border);
+      padding: 16px 0;
+      overflow-y: auto;
+    }
+    .sidebar-label {
+      padding: 0 16px 8px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+    }
+    .nav-link {
+      display: block;
+      padding: 8px 16px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      border-left: 3px solid transparent;
+    }
+    .nav-link:hover {
+      color: var(--text);
+      background: rgba(0, 212, 255, 0.05);
+    }
+    .nav-link.active {
+      color: var(--accent);
+      border-left-color: var(--accent);
+      background: rgba(0, 212, 255, 0.08);
+    }
+    .content {
+      flex: 1;
+      padding: 28px 36px 48px;
+      max-width: 900px;
+      overflow-y: auto;
+    }
+    .content h1 {
+      font-size: 1.75rem;
+      margin-bottom: 16px;
+      color: var(--accent);
+    }
+    .content h2 {
+      font-size: 1.25rem;
+      margin: 28px 0 12px;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+    .content h3 {
+      font-size: 1rem;
+      margin: 20px 0 8px;
+      color: var(--text-muted);
+    }
+    .content p { margin-bottom: 12px; }
+    .content ul, .content ol { margin: 0 0 12px 24px; }
+    .content li { margin-bottom: 4px; }
+    .content a { color: var(--link); }
+    .content code {
+      background: #0D1822;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 0.875em;
+      color: var(--accent);
+    }
+    .content pre {
+      background: #0D1822;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      margin-bottom: 16px;
+    }
+    .content pre code {
+      background: none;
+      padding: 0;
+      color: var(--text);
+    }
+    .content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+      font-size: 0.875rem;
+    }
+    .content th, .content td {
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+    }
+    .content th {
+      background: #0D1822;
+      color: var(--accent);
+    }
+    .content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 24px 0;
+    }
+    .content blockquote {
+      border-left: 3px solid var(--accent-dim);
+      padding-left: 12px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+    @media (max-width: 768px) {
+      .layout { flex-direction: column; }
+      .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+      .content { padding: 20px 16px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <h1>GHOST CREATOR AI — Documentation v{{VERSION}}</h1>
+    <div class="topbar-links">
+      <a href="/guide">User Guide</a>
+      <a href="/docs">API Reference (Swagger)</a>
+      <a href="/health">Health</a>
+      <a href="https://github.com/HunterisLive-1/ghost-creator" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </header>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="sidebar-label">Sections</div>
+      {{SIDEBAR}}
+    </nav>
+    <main class="content">
+      <div class="quick-links">
+        <strong>Quick links:</strong>
+        Launch GUI with <code>npm run electron:dev</code> ·
+        API Swagger at <a href="/docs">/docs</a> ·
+        Repo: <a href="https://github.com/HunterisLive-1/ghost-creator" target="_blank" rel="noopener">github.com/HunterisLive-1/ghost-creator</a>
+      </div>
+      {{CONTENT}}
+    </main>
+  </div>
+</body>
+</html>

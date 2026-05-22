@@ -218,6 +218,8 @@ venv\Scripts\activate.bat
 
 Electron waits for `GET /health` before showing the main window. If the GUI hangs on "Initializing…", check that port **8766** is free and the venv Python is available.
 
+When the app is running, open **Settings → Open Documentation** or visit `http://127.0.0.1:8766/guide` for the full user guide. API reference (Swagger) is at `http://127.0.0.1:8766/docs`.
+
 ---
 
 ## GUI User Guide
@@ -404,9 +406,11 @@ Configured in Settings → Audio. Only three backends are supported:
 
 | Backend | Cost | Quality | Setup |
 |---------|------|---------|-------|
-| **OmniVoice** (default) | Free (local server) | Best voice clone | External OmniVoice server + reference WAV |
+| **OmniVoice** (default) | Free (local server) | Best voice clone | External OmniVoice install + reference WAV |
 | **Edge TTS** | Free | Good neural voices | None — works immediately |
 | **ElevenLabs** | Paid | Premium cloud | API key + Voice ID in Settings |
+
+OmniVoice weights and PyTorch are **not included** in the packaged app or `GhostCreatorAPI.exe`. Install OmniVoice separately (example: `D:\omnivoice\OmniVoice`), then set **Settings → OmniVoice Server Path** to that install's `run.bat`.
 
 Language support varies by backend; the pipeline validates compatibility before synthesis.
 

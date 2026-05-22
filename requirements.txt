@@ -8,6 +8,7 @@ python-dotenv>=1.0.0
 
 # --- GUI / API ---
 # customtkinter removed — GUI is Electron + React
+markdown>=3.5
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 pydantic>=2.0.0

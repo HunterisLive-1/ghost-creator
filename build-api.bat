@@ -21,19 +21,28 @@ if %ERRORLEVEL% neq 0 (
     python -m pip install "pyinstaller>=6.0"
 )
 
+if not exist "docs\index.json" (
+    echo  [ERROR] docs\ folder missing. Ensure project documentation exists.
+    pause
+    exit /b 1
+)
+
 if not exist "dist-api" mkdir dist-api
 
 echo Building GhostCreatorAPI.exe ...
 echo.
 
 set ICON_ARG=
-if exist "icon.ico" set ICON_ARG=--icon "icon.ico"
+if exist "icon.ico" set ICON_ARG=--icon "%CD%\icon.ico"
 
 python -m PyInstaller ^
+  --clean ^
   --onefile ^
   --noconsole ^
   --name GhostCreatorAPI ^
   %ICON_ARG% ^
+  --add-data "%CD%\docs;docs" ^
+  --add-data "%CD%\api\templates;api\templates" ^
   --distpath dist-api ^
   --workpath build-api ^
   --specpath build-api ^
@@ -51,8 +60,20 @@ python -m PyInstaller ^
   --hidden-import uvicorn.lifespan.on ^
   --hidden-import fastapi ^
   --hidden-import pydantic ^
+  --hidden-import markdown ^
+  --hidden-import backends.tts.omnivoice_tts ^
+  --hidden-import backends.tts.edge_tts ^
+  --hidden-import backends.tts.elevenlabs ^
+  --hidden-import backends.image.gemini_imagen ^
+  --exclude-module torch ^
+  --exclude-module torchaudio ^
+  --exclude-module torchvision ^
+  --exclude-module omnivoice ^
+  --exclude-module tensorboard ^
+  --exclude-module numba ^
+  --exclude-module scipy ^
+  --exclude-module pandas ^
   --collect-submodules modules ^
-  --collect-submodules backends ^
   --collect-submodules core ^
   --collect-submodules api ^
   api\server.py
@@ -66,4 +87,5 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo  [OK] dist-api\GhostCreatorAPI.exe
 echo.
-pause
+if /i not "%~1"=="--no-pause" pause
+exit /b 0

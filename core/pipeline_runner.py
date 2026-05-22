@@ -42,11 +42,6 @@ def _has_gpu() -> bool:
         return r.returncode == 0 and bool(r.stdout.strip())
     except Exception:
         pass
-    try:
-        import torch  # type: ignore[import-untyped]
-        return torch.cuda.is_available()
-    except ImportError:
-        pass
     return False
 
 

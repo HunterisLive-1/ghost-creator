@@ -377,7 +377,7 @@ echo    2. Record your voice (10-30 sec) as:
 echo       my_voice_reference.wav  ^(in this folder^)
 echo.
 echo    3. Launch Ghost Creator AI:
-echo       - Install Node deps:  npm install
+echo       - One-click ^(dev^):  run.bat
 echo       - GUI mode ^(dev^):   npm run electron:dev
 echo       - API only ^(dev^):   python -m api.server
 echo       - CLI mode:          python main.py

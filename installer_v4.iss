@@ -1,25 +1,35 @@
 #define MyAppName "Ghost Creator AI"
 #define MyAppVersion "4.2.2"
 #define MyAppPublisher "HunterIsLive"
-#define MyAppURL "https://getmaya.online"
+#define MyAppURL "https://github.com/HunterisLive-1/ghost-creator"
+#define MyAppSupportURL "https://github.com/HunterisLive-1/ghost-creator/issues"
 #define MyAppExeName "GhostCreatorAI.exe"
+#define MyAppApiExeName "GhostCreatorAPI.exe"
+
+; Build before compiling this installer:
+;   1. build-electron.bat   (cleans old output, builds API exe + Electron release\win-unpacked)
+;   2. Open this script in Inno Setup Compiler and Compile
+;
+; Installed layout:
+;   {app}\GhostCreatorAI.exe          — Electron shell
+;   {app}\resources\GhostCreatorAPI.exe — Python FastAPI sidecar (also bundled by electron-builder)
+;   %LOCALAPPDATA%\GhostCreatorAI\     — config.json + first-run FFmpeg download
 
 [Setup]
 ; AppId kabhi mat badlo — warna purana install alag app ban jayega / upgrade toot jayega.
-; Inno mein { } ke liye {{ }} likho. Neeche wala value = {GhostCreatorAI-2025-HunterIsLive-UUID}
 AppId={{GhostCreatorAI-2025-HunterIsLive-UUID}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} v{#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
-AppSupportURL={#MyAppURL}
-AppUpdatesURL={#MyAppURL}
+AppSupportURL={#MyAppSupportURL}
+AppUpdatesURL={#MyAppURL}/releases
 DefaultDirName={autopf}\GhostCreatorAI
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=installer_output
-OutputBaseFilename=GhostCreatorAI_v4.2.2_Setup
+OutputBaseFilename=GhostCreatorAI_v{#MyAppVersion}_Setup
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\icon.ico
 Compression=lzma2/ultra64
@@ -27,13 +37,17 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
 MinVersion=10.0
-; Version checking — allows silent upgrade over old version
 AppMutex=GhostCreatorAIMutex
 CloseApplications=yes
 CloseApplicationsFilter=*.exe
 RestartApplications=no
-; Uninstall previous version automatically before installing new one
-; This ensures clean update without duplicate entries
+LicenseFile=LICENSE
+VersionInfoVersion={#MyAppVersion}
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription={#MyAppName} — Documentary video automation (MIT)
+VersionInfoCopyright=Copyright (C) 2026 {#MyAppPublisher}
+VersionInfoProductName={#MyAppName}
+VersionInfoProductVersion={#MyAppVersion}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -43,49 +57,39 @@ Name: "desktopicon"; Description: "Create a &Desktop shortcut"; GroupDescription
 Name: "startmenuicon"; Description: "Create a &Start Menu shortcut"; GroupDescription: "Additional icons:"
 
 [Files]
-; Electron app (run: npm run electron:build — output in release\win-unpacked)
+; Electron app (build-electron.bat → release\win-unpacked)
 Source: "release\win-unpacked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Python API sidecar (run: build-api.bat)
-Source: "dist-api\GhostCreatorAPI.exe"; DestDir: "{app}\resources"; Flags: ignoreversion
+; Python API sidecar — ensure latest build-api output (overwrites electron-builder copy if present)
+Source: "dist-api\{#MyAppApiExeName}"; DestDir: "{app}\resources"; Flags: ignoreversion
 
 ; App icon for shortcuts
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
-; Optional legacy workflow file (unused; Gemini-only image pipeline)
-Source: "workflow_api.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; MIT license (also shown in wizard via LicenseFile)
+Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
-; FFmpeg is downloaded on first launch to {localappdata}\GhostCreatorAI\ffmpeg
-; config.json is generated in %LOCALAPPDATA%\GhostCreatorAI on first run
+; FFmpeg: downloaded on first launch to {localappdata}\GhostCreatorAI\ffmpeg
+; config.json: created in {localappdata}\GhostCreatorAI on first run
 
 [Icons]
-; Desktop shortcut
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icon.ico"; Tasks: desktopicon
-
-; Start Menu shortcuts
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icon.ico"; Tasks: startmenuicon
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"; Tasks: startmenuicon
 
 [Run]
-; Launch app after install
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-; Kill app if running before uninstall
-Filename: "taskkill"; Parameters: "/F /IM GhostCreatorAI.exe"; Flags: runhidden waituntilterminated; RunOnceId: "KillApp"
+Filename: "taskkill"; Parameters: "/F /IM {#MyAppExeName}"; Flags: runhidden waituntilterminated; RunOnceId: "KillElectronApp"
+Filename: "taskkill"; Parameters: "/F /IM {#MyAppApiExeName}"; Flags: runhidden waituntilterminated; RunOnceId: "KillApiSidecar"
 
 [UninstallDelete]
-; Optional: remove one-time FFmpeg download cache (new installs re-download if needed)
 Type: filesandordirs; Name: "{localappdata}\GhostCreatorAI\ffmpeg"
-
-; Delete entire install folder on uninstall (clean removal)
 Type: filesandordirs; Name: "{app}"
-
-; Delete Start Menu folder
 Type: dirifempty; Name: "{group}"
 
 [Code]
-// ─── Auto-uninstall previous version before installing new one ───────────────
 function GetUninstallString(): String;
 var
   sUnInstPath: String;
@@ -120,6 +124,20 @@ begin
     Result := 1;
 end;
 
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  if not FileExists(ExpandConstant('{src}\release\win-unpacked\{#MyAppExeName}')) then begin
+    MsgBox('Missing build output: release\win-unpacked\{#MyAppExeName}' + #13#10 + #13#10 +
+      'Run build-electron.bat first, then compile this installer.', mbError, MB_OK);
+    Result := False;
+  end else if not FileExists(ExpandConstant('{src}\dist-api\{#MyAppApiExeName}')) then begin
+    MsgBox('Missing build output: dist-api\{#MyAppApiExeName}' + #13#10 + #13#10 +
+      'Run build-electron.bat (or build-api.bat) first, then compile this installer.', mbError, MB_OK);
+    Result := False;
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep = ssInstall) then begin
@@ -127,11 +145,4 @@ begin
       UnInstallOldVersion();
     end;
   end;
-end;
-
-// ─── Microsoft SmartScreen / Defender bypass hint ────────────────────────────
-// (Adding version info and publisher helps avoid false positives)
-function InitializeSetup(): Boolean;
-begin
-  Result := True;
 end;

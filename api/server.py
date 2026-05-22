@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import APP_VERSION
 from api.routes import config as config_routes
+from api.routes import docs as docs_routes
 from api.routes import history as history_routes
 from api.routes import misc as misc_routes
 from api.routes import pipeline as pipeline_routes
@@ -40,6 +41,7 @@ app.add_middleware(
 )
 
 app.include_router(config_routes.router)
+app.include_router(docs_routes.router)
 app.include_router(pipeline_routes.router)
 app.include_router(system_routes.router)
 app.include_router(workshop_routes.router)

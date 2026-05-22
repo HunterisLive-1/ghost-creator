@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, getApiBaseUrl } from "../api/client";
 import { theme } from "../theme/tokens";
 
 interface Props {
@@ -285,6 +285,20 @@ export function SettingsTab({ onBackendChange }: Props) {
       <Section title="ABOUT">
         <p style={styles.hint}>Ghost Creator AI v{version} — free &amp; open source (MIT)</p>
         <p style={styles.hint}>Device: {deviceName}</p>
+        <button
+          type="button"
+          style={styles.actionBtn}
+          onClick={() => {
+            const url = `${getApiBaseUrl()}/guide`;
+            if (window.electronAPI?.openExternal) {
+              void window.electronAPI.openExternal(url);
+            } else {
+              window.open(url, "_blank");
+            }
+          }}
+        >
+          OPEN DOCUMENTATION
+        </button>
       </Section>
 
       <button type="button" style={{ ...styles.saveBtn, ...(saved ? { background: theme.accentGrn } : {}) }} onClick={save}>

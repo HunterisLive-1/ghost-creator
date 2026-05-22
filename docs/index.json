@@ -1,0 +1,14 @@
+{
+  "sections": [
+    { "slug": "overview", "title": "Overview & Pipeline", "file": "01-overview.md", "order": 1 },
+    { "slug": "install", "title": "Installation", "file": "02-install.md", "order": 2 },
+    { "slug": "launch", "title": "Launching the App", "file": "03-launch.md", "order": 3 },
+    { "slug": "gui-documentary", "title": "GUI — Documentary Tab", "file": "04-gui-documentary.md", "order": 4 },
+    { "slug": "gui-other", "title": "GUI — Upload, Settings, History", "file": "05-gui-upload-settings-history.md", "order": 5 },
+    { "slug": "config", "title": "Configuration Reference", "file": "06-config-reference.md", "order": 6 },
+    { "slug": "tts-footage", "title": "TTS & Footage", "file": "07-tts-footage.md", "order": 7 },
+    { "slug": "cli-build", "title": "CLI & Building Releases", "file": "08-cli-build.md", "order": 8 },
+    { "slug": "troubleshooting", "title": "Troubleshooting", "file": "09-troubleshooting.md", "order": 9 },
+    { "slug": "license", "title": "License", "file": "10-license.md", "order": 10 }
+  ]
+}
