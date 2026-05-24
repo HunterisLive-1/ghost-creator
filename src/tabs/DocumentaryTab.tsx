@@ -82,10 +82,13 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [chatThinking, setChatThinking] = useState(false);
   const [lastPlan, setLastPlan] = useState<WorkshopPlan | null>(null);
+  const [footageSource, setFootageSource] = useState("stock");
   const logEndRef = useRef<HTMLDivElement>(null);
   const reviewPollRef = useRef<number | null>(null);
   const runningRef = useRef(running);
+  const runIdRef = useRef(runId);
   runningRef.current = running;
+  runIdRef.current = runId;
 
   useEffect(() => {
     api.getConfig().then((cfg) => {
@@ -105,6 +108,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
       setCaptionColor(String(subStyle.color || "#FFFFFF"));
       setCaptionBold(subStyle.bold !== undefined ? Boolean(subStyle.bold) : true);
       setCaptionItalic(subStyle.italic !== undefined ? Boolean(subStyle.italic) : false);
+      setFootageSource(String(doc.footage_source || "stock"));
     });
   }, []);
 
@@ -154,6 +158,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
       if (msg.done) {
         setRunning(false);
         runningRef.current = false;
+        setScriptReview(null);
         setSystemState(msg.level === "ERROR" ? "ERROR" : "READY");
         if (msg.output_path) setOutputPath(msg.output_path);
         if (msg.level === "SUCCESS") {
@@ -172,14 +177,21 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     if (!runningRef.current) return;
     try {
       const res = await api.pipelineScriptReview();
-      if (res.waiting && res.data) {
+      const activeRunId = runIdRef.current;
+      if (
+        res.waiting &&
+        res.data &&
+        (res.run_id == null || res.run_id === activeRunId)
+      ) {
         setScriptReview(res.data);
         return;
       }
     } catch {
       /* ignore */
     }
-    reviewPollRef.current = window.setTimeout(pollScriptReview, 500);
+    if (runningRef.current) {
+      reviewPollRef.current = window.setTimeout(pollScriptReview, 500);
+    }
   }, []);
 
   const startPipeline = async () => {
@@ -215,13 +227,33 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     setErrorMsg("");
     setAnalysis("");
     setRetryVisible(false);
+    setScriptReview(null);
     setSystemState("PROCESSING");
     onPipelineStateChange?.({
       running: true, step: 1, stepName: DOC_STEPS[0],
       progress: 0, lastMsg: "Pipeline started…", level: "INFO"
     });
 
-    await api.pipelineStart({ topic: autoTopic ? null : topic || null, run_id: newRunId });
+    if (reviewPollRef.current) clearTimeout(reviewPollRef.current);
+
+    const res = await api.pipelineStart({ topic: autoTopic ? null : topic || null, run_id: newRunId });
+    if (!res.ok) {
+      setRunning(false);
+      runningRef.current = false;
+      setSystemState("READY");
+      const err = res.error || "Failed to start pipeline";
+      setErrorMsg(err);
+      appendLog("ERROR", err);
+      onPipelineStateChange?.({
+        running: false, step: 0, stepName: "",
+        progress: 0, lastMsg: err, level: "ERROR"
+      });
+      return;
+    }
+
+    const startedRunId = res.run_id ?? newRunId;
+    setRunId(startedRunId);
+    runIdRef.current = startedRunId;
     reviewPollRef.current = window.setTimeout(pollScriptReview, 500);
   };
 
@@ -229,6 +261,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     await api.pipelineStop();
     setRunning(false);
     runningRef.current = false;
+    setScriptReview(null);
     setSystemState("READY");
     appendLog("WARNING", "Pipeline stopped by user");
     if (reviewPollRef.current) clearTimeout(reviewPollRef.current);
@@ -303,6 +336,9 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
           </span>
         </div>
         <span style={styles.badge}>CINEMATIC MODE</span>
+        <span style={styles.footageBadge}>
+          Footage: {footageSource === "meta_ai" ? "Meta AI" : "Stock"}
+        </span>
       </div>
 
       <div style={styles.row}>
@@ -607,6 +643,7 @@ const styles: Record<string, React.CSSProperties> = {
   headerTitle: { color: purpleTheme.textPri, fontWeight: 700, fontSize: 14, fontFamily: "monospace" },
   headerSubtitle: { color: purpleTheme.textSec, fontSize: 11, marginLeft: 12 },
   badge: { border: `1px solid ${purpleTheme.accentPri}`, background: "rgba(191,0,255,0.15)", padding: "4px 10px", fontSize: 10, color: purpleTheme.textPri, cursor: "pointer", fontWeight: 700, borderRadius: 2, fontFamily: "monospace" },
+  footageBadge: { border: `1px solid ${purpleTheme.border}`, padding: "4px 10px", fontSize: 10, color: purpleTheme.textSec, borderRadius: 2, fontFamily: "monospace" },
   row: { display: "flex", gap: 12, marginBottom: 12 },
   modeCard: { flex: 1, padding: 16, background: purpleTheme.bgCard, border: `1px solid ${purpleTheme.border}`, color: purpleTheme.textSec, textAlign: "left", borderRadius: 4, transition: "all 0.3s ease", cursor: "pointer" },
   modeActive: { borderColor: purpleTheme.accentPri, boxShadow: `0 0 12px rgba(191, 0, 255, 0.4)`, background: purpleTheme.bgSec, color: purpleTheme.textPri },

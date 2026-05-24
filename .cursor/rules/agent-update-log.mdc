@@ -1,0 +1,10 @@
+---
+description: Do not maintain AGENT_CHANGES.md or agent change logs
+alwaysApply: true
+---
+
+# No Agent Change Log File
+
+- Do **not** create, update, or append to `AGENT_CHANGES.md`.
+- Do **not** add mandatory change notes to any agent changelog file unless the user explicitly asks.
+- Summarize changes in chat, commit messages, or PR descriptions instead.

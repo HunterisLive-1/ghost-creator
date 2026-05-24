@@ -104,6 +104,15 @@ DEFAULT_CONFIG: dict = {
     "documentary.logo_scale": 0.15,
     "documentary.logo_margin": 24,
     "documentary.logo_opacity": 1.0,
+    "documentary.footage_source": "stock",  # stock | meta_ai (grok later)
+    "meta_ai": {
+        "chrome_profile_path": "",
+        "headless": False,
+        "generation_timeout_ms": 600_000,
+        "clip_delay_sec": 5,
+        "fallback_to_stock": True,
+        "base_url": "https://www.meta.ai/",
+    },
     "img2video_enabled": False,
     "img2video_backend": "kling_standard",
     "img2video_duration": "5",
@@ -601,6 +610,19 @@ class ConfigManager:
         ic = max(4, min(ic, 40))
         if ic != self.get("image.image_count"):
             self.set("image.image_count", ic)
+            changed = True
+
+        footage = self.get("documentary.footage_source", DEFAULT_CONFIG["documentary.footage_source"])
+        if footage not in ("stock", "meta_ai"):
+            self.set("documentary.footage_source", DEFAULT_CONFIG["documentary.footage_source"])
+            changed = True
+
+        meta_ai = dict(self.get("meta_ai", {}) or {})
+        meta_defaults = json.loads(json.dumps(DEFAULT_CONFIG["meta_ai"]))
+        if self._merge_defaults(meta_ai, meta_defaults):
+            changed = True
+        if meta_ai != self.get("meta_ai"):
+            self.set("meta_ai", meta_ai)
             changed = True
 
         return changed

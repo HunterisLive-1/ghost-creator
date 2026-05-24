@@ -168,6 +168,8 @@ class PipelineRunner:
     def stop(self) -> None:
         """Request the pipeline to stop after the current step."""
         self.running = False
+        self.waiting_for_script_review = False
+        self.pending_script_data = None
         # Wake a blocked script review or retry wait so the thread can exit
         self._script_review_event.set()
         self._retry_event.set()
@@ -435,6 +437,8 @@ class PipelineRunner:
         )
         log.info("Documentary script: %s segments, ~%s words", num_segs, _word_count)
 
+        if not self.running:
+            return
 
         # Script review (reuse same pause mechanism)
         if config.get("script_review_enabled", True):
@@ -559,10 +563,12 @@ class PipelineRunner:
                 self._emit(3, "🔄 Retrying voiceover …", "INFO")
 
         # ── Step 4: Download footage clips (with retry) ───────────────────
-        from modules.video_fetcher import fetch_clips
+        from modules.video_fetcher import fetch_clips_for_pipeline, footage_source_label
 
         def _fetch_progress(msg: str) -> None:
             self._emit(4, msg, "INFO")
+
+        _footage_label = footage_source_label()
 
         # Auto-calculate max clip duration: evenly divide total voiceover duration
         # across clips with a small buffer, clamped to a sensible range.
@@ -574,9 +580,13 @@ class PipelineRunner:
             if not self.running:
                 return
             self._reset_retry()
-            self._emit(4, f"📹 Downloading {num_segs} footage clips from YouTube …", "INFO")
+            self._emit(
+                4,
+                f"📹 Fetching {num_segs} clips via {_footage_label} …",
+                "INFO",
+            )
             try:
-                clips = fetch_clips(
+                clips = fetch_clips_for_pipeline(
                     script["segments"],
                     clips_dir,
                     max_clip_duration=max_clip_dur,

@@ -1397,6 +1397,114 @@ export function SettingsTab({ onBackendChange }: Props) {
         )}
       </Section>
 
+      <Section title="FOOTAGE SOURCE">
+        <p style={styles.hint}>
+          Documentary Step 4 — stock B-roll (Pexels + YouTube) or AI clips via Meta AI browser (no API key).
+          Personal automation only; Meta UI changes may require selector updates.
+        </p>
+        <Row label="Source">
+          <select
+            value={String(g("documentary.footage_source", "stock"))}
+            onChange={(e) => set("documentary.footage_source", e.target.value)}
+            style={{ flex: 1 }}
+          >
+            <option value="stock">Stock — Pexels + YouTube (yt-dlp)</option>
+            <option value="meta_ai">Meta AI — browser automation</option>
+          </select>
+        </Row>
+        {String(g("documentary.footage_source", "stock")) === "meta_ai" && (
+          <div style={styles.subPanel}>
+            <Row label="Chrome profile path">
+              <div style={{ display: "flex", gap: 8, flex: 1 }}>
+                <input
+                  value={String(g("meta_ai.chrome_profile_path", ""))}
+                  onChange={(e) => set("meta_ai.chrome_profile_path", e.target.value)}
+                  placeholder="C:\ChromeProfiles\GhostCreator_MetaAI"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  style={styles.actionBtn}
+                  onClick={() => browseDirectory("Select Meta AI Chrome Profile Folder", "meta_ai.chrome_profile_path")}
+                >
+                  BROWSE
+                </button>
+              </div>
+            </Row>
+            <Row label="Meta AI URL">
+              <input
+                value={String(g("meta_ai.base_url", "https://www.meta.ai/"))}
+                onChange={(e) => set("meta_ai.base_url", e.target.value)}
+                style={{ flex: 1 }}
+              />
+            </Row>
+            <label style={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={Boolean(g("meta_ai.headless", false))}
+                onChange={(e) => set("meta_ai.headless", e.target.checked)}
+              />
+              Headless browser (not recommended — login/captcha often fails)
+            </label>
+            <label style={{ ...styles.checkRow, marginTop: 8 }}>
+              <input
+                type="checkbox"
+                checked={g("meta_ai.fallback_to_stock", true) !== false && g("meta_ai.fallback_to_stock", true) !== 0}
+                onChange={(e) => set("meta_ai.fallback_to_stock", e.target.checked)}
+              />
+              Fallback to stock footage if Meta AI clip fails
+            </label>
+            <Row label="Timeout per clip (ms)">
+              <input
+                type="number"
+                min={60000}
+                step={60000}
+                value={Number(g("meta_ai.generation_timeout_ms", 600000))}
+                onChange={(e) => set("meta_ai.generation_timeout_ms", parseInt(e.target.value, 10) || 600000)}
+                style={{ width: 140 }}
+              />
+            </Row>
+            <Row label="Delay between clips (sec)">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={Number(g("meta_ai.clip_delay_sec", 5))}
+                onChange={(e) => set("meta_ai.clip_delay_sec", parseFloat(e.target.value) || 5)}
+                style={{ width: 80 }}
+              />
+            </Row>
+            <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                style={styles.actionBtn}
+                onClick={async () => {
+                  const res = await api.metaAiSetupProfile();
+                  alert(res.message || (res.ok ? "Profile setup done" : "Setup failed"));
+                  if (res.profile_path) set("meta_ai.chrome_profile_path", res.profile_path);
+                  await save();
+                }}
+              >
+                SETUP META PROFILE
+              </button>
+              <button
+                type="button"
+                style={styles.actionBtn}
+                onClick={async () => {
+                  const res = await api.metaAiTestLogin();
+                  alert(res.message || (res.ok ? "Logged in" : "Not logged in"));
+                }}
+              >
+                TEST META LOGIN
+              </button>
+            </div>
+            <div style={styles.cardHint}>
+              First time: run SETUP META PROFILE, log in to Meta/Facebook, close Chrome. Expect 1–5+ min per AI clip.
+            </div>
+          </div>
+        )}
+      </Section>
+
       <Section title="AUDIO SUBROUTINE">
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           {TTS_BACKENDS.map((b) => (

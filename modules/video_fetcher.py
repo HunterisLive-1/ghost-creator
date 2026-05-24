@@ -311,3 +311,37 @@ def fetch_clips(
     success = sum(1 for c in clips if c is not None)
     _notify(progress_callback, f"📥 Clips ready: {success}/{total} downloaded")
     return clips
+
+
+def footage_source_label() -> str:
+    src = (config.get("documentary.footage_source") or "stock").strip().lower()
+    if src == "meta_ai":
+        return "Meta AI (browser)"
+    return "Stock (Pexels + YouTube)"
+
+
+def fetch_clips_for_pipeline(
+    segments: list[dict],
+    output_dir: Path,
+    max_clip_duration: int = 120,
+    progress_callback: _CB = None,
+) -> list[Path | None]:
+    """
+    Route footage download to stock (Pexels/yt-dlp) or Meta AI browser automation.
+    """
+    source = (config.get("documentary.footage_source") or "stock").strip().lower()
+    if source == "meta_ai":
+        from modules.ai_video.meta_ai_browser import fetch_clips_meta_ai
+
+        return fetch_clips_meta_ai(
+            segments,
+            output_dir,
+            max_clip_duration=max_clip_duration,
+            progress_callback=progress_callback,
+        )
+    return fetch_clips(
+        segments,
+        output_dir,
+        max_clip_duration=max_clip_duration,
+        progress_callback=progress_callback,
+    )

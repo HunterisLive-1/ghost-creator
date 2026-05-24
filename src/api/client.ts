@@ -41,14 +41,16 @@ export const api = {
     request<{ version: string; device_name: string; env_local_path: string }>("/api/system/info"),
 
   pipelineStart: (body: { topic?: string | null; run_id?: number }) =>
-    request<{ ok: boolean; run_id: number }>("/api/pipeline/start", {
+    request<{ ok: boolean; run_id?: number; error?: string }>("/api/pipeline/start", {
       method: "POST",
       body: JSON.stringify(body),
     }),
   pipelineStop: () => request<{ ok: boolean }>("/api/pipeline/stop", { method: "POST" }),
   pipelineRetry: () => request<{ ok: boolean }>("/api/pipeline/retry", { method: "POST" }),
   pipelineScriptReview: () =>
-    request<{ waiting: boolean; data: ScriptReviewData | null }>("/api/pipeline/script-review"),
+    request<{ waiting: boolean; data: ScriptReviewData | null; run_id?: number | null }>(
+      "/api/pipeline/script-review"
+    ),
   pipelineScriptApprove: (data: ScriptReviewData) =>
     request<{ ok: boolean }>("/api/pipeline/script/approve", {
       method: "POST",
@@ -133,6 +135,13 @@ export const api = {
     request<{ ok: boolean; message: string }>("/api/chrome-profile/setup", {
       method: "POST",
       body: JSON.stringify({ name }),
+    }),
+
+  metaAiTestLogin: () =>
+    request<{ ok: boolean; message: string }>("/api/meta-ai/test-login", { method: "POST" }),
+  metaAiSetupProfile: () =>
+    request<{ ok: boolean; message: string; profile_path?: string }>("/api/meta-ai/setup-profile", {
+      method: "POST",
     }),
 
   // YouTube Analytics API (OAuth2)

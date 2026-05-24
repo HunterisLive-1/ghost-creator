@@ -170,6 +170,34 @@ async def chrome_profile_sync(body: ChromeSyncBody) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+# ── Meta AI browser footage ───────────────────────────────────────────────────
+
+@router.post("/api/meta-ai/test-login")
+async def meta_ai_test_login() -> dict:
+    try:
+        from modules.ai_video.meta_ai_browser import check_meta_login
+
+        return await check_meta_login()
+    except Exception as exc:
+        return {"ok": False, "message": str(exc)}
+
+
+@router.post("/api/meta-ai/setup-profile")
+def meta_ai_setup_profile() -> dict:
+    try:
+        from setup_meta_profile import run_setup
+
+        profile = asyncio.run(run_setup())
+        config.load()
+        return {
+            "ok": True,
+            "message": f"Meta AI profile saved: {profile}",
+            "profile_path": str(profile),
+        }
+    except Exception as exc:
+        return {"ok": False, "message": str(exc)}
+
+
 @router.get("/api/local-file")
 def get_local_file(path: str):
     import os

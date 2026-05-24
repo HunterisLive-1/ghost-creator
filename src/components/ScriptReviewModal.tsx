@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { ScriptReviewData } from "../api/client";
 import { theme } from "../theme/tokens";
 
@@ -16,7 +17,7 @@ export function ScriptReviewModal({ data, onApprove, onRegenerate, onCancel }: P
 
   const wordCount = (voiceover || "").trim().split(/\s+/).filter(Boolean).length;
 
-  return (
+  return createPortal(
     <div style={styles.overlay}>
       <div style={styles.modal}>
         <h2 style={{ color: theme.accentPri }}>📝 Script Review — Step 2 of 6</h2>
@@ -64,7 +65,8 @@ export function ScriptReviewModal({ data, onApprove, onRegenerate, onCancel }: P
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -79,7 +81,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 1000,
+    zIndex: 10000,
   },
   modal: {
     background: theme.bgMain,
