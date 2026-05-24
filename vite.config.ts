@@ -21,6 +21,10 @@ export default defineConfig({
       ignored: [
         "**/output/**",
         "**/venv/**",
+        "**/build-api/**",
+        "**/dist-api/**",
+        "**/build/**",
+        "**/node_modules/**",
         "**/config.json",
         "**/.env.local",
         "**/.env",

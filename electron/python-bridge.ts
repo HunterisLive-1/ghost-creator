@@ -19,6 +19,12 @@ export class PythonBridge {
     if (fs.existsSync(venvPy)) {
       return { cmd: venvPy, args: ["-m", "api.server"], cwd: root };
     }
+    // onedir build: resources/GhostCreatorAPI/GhostCreatorAPI.exe
+    const apiExeOnedir = path.join(process.resourcesPath, "GhostCreatorAPI", "GhostCreatorAPI.exe");
+    if (fs.existsSync(apiExeOnedir)) {
+      return { cmd: apiExeOnedir, args: [], cwd: path.dirname(apiExeOnedir) };
+    }
+    // legacy single-file build: resources/GhostCreatorAPI.exe
     const apiExe = path.join(process.resourcesPath, "GhostCreatorAPI.exe");
     if (fs.existsSync(apiExe)) {
       return { cmd: apiExe, args: [], cwd: path.dirname(apiExe) };
