@@ -7,9 +7,11 @@ export type StepState = "idle" | "active" | "done" | "error";
 interface Props {
   steps: StepState[];
   progress: number;
+  progressColor?: string;
+  activeColor?: string;
 }
 
-export function HexProgress({ steps, progress }: Props) {
+export function HexProgress({ steps, progress, progressColor, activeColor }: Props) {
   const pct = Math.round(progress * 100);
   return (
     <div style={{ padding: "12px 0" }}>
@@ -19,7 +21,7 @@ export function HexProgress({ steps, progress }: Props) {
           const color =
             st === "done" ? theme.accentGrn :
             st === "error" ? theme.accentRed :
-            st === "active" ? theme.accentWarn :
+            st === "active" ? (activeColor || theme.accentWarn) :
             theme.border;
           return (
             <div
@@ -47,7 +49,7 @@ export function HexProgress({ steps, progress }: Props) {
           style={{
             height: "100%",
             width: `${pct}%`,
-            background: theme.accentPri,
+            background: progressColor || theme.accentPri,
             borderRadius: 3,
             transition: "width 0.3s",
           }}

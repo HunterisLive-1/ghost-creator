@@ -39,8 +39,10 @@ Pillow>=10.3.0
 # --- Video / numeric ---
 numpy>=1.26.0
 
-# --- YouTube uploader ---
+# --- YouTube uploader + Analytics ---
 playwright>=1.43.0
+google-auth-oauthlib>=1.0.0
+google-api-python-client>=2.100.0
 
 # --- Documentary mode (footage download) ---
 yt-dlp>=2024.1.1

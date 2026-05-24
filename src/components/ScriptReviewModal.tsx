@@ -10,11 +10,11 @@ interface Props {
 }
 
 export function ScriptReviewModal({ data, onApprove, onRegenerate, onCancel }: Props) {
-  const [title, setTitle] = useState(data.title);
-  const [voiceover, setVoiceover] = useState(data.voiceover);
-  const [prompts, setPrompts] = useState<string[]>([...data.image_prompts]);
+  const [title, setTitle] = useState(data?.title || "");
+  const [voiceover, setVoiceover] = useState(data?.voiceover || "");
+  const [prompts, setPrompts] = useState<string[]>(data?.image_prompts ? [...data.image_prompts] : []);
 
-  const wordCount = voiceover.trim().split(/\s+/).filter(Boolean).length;
+  const wordCount = (voiceover || "").trim().split(/\s+/).filter(Boolean).length;
 
   return (
     <div style={styles.overlay}>
@@ -71,7 +71,10 @@ export function ScriptReviewModal({ data, onApprove, onRegenerate, onCancel }: P
 const styles: Record<string, React.CSSProperties> = {
   overlay: {
     position: "fixed",
-    inset: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     background: "rgba(0,0,0,0.75)",
     display: "flex",
     alignItems: "center",

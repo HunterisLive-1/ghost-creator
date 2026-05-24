@@ -326,6 +326,21 @@ class ConfigManager:
         self._initialised = True  # type: ignore[attr-defined]
         self.load()
 
+    def _clean_quotes(self, val: Any) -> Any:
+        if isinstance(val, str):
+            stripped = val.strip()
+            if len(stripped) >= 2 and (
+                (stripped[0] == '"' and stripped[-1] == '"') or 
+                (stripped[0] == "'" and stripped[-1] == "'")
+            ):
+                return stripped[1:-1]
+            return val
+        elif isinstance(val, list):
+            return [self._clean_quotes(item) for item in val]
+        elif isinstance(val, dict):
+            return {k: self._clean_quotes(v) for k, v in val.items()}
+        return val
+
     # ── Core API ──────────────────────────────────────────────────────────────
 
     def load(self) -> None:
@@ -337,6 +352,8 @@ class ConfigManager:
         else:
             with open(self._config_path, "r", encoding="utf-8") as f:
                 self._data = json.load(f)
+            # Clean loaded data of wrapping quotes
+            self._data = self._clean_quotes(self._data)
             # Merge any new default keys that might have been added in updates
             changed = self._merge_defaults(self._data, DEFAULT_CONFIG)
             if changed:
@@ -396,7 +413,7 @@ class ConfigManager:
             if key not in node or not isinstance(node[key], dict):
                 node[key] = {}
             node = node[key]
-        node[keys[-1]] = value
+        node[keys[-1]] = self._clean_quotes(value)
 
     @property
     def data(self) -> dict:

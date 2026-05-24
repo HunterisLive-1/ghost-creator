@@ -192,11 +192,23 @@ def _resolution(aspect_ratio: str) -> tuple[int, int]:
 
 
 def _normalized_segment_durations(segments: list[dict], total_out: float) -> list[float]:
-    """Split total output duration across segments by voiceover length; sum == total_out."""
+    """Split total output duration across segments by duration_hint if present, else voiceover length; sum == total_out."""
     n = len(segments)
     if n == 0 or total_out <= 0:
         return []
-    lengths = [max(1, len((seg.get("voiceover") or "").strip())) for seg in segments]
+    
+    has_hints = any(seg.get("duration_hint") is not None for seg in segments)
+    if has_hints:
+        lengths = []
+        for seg in segments:
+            try:
+                val = float(seg.get("duration_hint") or 1)
+                lengths.append(max(0.1, val))
+            except (ValueError, TypeError):
+                lengths.append(1.0)
+    else:
+        lengths = [max(1, len((seg.get("voiceover") or "").strip())) for seg in segments]
+
     tot = sum(lengths)
     if tot <= 0:
         return [total_out / n] * n
@@ -302,7 +314,11 @@ def _write_documentary_ass(
     t0 = 0.0
     events: list[str] = []
     for seg, dur in zip(segments, durs):
-        body = (seg.get("voiceover") or "").strip()
+        lang = (subtitle_style or {}).get("language", "voiceover")
+        if lang == "en":
+            body = (seg.get("english_subtitle_text") or seg.get("english_subtitle") or seg.get("voiceover") or "").strip()
+        else:
+            body = (seg.get("voiceover") or "").strip()
         if not body:
             t0 += dur
             continue

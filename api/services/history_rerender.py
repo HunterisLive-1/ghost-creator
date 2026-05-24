@@ -73,6 +73,9 @@ def _history_run_aspect_ratio(folder: Path) -> str:
 
 
 def _ffmpeg_rerender_audio_path(folder: Path, fallback_audio: Path) -> Path:
+    rec = folder / "voiceover_recorded.mp3"
+    if rec.is_file():
+        return rec
     vo = folder / "voiceover.mp3"
     return vo if vo.is_file() else fallback_audio
 
@@ -88,11 +91,28 @@ def rerender_run(run_dir: Path, log: Callable[[str], None]) -> Path:
     if not segments:
         raise ValueError("No segments in documentary_editor.json")
 
-    clip_paths = _resolve_edit_clip_paths(run_dir, len(segments))
-    if len(clip_paths) < len(segments):
-        raise ValueError(f"Need {len(segments)} clips, found {len(clip_paths)}")
+    # Load clip paths by checking if a clip_name is defined in the segment
+    clip_paths = []
+    default_clip_paths = _resolve_edit_clip_paths(run_dir, len(segments))
+    for i, seg in enumerate(segments):
+        clip_name = seg.get("clip_name")
+        if clip_name:
+            # Try to resolve relative to clips_for_edit or run_dir
+            p = run_dir / "clips_for_edit" / clip_name
+            if not p.is_file():
+                p = run_dir / "clips" / clip_name
+            if not p.is_file():
+                p = run_dir / clip_name
+            if p.is_file():
+                clip_paths.append(p)
+                continue
+        # Fallback to the default sorted list
+        if i < len(default_clip_paths):
+            clip_paths.append(default_clip_paths[i])
+        else:
+            clip_paths.append(None)
 
-    clips = load_clips(clip_paths)
+    clips = clip_paths
     audio_fallback = run_dir / "voiceover_processed.mp3"
     if not audio_fallback.is_file():
         audio_fallback = run_dir / "voiceover.mp3"
@@ -114,6 +134,19 @@ def rerender_run(run_dir: Path, log: Callable[[str], None]) -> Path:
                 "opacity": float(config.get("documentary.logo_opacity", 1.0)),
             }
 
+    bg_music_val = run_snapshot.get("bg_music")
+    bg_music_path = None
+    if bg_music_val:
+        if Path(bg_music_val).is_file():
+            bg_music_path = Path(bg_music_val)
+        else:
+            p = Path("assets/stock/music") / bg_music_val
+            if p.is_file():
+                bg_music_path = p
+
+    bg_music_volume = float(run_snapshot.get("bg_music_volume", 0.25))
+    subtitle_style = run_snapshot.get("subtitle_style")
+
     out_name = f"documentary_reedit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     log(f"Assembling {len(segments)} segments…")
 
@@ -127,6 +160,9 @@ def rerender_run(run_dir: Path, log: Callable[[str], None]) -> Path:
         progress_callback=log,
         playback_speed=_pb,
         burn_subtitles=_burn,
+        subtitle_style=subtitle_style,
+        bg_music_path=bg_music_path,
+        bg_music_volume=bg_music_volume,
         logo_watermark=logo_watermark,
     )
 

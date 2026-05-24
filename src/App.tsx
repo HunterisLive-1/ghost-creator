@@ -6,14 +6,16 @@ import { DocumentaryTab } from "./tabs/DocumentaryTab";
 import { DirectUploadTab } from "./tabs/DirectUploadTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { HistoryTab } from "./tabs/HistoryTab";
+import { EditorTab } from "./tabs/EditorTab";
 
-type TabId = "documentary" | "upload" | "settings" | "history";
+type TabId = "documentary" | "upload" | "settings" | "history" | "editor";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "documentary", label: "🎬 DOCUMENTARY" },
   { id: "upload", label: "📤 UPLOAD" },
   { id: "settings", label: "⚙ SETTINGS" },
   { id: "history", label: "📋 HISTORY" },
+  { id: "editor", label: "✂️ EDITOR" },
 ];
 
 export default function App() {
@@ -24,6 +26,7 @@ export default function App() {
   const [ttsBackend, setTtsBackend] = useState("OMNIVOICE");
   const [uploadPrefill, setUploadPrefill] = useState<{ path: string; title?: string } | null>(null);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [editorRunDir, setEditorRunDir] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async (baseUrl: string) => {
@@ -55,6 +58,11 @@ export default function App() {
   const openDirectUpload = useCallback((videoPath: string, titleHint?: string) => {
     setUploadPrefill({ path: videoPath, title: titleHint });
     setTab("upload");
+  }, []);
+
+  const openInEditor = useCallback((runDir: string) => {
+    setEditorRunDir(runDir);
+    setTab("editor");
   }, []);
 
   const onPipelineDone = useCallback(() => {
@@ -113,6 +121,13 @@ export default function App() {
           <HistoryTab
             refreshKey={historyRefreshKey}
             onOpenUpload={openDirectUpload}
+            onOpenEditor={openInEditor}
+          />
+        )}
+        {tab === "editor" && (
+          <EditorTab
+            runDir={editorRunDir}
+            onClearRunDir={() => setEditorRunDir(null)}
           />
         )}
       </main>

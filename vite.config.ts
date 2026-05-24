@@ -17,5 +17,15 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    watch: {
+      ignored: [
+        "**/output/**",
+        "**/venv/**",
+        "**/config.json",
+        "**/.env.local",
+        "**/.env",
+        "**/*.log",
+      ],
+    },
   },
 });
