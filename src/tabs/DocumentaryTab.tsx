@@ -11,9 +11,19 @@ import { usePipelineWebSocket } from "../hooks/usePipelineWebSocket";
 import { theme } from "../theme/tokens";
 import { SystemState } from "../theme/tokens";
 
+interface PipelineLiveState {
+  running: boolean;
+  step: number;
+  stepName: string;
+  progress: number;
+  lastMsg: string;
+  level: string;
+}
+
 interface Props {
   setSystemState: (s: SystemState) => void;
   onPipelineDone: () => void;
+  onPipelineStateChange?: (s: PipelineLiveState) => void;
 }
 
 const LANGUAGES = [
@@ -41,7 +51,7 @@ const levelColors: Record<string, string> = {
   WARNING: theme.accentWarn,
 };
 
-export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
+export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineStateChange }: Props) {
   const [mode, setMode] = useState<"short" | "long">("short");
   const [duration, setDuration] = useState(60);
   const [topic, setTopic] = useState("");
@@ -109,6 +119,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
 
       if (msg.message) appendLog(msg.level || "INFO", msg.message);
 
+      let newProgress = progress;
       if (msg.step >= 1 && msg.step <= 6) {
         setSteps((prev) => {
           const next = [...prev];
@@ -118,7 +129,8 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
           else next[msg.step - 1] = "active";
           return next;
         });
-        setProgress((msg.step - 1 + 0.5) / 6);
+        newProgress = (msg.step - 1 + 0.5) / 6;
+        setProgress(newProgress);
       }
 
       if (msg.retry_available) setRetryVisible(true);
@@ -128,6 +140,16 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
         setErrorMsg(msg.message);
         setSystemState("ERROR");
       }
+
+      // Notify App-level banner
+      onPipelineStateChange?.({
+        running: !msg.done,
+        step: msg.step || 0,
+        stepName: msg.step >= 1 && msg.step <= 6 ? DOC_STEPS[msg.step - 1] : "",
+        progress: msg.done ? 1 : newProgress,
+        lastMsg: msg.message || "",
+        level: msg.level || "INFO",
+      });
 
       if (msg.done) {
         setRunning(false);
@@ -141,7 +163,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
         }
       }
     },
-    [runId, appendLog, setSystemState, onPipelineDone]
+    [runId, appendLog, setSystemState, onPipelineDone, onPipelineStateChange, progress]
   );
 
   usePipelineWebSocket(handlePipelineMsg);
@@ -194,6 +216,10 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
     setAnalysis("");
     setRetryVisible(false);
     setSystemState("PROCESSING");
+    onPipelineStateChange?.({
+      running: true, step: 1, stepName: DOC_STEPS[0],
+      progress: 0, lastMsg: "Pipeline started…", level: "INFO"
+    });
 
     await api.pipelineStart({ topic: autoTopic ? null : topic || null, run_id: newRunId });
     reviewPollRef.current = window.setTimeout(pollScriptReview, 500);
@@ -206,6 +232,10 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
     setSystemState("READY");
     appendLog("WARNING", "Pipeline stopped by user");
     if (reviewPollRef.current) clearTimeout(reviewPollRef.current);
+    onPipelineStateChange?.({
+      running: false, step: 0, stepName: "",
+      progress: 0, lastMsg: "Pipeline stopped by user", level: "WARNING"
+    });
   };
 
   const applyMode = (m: "short" | "long") => {
