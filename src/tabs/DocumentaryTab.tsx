@@ -11,9 +11,19 @@ import { usePipelineWebSocket } from "../hooks/usePipelineWebSocket";
 import { theme } from "../theme/tokens";
 import { SystemState } from "../theme/tokens";
 
+interface PipelineLiveState {
+  running: boolean;
+  step: number;
+  stepName: string;
+  progress: number;
+  lastMsg: string;
+  level: string;
+}
+
 interface Props {
   setSystemState: (s: SystemState) => void;
   onPipelineDone: () => void;
+  onPipelineStateChange?: (s: PipelineLiveState) => void;
 }
 
 const LANGUAGES = [
@@ -41,7 +51,7 @@ const levelColors: Record<string, string> = {
   WARNING: theme.accentWarn,
 };
 
-export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
+export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineStateChange }: Props) {
   const [mode, setMode] = useState<"short" | "long">("short");
   const [duration, setDuration] = useState(60);
   const [topic, setTopic] = useState("");
@@ -63,11 +73,19 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
   const [scriptReview, setScriptReview] = useState<ScriptReviewData | null>(null);
   const [workshopOpen, setWorkshopOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const [aspectRatio, setAspectRatio] = useState("9:16");
+  const [captionsOpen, setCaptionsOpen] = useState(false);
+  const [captionLang, setCaptionLang] = useState("voiceover");
+  const [captionColor, setCaptionColor] = useState("#FFFFFF");
+  const [captionBold, setCaptionBold] = useState(true);
+  const [captionItalic, setCaptionItalic] = useState(false);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [chatThinking, setChatThinking] = useState(false);
   const [lastPlan, setLastPlan] = useState<WorkshopPlan | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const reviewPollRef = useRef<number | null>(null);
+  const runningRef = useRef(running);
+  runningRef.current = running;
 
   useEffect(() => {
     api.getConfig().then((cfg) => {
@@ -80,6 +98,13 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
       setVoiceBackend(String(doc.voice_backend || (c.tts as Record<string, string>)?.backend || "omnivoice"));
       setSegments(String(doc.segments ?? 0));
       setBurnSubs(Boolean(doc.burn_subtitles));
+      setAspectRatio(String(c.aspect_ratio || "9:16"));
+
+      const subStyle = (c.subtitle_style || {}) as Record<string, unknown>;
+      setCaptionLang(String(subStyle.language || "voiceover"));
+      setCaptionColor(String(subStyle.color || "#FFFFFF"));
+      setCaptionBold(subStyle.bold !== undefined ? Boolean(subStyle.bold) : true);
+      setCaptionItalic(subStyle.italic !== undefined ? Boolean(subStyle.italic) : false);
     });
   }, []);
 
@@ -94,6 +119,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
 
       if (msg.message) appendLog(msg.level || "INFO", msg.message);
 
+      let newProgress = progress;
       if (msg.step >= 1 && msg.step <= 6) {
         setSteps((prev) => {
           const next = [...prev];
@@ -103,7 +129,8 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
           else next[msg.step - 1] = "active";
           return next;
         });
-        setProgress((msg.step - 1 + 0.5) / 6);
+        newProgress = (msg.step - 1 + 0.5) / 6;
+        setProgress(newProgress);
       }
 
       if (msg.retry_available) setRetryVisible(true);
@@ -114,8 +141,19 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
         setSystemState("ERROR");
       }
 
+      // Notify App-level banner
+      onPipelineStateChange?.({
+        running: !msg.done,
+        step: msg.step || 0,
+        stepName: msg.step >= 1 && msg.step <= 6 ? DOC_STEPS[msg.step - 1] : "",
+        progress: msg.done ? 1 : newProgress,
+        lastMsg: msg.message || "",
+        level: msg.level || "INFO",
+      });
+
       if (msg.done) {
         setRunning(false);
+        runningRef.current = false;
         setSystemState(msg.level === "ERROR" ? "ERROR" : "READY");
         if (msg.output_path) setOutputPath(msg.output_path);
         if (msg.level === "SUCCESS") {
@@ -125,13 +163,13 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
         }
       }
     },
-    [runId, appendLog, setSystemState, onPipelineDone]
+    [runId, appendLog, setSystemState, onPipelineDone, onPipelineStateChange, progress]
   );
 
   usePipelineWebSocket(handlePipelineMsg);
 
   const pollScriptReview = useCallback(async () => {
-    if (!running) return;
+    if (!runningRef.current) return;
     try {
       const res = await api.pipelineScriptReview();
       if (res.waiting && res.data) {
@@ -142,7 +180,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
       /* ignore */
     }
     reviewPollRef.current = window.setTimeout(pollScriptReview, 500);
-  }, [running]);
+  }, []);
 
   const startPipeline = async () => {
     const dur = duration;
@@ -156,13 +194,20 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
       "documentary.segments": parseInt(segments, 10) || 0,
       "documentary.burn_subtitles": burnSubs,
       "pipeline.language": language,
-      ...(mode === "long" ? { aspect_ratio: "16:9" } : {}),
+      aspect_ratio: aspectRatio,
+      subtitle_style: {
+        language: captionLang,
+        color: captionColor,
+        bold: captionBold,
+        italic: captionItalic,
+      }
     });
     await api.saveConfig();
 
     const newRunId = runId + 1;
     setRunId(newRunId);
     setRunning(true);
+    runningRef.current = true;
     setSteps(Array(6).fill("idle") as StepState[]);
     setProgress(0);
     setLogs([]);
@@ -171,6 +216,10 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
     setAnalysis("");
     setRetryVisible(false);
     setSystemState("PROCESSING");
+    onPipelineStateChange?.({
+      running: true, step: 1, stepName: DOC_STEPS[0],
+      progress: 0, lastMsg: "Pipeline started…", level: "INFO"
+    });
 
     await api.pipelineStart({ topic: autoTopic ? null : topic || null, run_id: newRunId });
     reviewPollRef.current = window.setTimeout(pollScriptReview, 500);
@@ -179,9 +228,14 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
   const stopPipeline = async () => {
     await api.pipelineStop();
     setRunning(false);
+    runningRef.current = false;
     setSystemState("READY");
     appendLog("WARNING", "Pipeline stopped by user");
     if (reviewPollRef.current) clearTimeout(reviewPollRef.current);
+    onPipelineStateChange?.({
+      running: false, step: 0, stepName: "",
+      progress: 0, lastMsg: "Pipeline stopped by user", level: "WARNING"
+    });
   };
 
   const applyMode = (m: "short" | "long") => {
@@ -228,38 +282,103 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
+  const formatDuration = (secs: number) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    const parts: string[] = [];
+    if (h > 0) parts.push(`${h} Hr`);
+    if (m > 0) parts.push(`${m} Min`);
+    if (s > 0 || parts.length === 0) parts.push(`${s} Sec`);
+    return parts.join(" ");
+  };
+
   return (
     <div style={styles.root}>
       <div style={styles.header}>
-        <span style={styles.headerTitle}>🎬 DOCUMENTARY PIPELINE</span>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <span style={styles.headerTitle}>🎬 DOCUMENTARY ENGINE</span>
+          <span style={styles.headerSubtitle}>
+            OmniVoice narration · YouTube footage · FFmpeg assembly · No AI Images
+          </span>
+        </div>
         <span style={styles.badge}>CINEMATIC MODE</span>
       </div>
 
       <div style={styles.row}>
-        <button type="button" style={{ ...styles.modeCard, ...(mode === "short" ? styles.modeActive : {}) }} onClick={() => applyMode("short")}>
-          SHORT<br /><small>30–60s</small>
-        </button>
-        <button type="button" style={{ ...styles.modeCard, ...(mode === "long" ? styles.modeActive : {}) }} onClick={() => applyMode("long")}>
-          LONG<br /><small>3 min – 2 hr</small>
-        </button>
+        <div
+          style={{
+            ...styles.modeCard,
+            ...(mode === "short" ? styles.modeActive : {}),
+          }}
+          onClick={() => applyMode("short")}
+        >
+          <div style={{ fontSize: 13, fontWeight: 700, color: purpleTheme.accentPri }}>✦ SHORT FORM</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#FFB800", marginTop: 4 }}>30 – 180 seconds</div>
+          <div style={{ fontSize: 11, color: purpleTheme.textSec, marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+            <div>• Quick 30–180s, output size: Settings → Video format (9:16 or 16:9)</div>
+            <div>• Auto: several short clips / cuts</div>
+            <div>• Fast narration, punchy cuts</div>
+          </div>
+        </div>
+        <div
+          style={{
+            ...styles.modeCard,
+            ...(mode === "long" ? styles.modeActive : {}),
+          }}
+          onClick={() => applyMode("long")}
+        >
+          <div style={{ fontSize: 13, fontWeight: 700, color: purpleTheme.accentPri }}>Ⅱ LONG FORM</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: purpleTheme.textSec, marginTop: 4 }}>3 min – 2 hours</div>
+          <div style={{ fontSize: 11, color: purpleTheme.textSec, marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+            <div>• Full feature documentary</div>
+            <div>• More clips on longer runs (auto), up to 100</div>
+            <div>• Deep narration, chapter-style flow</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ASPECT RATIO POSITIONED DIRECTLY BELOW SHORT/LONG MODE CARDS */}
+      <div style={{ ...styles.card, display: "flex", alignItems: "center", gap: 16, marginBottom: 12 }}>
+        <span style={{ fontSize: 11, color: purpleTheme.textSec, fontWeight: 700, fontFamily: "monospace" }}>📹 VIDEO FORMAT (ASPECT RATIO):</span>
+        <div style={{ display: "flex", gap: 8 }}>
+          {["9:16", "16:9"].map((ar) => (
+            <button
+              key={ar}
+              type="button"
+              style={{
+                ...styles.langBtn,
+                ...(aspectRatio === ar ? styles.langActive : {}),
+                padding: "6px 16px",
+                fontWeight: 700,
+              }}
+              onClick={() => setAspectRatio(ar)}
+            >
+              {ar === "9:16" ? "📱 9:16 (Vertical/Shorts)" : "🖥️ 16:9 (Horizontal/Long)"}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={styles.card}>
         <button type="button" style={styles.foldBtn} onClick={() => setWorkshopOpen(!workshopOpen)}>
-          💡 Idea Workshop {workshopOpen ? "▼" : "▶"}
+          <span>▶ [GHOST AI] — Idea Workshop + Chat with your AI director</span>
+          <span style={{ fontSize: 10, color: "#00CC66", display: "flex", alignItems: "center", gap: 4 }}>
+            GHOST AI <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#00CC66", boxShadow: "0 0 6px #00CC66" }} /> ONLINE
+          </span>
         </button>
         {workshopOpen && (
           <div style={{ marginTop: 8 }}>
             <div style={styles.chatLog}>
               {chatHistory.map((m, i) => (
-                <div key={i} style={{ color: m.role === "user" ? theme.accentSec : theme.textPri, marginBottom: 4, fontSize: 12 }}>
+                <div key={i} style={{ color: m.role === "user" ? purpleTheme.accentSec : purpleTheme.textPri, marginBottom: 4, fontSize: 12 }}>
                   <strong>{m.role === "user" ? "You" : "Gemini"}:</strong> {m.content}
                 </div>
               ))}
-              {chatThinking && <div style={{ color: theme.textHint }}>Thinking…</div>}
+              {chatThinking && <div style={{ color: purpleTheme.textHint }}>Thinking…</div>}
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Describe your documentary idea…" style={{ flex: 1 }} onKeyDown={(e) => e.key === "Enter" && sendChat()} />
+              <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Describe your documentary idea…" style={{ flex: 1, background: purpleTheme.bgSec, border: `1px solid ${purpleTheme.border}`, color: purpleTheme.textPri, padding: 8 }} onKeyDown={(e) => e.key === "Enter" && sendChat()} />
               <button type="button" style={styles.smallBtn} onClick={sendChat}>SEND</button>
               <button type="button" style={styles.smallBtn} onClick={() => lastPlan && startPipeline()}>⚡ CREATE NOW</button>
             </div>
@@ -268,68 +387,150 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
       </div>
 
       <div style={styles.card}>
-        <label style={styles.label}>Subject / Topic</label>
+        <label style={styles.label}>🎙 DOCUMENTARY SUBJECT:</label>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={topic} onChange={(e) => setTopic(e.target.value)} disabled={autoTopic} style={{ flex: 1 }} placeholder="Enter topic or use AUTO-SELECT" />
-          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: theme.textSec }}>
-            <input type="checkbox" checked={autoTopic} onChange={(e) => setAutoTopic(e.target.checked)} />
+          <input value={topic} onChange={(e) => setTopic(e.target.value)} disabled={autoTopic} style={{ flex: 1, background: purpleTheme.bgSec, border: `1px solid ${purpleTheme.border}`, color: purpleTheme.textPri, padding: 8 }} placeholder="Enter topic — or leave blank for auto-trending" />
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: purpleTheme.textSec, cursor: "pointer" }}>
+            <input type="checkbox" checked={autoTopic} onChange={(e) => setAutoTopic(e.target.checked)} style={{ accentColor: purpleTheme.accentPri }} />
             AUTO-SELECT
           </label>
         </div>
-        <label style={{ ...styles.label, marginTop: 12 }}>Duration: {duration}s</label>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, marginBottom: 6 }}>
+          <label style={{ ...styles.label, margin: 0 }}>⏱ DURATION: {mode === "short" ? "30s - 3m" : "3m - 2h"}</label>
+          <span style={{ fontSize: 12, fontWeight: 700, color: purpleTheme.accentSec }}>
+            {formatDuration(duration)} ({duration}s)
+          </span>
+        </div>
         <input
           type="range"
           min={mode === "short" ? 30 : 180}
-          max={mode === "short" ? 60 : 7200}
+          max={mode === "short" ? 180 : 7200}
           step={mode === "short" ? 5 : 60}
           value={duration}
           onChange={(e) => setDuration(Number(e.target.value))}
-          style={{ width: "100%" }}
+          style={{ width: "100%", accentColor: purpleTheme.accentPri }}
         />
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 12 }}>
-          {LANGUAGES.map((l) => (
-            <button key={l.code} type="button" style={{ ...styles.langBtn, ...(language === l.code ? styles.langActive : {}) }} onClick={() => setLanguage(l.code)}>
-              {l.label}
-            </button>
-          ))}
+
+        <label style={{ ...styles.label, marginTop: 16 }}>🗣 VOICE ENGINE:</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6 }}>
+            {VOICES.map((v) => (
+              <button key={v.id} type="button" style={{ ...styles.langBtn, ...(voiceBackend === v.id ? styles.langActive : {}) }} onClick={() => setVoiceBackend(v.id)}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+          <span style={{ fontSize: 11, color: purpleTheme.textSec, marginLeft: 8 }}>
+            Local AI — zero-shot clone · TTS: पूरी स्क्रिप्ट एक pass में, Settings → HTTP read timeout
+          </span>
         </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          {VOICES.map((v) => (
-            <button key={v.id} type="button" style={{ ...styles.langBtn, ...(voiceBackend === v.id ? styles.langActive : {}) }} onClick={() => setVoiceBackend(v.id)}>
-              {v.label}
-            </button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 16, marginTop: 12, alignItems: "center" }}>
-          <label style={styles.label}>Clips:</label>
-          <select value={segments} onChange={(e) => setSegments(e.target.value)}>
+
+        <label style={{ ...styles.label, marginTop: 16 }}>🎬 FOOTAGE SETTINGS:</label>
+        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+          <span style={{ fontSize: 12, color: purpleTheme.textSec }}>Clips:</span>
+          <select value={segments} onChange={(e) => setSegments(e.target.value)} style={{ background: purpleTheme.bgSec, border: `1px solid ${purpleTheme.border}`, color: purpleTheme.textPri, padding: "4px 8px" }}>
             <option value="0">Auto</option>
-            {[3, 5, 8, 10, 15, 20, 30, 50, 100].map((n) => (
+            {[3, 5, 8, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000].map((n) => (
               <option key={n} value={String(n)}>{n}</option>
             ))}
           </select>
-          {mode === "long" && (
-            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
-              <input type="checkbox" checked={burnSubs} onChange={(e) => setBurnSubs(e.target.checked)} />
-              Burn subtitles
-            </label>
-          )}
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <button type="button" style={styles.runBtn} onClick={startPipeline} disabled={running}>🎬 ROLL FILM</button>
-        <button type="button" style={styles.stopBtn} onClick={stopPipeline} disabled={!running}>✂ CUT</button>
-        {retryVisible && (
-          <button type="button" style={styles.retryBtn} onClick={() => api.pipelineRetry()}>↻ RETRY STEP</button>
+      {/* AUTO CAPTION COLLAPSIBLE SETTINGS SECTION */}
+      <div style={styles.card}>
+        <button type="button" style={styles.foldBtn} onClick={() => setCaptionsOpen(!captionsOpen)}>
+          <span>📝 Auto Caption Settings {captionsOpen ? "▼" : "▶"}</span>
+          <span style={{ fontSize: 11, color: burnSubs ? theme.accentGrn : theme.textHint, fontWeight: 700 }}>
+            {burnSubs ? "● ON (BURN-IN)" : "○ OFF"}
+          </span>
+        </button>
+        {captionsOpen && (
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+            <label style={styles.checkRow}>
+              <input type="checkbox" checked={burnSubs} onChange={(e) => setBurnSubs(e.target.checked)} style={{ accentColor: purpleTheme.accentPri }} />
+              Burn-in subtitles directly on the video
+            </label>
+            
+            <Row label="Caption Language">
+              <select value={captionLang} onChange={(e) => setCaptionLang(e.target.value)} style={{ background: purpleTheme.bgSec, border: `1px solid ${purpleTheme.border}`, color: purpleTheme.textPri, padding: "4px 8px" }}>
+                <option value="voiceover">Same as Voiceover Language</option>
+                <option value="en">English (Translation)</option>
+              </select>
+            </Row>
+
+            <Row label="Subtitle Color">
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {["#FFFFFF", "#FFFF00", "#FF00FF", "#00FFFF", "#00FF00"].map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      background: color,
+                      border: captionColor === color ? `2px solid ${purpleTheme.accentSec}` : `1px solid ${purpleTheme.border}`,
+                      cursor: "pointer",
+                      boxShadow: captionColor === color ? `0 0 6px ${color}` : "none",
+                    }}
+                    onClick={() => setCaptionColor(color)}
+                  />
+                ))}
+                <span style={{ fontSize: 11, color: purpleTheme.textSec }}>({captionColor})</span>
+              </div>
+            </Row>
+
+            <Row label="Text Formatting">
+              <div style={{ display: "flex", gap: 12 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
+                  <input type="checkbox" checked={captionBold} onChange={(e) => setCaptionBold(e.target.checked)} style={{ accentColor: purpleTheme.accentPri }} />
+                  Bold Text
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
+                  <input type="checkbox" checked={captionItalic} onChange={(e) => setCaptionItalic(e.target.checked)} style={{ accentColor: purpleTheme.accentPri }} />
+                  Italic Text
+                </label>
+              </div>
+            </Row>
+          </div>
         )}
       </div>
 
-      <HexProgress steps={steps} progress={progress} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <button type="button" style={styles.runBtn} onClick={startPipeline} disabled={running}>🎬 ROLL FILM</button>
+        <button type="button" style={styles.stopBtn} onClick={stopPipeline} disabled={!running}>✂ CUT</button>
+        
+        {errorMsg && (
+          <span style={{ color: "#FF4444", fontSize: 11, fontWeight: 700, fontFamily: "monospace", marginLeft: 8 }}>
+            ERROR X
+          </span>
+        )}
+
+        {(retryVisible || errorMsg) && (
+          <button 
+            type="button" 
+            style={{ ...styles.retryBtn, marginLeft: "auto" }} 
+            onClick={async () => {
+              try {
+                await api.pipelineRetry();
+              } catch (e) {
+                console.error(e);
+              }
+              explainError();
+            }}
+          >
+            ↻ AI FIX & RETRY
+          </button>
+        )}
+      </div>
+
+      <HexProgress steps={steps} progress={progress} progressColor={purpleTheme.accentPri} activeColor={purpleTheme.accentPri} />
 
       <div style={styles.terminal}>
         {logs.map((l, i) => (
-          <div key={i} style={{ color: levelColors[l.level] || theme.textSec, fontSize: 11, fontFamily: "monospace" }}>
+          <div key={i} style={{ color: levelColors[l.level] || purpleTheme.textSec, fontSize: 11, fontFamily: "monospace" }}>
             [{l.level}] {l.message}
           </div>
         ))}
@@ -338,7 +539,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
 
       {errorMsg && (
         <div style={styles.errorPanel}>
-          <strong style={{ color: theme.accentRed }}>AI Error Analyst</strong>
+          <strong style={{ color: "#FF4444" }}>AI Error Analyst</strong>
           <button type="button" style={styles.smallBtn} onClick={explainError} disabled={analysing}>
             {analysing ? "Analysing…" : "EXPLAIN & FIX"}
           </button>
@@ -379,25 +580,47 @@ export function DocumentaryTab({ setSystemState, onPipelineDone }: Props) {
   );
 }
 
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <span style={{ ...styles.label, minWidth: 140, margin: 0 }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+const purpleTheme = {
+  accentPri: "#BF00FF",
+  accentSec: "#D400FF",
+  border: "rgba(191, 0, 255, 0.25)",
+  borderActive: "#BF00FF",
+  bgCard: "#0E071A",
+  bgSec: "#170E28",
+  textPri: "#F5F0FF",
+  textSec: "#BCA2E8",
+  textHint: "#6E5A8E",
+};
+
 const styles: Record<string, React.CSSProperties> = {
-  root: { height: "100%", overflow: "auto", paddingBottom: 16 },
-  header: { display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: `1px solid ${theme.border}`, marginBottom: 12 },
-  headerTitle: { color: theme.accentPri, fontWeight: 700, fontSize: 14 },
-  badge: { border: `1px solid ${theme.accentPri}`, padding: "2px 8px", fontSize: 10, color: theme.accentSec },
+  root: { height: "100%", overflow: "auto", paddingBottom: 16, color: purpleTheme.textPri },
+  header: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: purpleTheme.bgCard, border: `1px solid ${purpleTheme.accentPri}`, borderRadius: 4, marginBottom: 12 },
+  headerTitle: { color: purpleTheme.textPri, fontWeight: 700, fontSize: 14, fontFamily: "monospace" },
+  headerSubtitle: { color: purpleTheme.textSec, fontSize: 11, marginLeft: 12 },
+  badge: { border: `1px solid ${purpleTheme.accentPri}`, background: "rgba(191,0,255,0.15)", padding: "4px 10px", fontSize: 10, color: purpleTheme.textPri, cursor: "pointer", fontWeight: 700, borderRadius: 2, fontFamily: "monospace" },
   row: { display: "flex", gap: 12, marginBottom: 12 },
-  modeCard: { flex: 1, padding: 16, background: theme.bgCard, border: `1px solid ${theme.border}`, color: theme.textSec, textAlign: "center" },
-  modeActive: { borderColor: theme.accentPri, color: theme.accentPri, background: theme.bgSec },
-  card: { background: theme.bgCard, border: `1px solid ${theme.border}`, padding: 12, marginBottom: 12 },
-  foldBtn: { background: "transparent", border: "none", color: theme.accentPri, fontWeight: 600, width: "100%", textAlign: "left" },
-  chatLog: { maxHeight: 120, overflow: "auto", background: theme.bgMain, padding: 8, fontSize: 12 },
-  label: { fontSize: 11, color: theme.textSec, fontWeight: 600 },
-  langBtn: { padding: "4px 8px", fontSize: 11, background: theme.bgSec, border: `1px solid ${theme.border}`, color: theme.textSec },
-  langActive: { borderColor: theme.accentPri, color: theme.accentPri },
-  smallBtn: { padding: "6px 12px", background: theme.bgSec, border: `1px solid ${theme.border}`, color: theme.accentPri, fontSize: 11 },
-  runBtn: { padding: "10px 20px", background: theme.accentGrn, color: "#000", border: "none", fontWeight: 700 },
-  stopBtn: { padding: "10px 20px", background: theme.accentRed, color: "#fff", border: "none", fontWeight: 700 },
-  retryBtn: { padding: "10px 20px", background: theme.accentWarn, color: "#000", border: "none", fontWeight: 700 },
-  terminal: { background: "#020608", border: `1px solid ${theme.border}`, padding: 10, height: 160, overflow: "auto", marginTop: 8 },
-  errorPanel: { background: theme.bgCard, border: `1px solid ${theme.accentRed}`, padding: 12, marginTop: 8 },
-  analysis: { whiteSpace: "pre-wrap", fontSize: 11, color: theme.textPri, marginTop: 8, fontFamily: "monospace" },
+  modeCard: { flex: 1, padding: 16, background: purpleTheme.bgCard, border: `1px solid ${purpleTheme.border}`, color: purpleTheme.textSec, textAlign: "left", borderRadius: 4, transition: "all 0.3s ease", cursor: "pointer" },
+  modeActive: { borderColor: purpleTheme.accentPri, boxShadow: `0 0 12px rgba(191, 0, 255, 0.4)`, background: purpleTheme.bgSec, color: purpleTheme.textPri },
+  card: { background: purpleTheme.bgCard, border: `1px solid ${purpleTheme.border}`, padding: 12, marginBottom: 12, borderRadius: 4 },
+  foldBtn: { background: "transparent", border: "none", color: purpleTheme.textPri, fontWeight: 600, width: "100%", textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" },
+  chatLog: { maxHeight: 120, overflow: "auto", background: "#050209", padding: 8, fontSize: 12, border: `1px solid ${purpleTheme.border}` },
+  label: { fontSize: 11, color: purpleTheme.textSec, fontWeight: 600, fontFamily: "monospace", display: "block", marginBottom: 6 },
+  langBtn: { padding: "6px 12px", fontSize: 11, background: purpleTheme.bgSec, border: `1px solid ${purpleTheme.border}`, color: purpleTheme.textSec, borderRadius: 2, cursor: "pointer" },
+  langActive: { borderColor: purpleTheme.accentPri, background: "rgba(191,0,255,0.15)", color: purpleTheme.textPri },
+  smallBtn: { padding: "6px 12px", background: purpleTheme.bgSec, border: `1px solid ${purpleTheme.border}`, color: purpleTheme.textPri, fontSize: 11, borderRadius: 2, cursor: "pointer" },
+  runBtn: { padding: "10px 24px", background: "rgba(191,0,255,0.1)", color: purpleTheme.textPri, border: `1px solid ${purpleTheme.accentPri}`, fontWeight: 700, borderRadius: 2, cursor: "pointer", letterSpacing: 0.5 },
+  stopBtn: { padding: "10px 24px", background: "rgba(255,68,68,0.1)", color: "#FF4444", border: `1px solid #FF4444`, fontWeight: 700, borderRadius: 2, cursor: "pointer", letterSpacing: 0.5 },
+  retryBtn: { padding: "10px 24px", background: "rgba(255,184,0,0.15)", color: "#FFB800", border: `1px solid #FFB800`, fontWeight: 700, borderRadius: 2, cursor: "pointer", letterSpacing: 0.5 },
+  terminal: { background: "#040207", border: `1px solid ${purpleTheme.border}`, padding: 10, height: 160, overflow: "auto", marginTop: 8, borderRadius: 4 },
+  errorPanel: { background: purpleTheme.bgCard, border: `1px solid #FF4444`, padding: 12, marginTop: 8, borderRadius: 4 },
+  analysis: { whiteSpace: "pre-wrap", fontSize: 11, color: purpleTheme.textPri, marginTop: 8, fontFamily: "monospace" },
 };

@@ -17,7 +17,6 @@ ping -n 3 127.0.0.1 >nul
 echo  Cleaning previous build artifacts...
 if exist "build-api\GhostCreatorAPI.spec" del /q "build-api\GhostCreatorAPI.spec" >nul 2>&1
 if exist "build-api\GhostCreatorAPI_test.spec" del /q "build-api\GhostCreatorAPI_test.spec" >nul 2>&1
-if exist "GhostCreatorAPI.spec" del /q "GhostCreatorAPI.spec" >nul 2>&1
 if exist "GhostCreatorAPI_test.spec" del /q "GhostCreatorAPI_test.spec" >nul 2>&1
 
 if exist "build-api" rmdir /s /q "build-api" 2>nul

@@ -15,6 +15,26 @@ _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+
+def ensure_dependencies() -> None:
+    import sys
+    import subprocess
+    try:
+        import google.oauth2.credentials
+        import google_auth_oauthlib.flow
+        import googleapiclient.discovery
+    except ImportError:
+        print("[Server Startup] Google client libraries not found. Installing automatically...")
+        try:
+            py_exe = sys.executable
+            subprocess.check_call([py_exe, "-m", "pip", "install", "google-auth-oauthlib", "google-api-python-client"])
+            print("[Server Startup] Google client libraries installed successfully!")
+        except Exception as e:
+            print(f"[Server Startup] Failed to automatically install dependencies: {e}")
+
+ensure_dependencies()
+
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -63,6 +83,11 @@ async def on_startup() -> None:
     try:
         from core.ffmpeg_bootstrap import configure_pydub_subprocess
         configure_pydub_subprocess()
+    except Exception:
+        pass
+    try:
+        from core.stock_manager import ensure_stock_assets
+        ensure_stock_assets()
     except Exception:
         pass
 

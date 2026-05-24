@@ -81,6 +81,47 @@ export const api = {
   historyRerender: (body: { run_dir: string }) =>
     request<{ job_id: string }>("/api/history/rerender", { method: "POST", body: JSON.stringify(body) }),
 
+  loadEditor: (runDir: string) => request<any>(`/api/history/load-editor?run_dir=${encodeURIComponent(runDir)}`),
+  saveEditor: (runDir: string, data: any) =>
+    request<{ ok: boolean }>("/api/history/save-editor", {
+      method: "POST",
+      body: JSON.stringify({ run_dir: runDir, data }),
+    }),
+  listClips: (runDir: string) =>
+    request<{ clips: { name: string; path: string; category: string; size_mb: number }[] }>(
+      `/api/history/list-clips?run_dir=${encodeURIComponent(runDir)}`
+    ),
+  uploadAudio: (runDir: string, file: File) => {
+    const formData = new FormData();
+    formData.append("run_dir", runDir);
+    formData.append("file", file);
+    return fetch(`${_baseUrl}/api/history/upload-audio`, {
+      method: "POST",
+      body: formData,
+    }).then((res) => {
+      if (!res.ok) throw new Error("Upload audio failed");
+      return res.json() as Promise<{ ok: boolean; filename: string; path: string }>;
+    });
+  },
+  uploadClip: (runDir: string, file: File) => {
+    const formData = new FormData();
+    formData.append("run_dir", runDir);
+    formData.append("file", file);
+    return fetch(`${_baseUrl}/api/history/upload-clip`, {
+      method: "POST",
+      body: formData,
+    }).then((res) => {
+      if (!res.ok) throw new Error("Upload clip failed");
+      return res.json() as Promise<{ ok: boolean; filename: string; path: string }>;
+    });
+  },
+  getStockAssets: () =>
+    request<{
+      music: { name: string; filename: string; path: string }[];
+      sfx: { name: string; filename: string; path: string }[];
+    }>("/api/history/stock-assets"),
+
+
   testOllama: (url: string) =>
     request<{ ok: boolean; models?: string[]; error?: string }>("/api/system/test-ollama", {
       method: "POST",
@@ -92,6 +133,52 @@ export const api = {
     request<{ ok: boolean; message: string }>("/api/chrome-profile/setup", {
       method: "POST",
       body: JSON.stringify({ name }),
+    }),
+
+  // YouTube Analytics API (OAuth2)
+  ytAnalyticsStatus: (profileIndex: number) =>
+    request<{ ok: boolean; connected: boolean; error?: string }>(`/api/yt-analytics/status?profile_index=${profileIndex}`),
+  ytAnalyticsConnect: (profileIndex: number) =>
+    request<{ ok: boolean; message?: string; error?: string }>("/api/yt-analytics/connect", {
+      method: "POST",
+      body: JSON.stringify({ profile_index: profileIndex }),
+    }),
+  ytAnalyticsSync: (profileIndex: number) =>
+    request<{
+      ok: boolean;
+      views?: number;
+      subs?: number;
+      earnings?: number;
+      views_series?: number[];
+      subs_series?: number[];
+      earnings_series?: number[];
+      views_growth?: string;
+      subs_growth?: string;
+      earnings_growth?: string;
+      channel_name?: string;
+      channel_thumb?: string;
+      total_subs?: number;
+      error?: string;
+    }>("/api/yt-analytics/sync", {
+      method: "POST",
+      body: JSON.stringify({ profile_index: profileIndex }),
+    }),
+  ytAnalyticsDisconnect: (profileIndex: number) =>
+    request<{ ok: boolean; message?: string; error?: string }>("/api/yt-analytics/disconnect", {
+      method: "POST",
+      body: JSON.stringify({ profile_index: profileIndex }),
+    }),
+  ytAnalyticsResolveChannel: (url: string) =>
+    request<{ ok: boolean; channel_id?: string; channel_name?: string; avatar_url?: string; error?: string }>("/api/yt-analytics/resolve-channel", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+
+  // Legacy scraper fallback
+  chromeProfileSync: (profileIndex: number) =>
+    request<{ ok: boolean; views?: number; subs?: number; earnings?: number; error?: string }>("/api/chrome-profile/sync", {
+      method: "POST",
+      body: JSON.stringify({ profile_index: profileIndex }),
     }),
 };
 

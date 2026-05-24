@@ -5,9 +5,10 @@ import { theme } from "../theme/tokens";
 interface Props {
   refreshKey: number;
   onOpenUpload: (path: string, title?: string) => void;
+  onOpenEditor: (runDir: string) => void;
 }
 
-export function HistoryTab({ refreshKey, onOpenUpload }: Props) {
+export function HistoryTab({ refreshKey, onOpenUpload, onOpenEditor }: Props) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [rerendering, setRerendering] = useState<string | null>(null);
@@ -79,14 +80,23 @@ export function HistoryTab({ refreshKey, onOpenUpload }: Props) {
                 Open Folder
               </button>
               {e.can_rerender && (
-                <button
-                  type="button"
-                  style={styles.actionBtn}
-                  onClick={() => rerender(e.run_dir)}
-                  disabled={rerendering === e.run_dir}
-                >
-                  {rerendering === e.run_dir ? "Re-rendering…" : "Re-render (FFmpeg)"}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    style={{ ...styles.actionBtn, background: theme.accentPri, color: "#fff", borderColor: theme.accentPri }}
+                    onClick={() => onOpenEditor(e.run_dir)}
+                  >
+                    ✂️ Open in Editor
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.actionBtn}
+                    onClick={() => rerender(e.run_dir)}
+                    disabled={rerendering === e.run_dir}
+                  >
+                    {rerendering === e.run_dir ? "Re-rendering…" : "Re-render (FFmpeg)"}
+                  </button>
+                </>
               )}
               {e.video_path && (
                 <button type="button" style={styles.actionBtn} onClick={() => window.electronAPI?.openPath(e.video_path)}>

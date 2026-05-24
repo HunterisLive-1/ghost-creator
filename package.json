@@ -41,8 +41,8 @@
     ],
     "extraResources": [
       {
-        "from": "dist-api/GhostCreatorAPI.exe",
-        "to": "GhostCreatorAPI.exe",
+        "from": "dist-api/GhostCreatorAPI",
+        "to": "GhostCreatorAPI",
         "filter": ["**/*"]
       },
       {
@@ -51,7 +51,9 @@
       }
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        { "target": "dir", "arch": ["x64"] }
+      ],
       "icon": "icon.ico",
       "executableName": "GhostCreatorAI"
     },

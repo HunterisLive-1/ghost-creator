@@ -12,9 +12,9 @@
 #else
   #error "Missing build output: release\win-unpacked\GhostCreatorAI.exe. Run build-electron.bat first."
 #endif
-#ifexist "dist-api\GhostCreatorAPI.exe"
+#ifexist "dist-api\GhostCreatorAPI\GhostCreatorAPI.exe"
 #else
-  #error "Missing build output: dist-api\GhostCreatorAPI.exe. Run build-electron.bat or build-api.bat first."
+  #error "Missing build output: dist-api\GhostCreatorAPI\GhostCreatorAPI.exe. Run build-api.bat first."
 #endif
 
 ; Build before compiling this installer:
@@ -22,9 +22,10 @@
 ;   2. Open this script in Inno Setup Compiler and Compile
 ;
 ; Installed layout:
-;   {app}\GhostCreatorAI.exe          — Electron shell
-;   {app}\resources\GhostCreatorAPI.exe — Python FastAPI sidecar (also bundled by electron-builder)
-;   %LOCALAPPDATA%\GhostCreatorAI\     — config.json + first-run FFmpeg download
+;   {app}\GhostCreatorAI.exe                      — Electron shell
+;   {app}\resources\GhostCreatorAPI\GhostCreatorAPI.exe — Python FastAPI sidecar
+;   {app}\resources\GhostCreatorAPI\_internal\    — Python runtime files
+;   %LOCALAPPDATA%\GhostCreatorAI\                — config.json + first-run FFmpeg download
 
 [Setup]
 ; AppId kabhi mat badlo — warna purana install alag app ban jayega / upgrade toot jayega.
@@ -71,8 +72,8 @@ Name: "startmenuicon"; Description: "Create a &Start Menu shortcut"; GroupDescri
 ; Electron app (build-electron.bat → release\win-unpacked)
 Source: "release\win-unpacked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Python API sidecar — ensure latest build-api output (overwrites electron-builder copy if present)
-Source: "dist-api\{#MyAppApiExeName}"; DestDir: "{app}\resources"; Flags: ignoreversion
+; Python API sidecar (onedir build) — full folder with _internal runtime
+Source: "dist-api\GhostCreatorAPI\*"; DestDir: "{app}\resources\GhostCreatorAPI"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; App icon for shortcuts
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion

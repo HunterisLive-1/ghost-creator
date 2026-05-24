@@ -29,6 +29,8 @@ virtualenv/
 .env
 .env.local
 config.json
+yt_client_secrets.json
+yt_client_secrets.json.json
 # build.bat removed — use build-api.bat + build-electron.bat
 
 # ── Generated Media (large files — never commit) ─────────────
