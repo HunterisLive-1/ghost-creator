@@ -271,7 +271,7 @@ function AnalyticsChart({ points, metricName, color, channelName }: AnalyticsCha
           📊 28-DAY ANALYTICS: {labelMap[metricName].toUpperCase()}
         </span>
         <span style={{ fontSize: 10, color: theme.textHint, fontFamily: "monospace" }}>
-          Channel: <span style={{ color: "#fff" }}>{channelName}</span>
+          Channel: <span style={{ color: theme.textPri }}>{channelName}</span>
         </span>
       </div>
 
@@ -529,6 +529,11 @@ export function SettingsTab({ onBackendChange }: Props) {
   const [showMoreKeys, setShowMoreKeys] = useState(false);
   const [showOmni, setShowOmni] = useState(false);
   const [showEdgeEl, setShowEdgeEl] = useState(false);
+  const [showAiFootageSettings, setShowAiFootageSettings] = useState(false);
+  const [showAiProfileSetup, setShowAiProfileSetup] = useState(false);
+  const [showAnalyticsChart, setShowAnalyticsChart] = useState(false);
+  const [showLogoPresets, setShowLogoPresets] = useState(false);
+  const [showVoiceReferences, setShowVoiceReferences] = useState(false);
   const [deviceName, setDeviceName] = useState("");
   const [envPath, setEnvPath] = useState("");
   const [version, setVersion] = useState("");
@@ -552,12 +557,6 @@ export function SettingsTab({ onBackendChange }: Props) {
   const [autoSync, setAutoSync] = useState(true);
   const [nextSyncIn, setNextSyncIn] = useState(60);
   const [selectedMetric, setSelectedMetric] = useState<"views" | "subs" | "earnings">("views");
-
-  // Keep OmniVoice settings open only when OMNIVOICE is selected as active backend
-  useEffect(() => {
-    const activeTts = String(getNested(cfg, "tts.backend", "omnivoice"));
-    setShowOmni(activeTts === "omnivoice");
-  }, [cfg]);
 
   // Check connection status for all profiles on load
   useEffect(() => {
@@ -1008,6 +1007,9 @@ export function SettingsTab({ onBackendChange }: Props) {
     }
   };
 
+  const footageSource = String(g("documentary.footage_source", "stock"));
+  const isAiFootage = footageSource === "meta_ai" || footageSource === "grok";
+
   return (
     <div style={styles.scroll}>
       <Section title="YOUTUBE CHANNELS OVERVIEW (LAST 28 DAYS)">
@@ -1204,7 +1206,7 @@ export function SettingsTab({ onBackendChange }: Props) {
                       onClick={() => isActive && setSelectedMetric("views")}
                     >
                       <div style={{ fontSize: 9, color: theme.textSec, fontWeight: 600 }}>VIEWS</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", margin: "2px 0" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: theme.textPri, margin: "2px 0" }}>
                         {p.views_28d !== undefined && p.views_28d !== null ? `+${formatNum(p.views_28d)}` : "—"}
                       </div>
                       <div style={{ fontSize: 9, color: theme.accentGrn, fontWeight: 600, marginBottom: 4 }}>
@@ -1229,7 +1231,7 @@ export function SettingsTab({ onBackendChange }: Props) {
                       onClick={() => isActive && setSelectedMetric("subs")}
                     >
                       <div style={{ fontSize: 9, color: theme.textSec, fontWeight: 600 }}>SUBSCRIBERS</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", margin: "2px 0" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: theme.textPri, margin: "2px 0" }}>
                         {p.subs_28d !== undefined && p.subs_28d !== null ? `+${formatNum(p.subs_28d)}` : "—"}
                       </div>
                       <div style={{ fontSize: 9, color: theme.accentGrn, fontWeight: 600, marginBottom: 4 }}>
@@ -1254,7 +1256,7 @@ export function SettingsTab({ onBackendChange }: Props) {
                       onClick={() => isActive && setSelectedMetric("earnings")}
                     >
                       <div style={{ fontSize: 9, color: theme.textSec, fontWeight: 600 }}>EARNINGS</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#FFB800", margin: "2px 0" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: theme.accentWarn, margin: "2px 0" }}>
                         {p.earnings_28d !== undefined && p.earnings_28d !== null ? `$${p.earnings_28d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
                       </div>
                       <div style={{ fontSize: 9, color: theme.accentGrn, fontWeight: 600, marginBottom: 4 }}>
@@ -1271,12 +1273,12 @@ export function SettingsTab({ onBackendChange }: Props) {
                       alignItems: "center",
                       gap: 6,
                       padding: "5px 8px",
-                      background: ytConnected[i] ? "rgba(74, 222, 128, 0.06)" : "rgba(255, 184, 0, 0.06)",
-                      border: `1px solid ${ytConnected[i] ? "rgba(74,222,128,0.3)" : "rgba(255,184,0,0.3)"}`,
+                      background: ytConnected[i] ? "rgba(0, 204, 102, 0.08)" : "rgba(255, 184, 0, 0.08)",
+                      border: `1px solid ${ytConnected[i] ? theme.accentGrn : theme.accentWarn}`,
                       borderRadius: 3,
                     }}>
                       <span style={{ fontSize: 11 }}>{ytConnected[i] ? "🟢" : "🔴"}</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: ytConnected[i] ? "#4ADE80" : "#FFB800", flex: 1 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: ytConnected[i] ? theme.accentGrn : theme.accentWarn, flex: 1 }}>
                         {ytConnected[i] ? "YouTube Analytics API Connected" : "Google Account Not Connected"}
                       </span>
                       {ytConnected[i] ? (
@@ -1318,9 +1320,9 @@ export function SettingsTab({ onBackendChange }: Props) {
                         style={{
                           flex: 1,
                           fontSize: 10,
-                          color: ytConnected[i] ? "#4ADE80" : theme.accentPri,
-                          background: ytConnected[i] ? "rgba(74, 222, 128, 0.08)" : "rgba(191, 0, 255, 0.08)",
-                          border: `1px solid ${ytConnected[i] ? "rgba(74,222,128,0.4)" : theme.accentPri}`,
+                          color: ytConnected[i] ? theme.accentGrn : theme.accentPri,
+                          background: ytConnected[i] ? "rgba(0, 204, 102, 0.08)" : "rgba(191, 0, 255, 0.08)",
+                          border: `1px solid ${ytConnected[i] ? theme.accentGrn : theme.accentPri}`,
                           padding: "5px 8px",
                           borderRadius: 2,
                           cursor: syncingIndex !== null ? "not-allowed" : "pointer",
@@ -1359,24 +1361,35 @@ export function SettingsTab({ onBackendChange }: Props) {
           </div>
         )}
         {profiles.length > 0 && activeProfile < profiles.length && (
-          <AnalyticsChart
-            points={
-              selectedMetric === "views"
-                ? profiles[activeProfile].views_series
-                : selectedMetric === "subs"
-                ? profiles[activeProfile].subs_series
-                : profiles[activeProfile].earnings_series
-            }
-            metricName={selectedMetric}
-            color={
-              selectedMetric === "views"
-                ? theme.accentGrn
-                : selectedMetric === "subs"
-                ? theme.accentPri
-                : "#FFB800"
-            }
-            channelName={profiles[activeProfile].name}
-          />
+          <>
+            <button
+              type="button"
+              style={{ ...styles.foldLink, marginTop: 12 }}
+              onClick={() => setShowAnalyticsChart(!showAnalyticsChart)}
+            >
+              {showAnalyticsChart ? "▼" : "▶"} 28-day analytics chart — {profiles[activeProfile].name}
+            </button>
+            {showAnalyticsChart && (
+              <AnalyticsChart
+                points={
+                  selectedMetric === "views"
+                    ? profiles[activeProfile].views_series
+                    : selectedMetric === "subs"
+                    ? profiles[activeProfile].subs_series
+                    : profiles[activeProfile].earnings_series
+                }
+                metricName={selectedMetric}
+                color={
+                  selectedMetric === "views"
+                    ? theme.accentGrn
+                    : selectedMetric === "subs"
+                    ? theme.accentPri
+                    : theme.accentWarn
+                }
+                channelName={profiles[activeProfile].name}
+              />
+            )}
+          </>
         )}
       </Section>
 
@@ -1399,21 +1412,33 @@ export function SettingsTab({ onBackendChange }: Props) {
 
       <Section title="FOOTAGE SOURCE">
         <p style={styles.hint}>
-          Documentary Step 4 — stock B-roll (Pexels + YouTube) or AI clips via Meta AI browser (no API key).
-          Personal automation only; Meta UI changes may require selector updates.
+          Documentary Step 4 — stock B-roll (Pexels + YouTube) or AI clips via Meta AI / Grok browser (no API key).
+          Uses one shared Chrome profile for both. Personal automation only; site UI changes may require selector updates.
         </p>
         <Row label="Source">
           <select
-            value={String(g("documentary.footage_source", "stock"))}
+            value={footageSource}
             onChange={(e) => set("documentary.footage_source", e.target.value)}
             style={{ flex: 1 }}
           >
             <option value="stock">Stock — Pexels + YouTube (yt-dlp)</option>
             <option value="meta_ai">Meta AI — browser automation</option>
+            <option value="grok">Grok — browser automation</option>
           </select>
         </Row>
-        {String(g("documentary.footage_source", "stock")) === "meta_ai" && (
+
+        <button
+          type="button"
+          style={styles.foldLink}
+          onClick={() => setShowAiProfileSetup(!showAiProfileSetup)}
+        >
+          {showAiProfileSetup ? "▼" : "▶"} Meta & Grok profile setup (one-time login)
+        </button>
+        {showAiProfileSetup && (
           <div style={styles.subPanel}>
+            <p style={{ ...styles.cardHint, marginBottom: 10 }}>
+              Same Chrome profile for Meta AI and Grok. Run setup once, log in on both tabs, then close Chrome.
+            </p>
             <Row label="Chrome profile path">
               <div style={{ display: "flex", gap: 8, flex: 1 }}>
                 <input
@@ -1425,42 +1450,129 @@ export function SettingsTab({ onBackendChange }: Props) {
                 <button
                   type="button"
                   style={styles.actionBtn}
-                  onClick={() => browseDirectory("Select Meta AI Chrome Profile Folder", "meta_ai.chrome_profile_path")}
+                  onClick={() => browseDirectory("Select AI Browser Chrome Profile Folder", "meta_ai.chrome_profile_path")}
                 >
                   BROWSE
                 </button>
               </div>
             </Row>
-            <Row label="Meta AI URL">
-              <input
-                value={String(g("meta_ai.base_url", "https://www.meta.ai/"))}
-                onChange={(e) => set("meta_ai.base_url", e.target.value)}
-                style={{ flex: 1 }}
-              />
-            </Row>
+            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                style={{ ...styles.actionBtn, background: theme.accentPri, color: theme.textPri, borderColor: theme.accentPri }}
+                onClick={async () => {
+                  const res = await api.metaAiSetupProfile();
+                  alert(res.message || (res.ok ? "Profile setup done" : "Setup failed"));
+                  if (res.profile_path) set("meta_ai.chrome_profile_path", res.profile_path);
+                  await save();
+                }}
+              >
+                SETUP META + GROK PROFILE
+              </button>
+              <button
+                type="button"
+                style={styles.actionBtn}
+                onClick={async () => {
+                  const res = await api.metaAiTestLogin();
+                  alert(res.message || (res.ok ? "Meta logged in" : "Meta not logged in"));
+                }}
+              >
+                TEST META LOGIN
+              </button>
+              <button
+                type="button"
+                style={styles.actionBtn}
+                onClick={async () => {
+                  const res = await api.grokAiTestLogin();
+                  alert(res.message || (res.ok ? "Grok logged in" : "Grok not logged in"));
+                }}
+              >
+                TEST GROK LOGIN
+              </button>
+            </div>
+            <div style={{ ...styles.cardHint, marginTop: 8 }}>
+              Setup opens two tabs: meta.ai and grok.com. Grok video may need SuperGrok subscription.
+            </div>
+          </div>
+        )}
+
+        {isAiFootage && (
+          <>
+            <button
+              type="button"
+              style={styles.foldLink}
+              onClick={() => setShowAiFootageSettings(!showAiFootageSettings)}
+            >
+              {showAiFootageSettings ? "▼" : "▶"} Advanced AI settings ({footageSource === "grok" ? "Grok" : "Meta AI"})
+            </button>
+            {showAiFootageSettings && (
+          <div style={styles.subPanel}>
+            {footageSource === "meta_ai" && (
+              <Row label="Meta AI URL">
+                <input
+                  value={String(g("meta_ai.base_url", "https://www.meta.ai/"))}
+                  onChange={(e) => set("meta_ai.base_url", e.target.value)}
+                  style={{ flex: 1 }}
+                />
+              </Row>
+            )}
+            {footageSource === "grok" && (
+              <Row label="Grok URL">
+                <input
+                  value={String(g("grok.base_url", "https://grok.com/imagine"))}
+                  onChange={(e) => set("grok.base_url", e.target.value)}
+                  style={{ flex: 1 }}
+                />
+              </Row>
+            )}
             <label style={styles.checkRow}>
               <input
                 type="checkbox"
-                checked={Boolean(g("meta_ai.headless", false))}
-                onChange={(e) => set("meta_ai.headless", e.target.checked)}
+                checked={Boolean(
+                  footageSource === "grok"
+                    ? g("grok.headless", g("meta_ai.headless", false))
+                    : g("meta_ai.headless", false)
+                )}
+                onChange={(e) => {
+                  const key = footageSource === "grok" ? "grok.headless" : "meta_ai.headless";
+                  set(key, e.target.checked);
+                }}
               />
               Headless browser (not recommended — login/captcha often fails)
             </label>
             <label style={{ ...styles.checkRow, marginTop: 8 }}>
               <input
                 type="checkbox"
-                checked={g("meta_ai.fallback_to_stock", true) !== false && g("meta_ai.fallback_to_stock", true) !== 0}
-                onChange={(e) => set("meta_ai.fallback_to_stock", e.target.checked)}
+                checked={
+                  (footageSource === "grok"
+                    ? g("grok.fallback_to_stock", true)
+                    : g("meta_ai.fallback_to_stock", true)) !== false &&
+                  (footageSource === "grok"
+                    ? g("grok.fallback_to_stock", true)
+                    : g("meta_ai.fallback_to_stock", true)) !== 0
+                }
+                onChange={(e) => {
+                  const key = footageSource === "grok" ? "grok.fallback_to_stock" : "meta_ai.fallback_to_stock";
+                  set(key, e.target.checked);
+                }}
               />
-              Fallback to stock footage if Meta AI clip fails
+              Fallback to stock footage if AI clip fails
             </label>
             <Row label="Timeout per clip (ms)">
               <input
                 type="number"
                 min={60000}
                 step={60000}
-                value={Number(g("meta_ai.generation_timeout_ms", 600000))}
-                onChange={(e) => set("meta_ai.generation_timeout_ms", parseInt(e.target.value, 10) || 600000)}
+                value={Number(
+                  footageSource === "grok"
+                    ? g("grok.generation_timeout_ms", 600000)
+                    : g("meta_ai.generation_timeout_ms", 600000)
+                )}
+                onChange={(e) => {
+                  const key =
+                    footageSource === "grok" ? "grok.generation_timeout_ms" : "meta_ai.generation_timeout_ms";
+                  set(key, parseInt(e.target.value, 10) || 600000);
+                }}
                 style={{ width: 140 }}
               />
             </Row>
@@ -1469,39 +1581,21 @@ export function SettingsTab({ onBackendChange }: Props) {
                 type="number"
                 min={0}
                 step={1}
-                value={Number(g("meta_ai.clip_delay_sec", 5))}
-                onChange={(e) => set("meta_ai.clip_delay_sec", parseFloat(e.target.value) || 5)}
+                value={Number(
+                  footageSource === "grok"
+                    ? g("grok.clip_delay_sec", 5)
+                    : g("meta_ai.clip_delay_sec", 5)
+                )}
+                onChange={(e) => {
+                  const key = footageSource === "grok" ? "grok.clip_delay_sec" : "meta_ai.clip_delay_sec";
+                  set(key, parseFloat(e.target.value) || 5);
+                }}
                 style={{ width: 80 }}
               />
             </Row>
-            <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                style={styles.actionBtn}
-                onClick={async () => {
-                  const res = await api.metaAiSetupProfile();
-                  alert(res.message || (res.ok ? "Profile setup done" : "Setup failed"));
-                  if (res.profile_path) set("meta_ai.chrome_profile_path", res.profile_path);
-                  await save();
-                }}
-              >
-                SETUP META PROFILE
-              </button>
-              <button
-                type="button"
-                style={styles.actionBtn}
-                onClick={async () => {
-                  const res = await api.metaAiTestLogin();
-                  alert(res.message || (res.ok ? "Logged in" : "Not logged in"));
-                }}
-              >
-                TEST META LOGIN
-              </button>
-            </div>
-            <div style={styles.cardHint}>
-              First time: run SETUP META PROFILE, log in to Meta/Facebook, close Chrome. Expect 1–5+ min per AI clip.
-            </div>
           </div>
+            )}
+          </>
         )}
       </Section>
 
@@ -1534,8 +1628,14 @@ export function SettingsTab({ onBackendChange }: Props) {
 
             {g("tts.omnivoice_mode", "clone") === "clone" && (
               <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 11, color: theme.textSec, marginBottom: 8, fontWeight: 600, letterSpacing: 0.5 }}>VOICE CLONE REFERENCES</div>
-                {([1, 2, 3] as const).map((idx) => {
+                <button
+                  type="button"
+                  style={styles.foldLink}
+                  onClick={() => setShowVoiceReferences(!showVoiceReferences)}
+                >
+                  {showVoiceReferences ? "▼" : "▶"} Voice clone references (3 slots)
+                </button>
+                {showVoiceReferences && ([1, 2, 3] as const).map((idx) => {
                   const isActive = Number(g("tts.active_voice_index", 1)) === idx;
                   return (
                     <div key={idx} style={styles.voiceCard}>
@@ -1639,12 +1739,12 @@ export function SettingsTab({ onBackendChange }: Props) {
               <input type="checkbox" checked={Boolean(g("script_review_enabled", true))} onChange={(e) => set("script_review_enabled", e.target.checked)} />
               Pause for script review
             </label>
-            <div style={styles.cardHint}>l, Uncheck for fully automated / unattended runs</div>
+            <div style={styles.cardHint}>Uncheck for fully automated / unattended runs</div>
             <label style={{ ...styles.checkRow, marginTop: 8 }}>
               <input type="checkbox" checked={g("pipeline_mode", "normal") === "editor"} onChange={(e) => set("pipeline_mode", e.target.checked ? "editor" : "normal")} />
               Pause for Ghost Editor (before assembly)
             </label>
-            <div style={styles.cardHint}>l, Opens Ghost Editor after downloads so you can trim clips before the final render</div>
+            <div style={styles.cardHint}>Opens Ghost Editor after downloads so you can trim clips before the final render</div>
           </div>
 
           {/* Card 2: Narration Language */}
@@ -1653,7 +1753,7 @@ export function SettingsTab({ onBackendChange }: Props) {
             <select value={String(g("pipeline.language", "hi"))} onChange={(e) => set("pipeline.language", e.target.value)} style={{ width: "100%" }}>
               {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
             </select>
-            <div style={styles.cardHint}>l, Script + voiceover isi language mein generate hoga</div>
+            <div style={styles.cardHint}>Script + voiceover isi language mein generate hoga</div>
           </div>
 
           {/* Card 3: Output Folder */}
@@ -1663,7 +1763,7 @@ export function SettingsTab({ onBackendChange }: Props) {
               <input value={String(g("pipeline.output_folder", "output"))} onChange={(e) => set("pipeline.output_folder", e.target.value)} style={{ flex: 1 }} />
               <button type="button" style={{ ...styles.actionBtn, margin: 0, padding: "6px 10px" }} onClick={() => browseDirectory("Select Output Folder", "pipeline.output_folder")}>...</button>
             </div>
-            <div style={styles.cardHint}>l, Relative (e.g. 'output') or full path — folder created automatically</div>
+            <div style={styles.cardHint}>Relative (e.g. output) or full path — folder created automatically</div>
           </div>
 
           {/* Card 4: YouTube Upload */}
@@ -1679,7 +1779,7 @@ export function SettingsTab({ onBackendChange }: Props) {
                 {UPLOAD_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
-            <div style={styles.cardHint}>l, unlisted = link-only | public = all | private = only you | draft = save only</div>
+            <div style={styles.cardHint}>unlisted = link-only | public = all | private = only you | draft = save only</div>
           </div>
 
           {/* Card 5: AI Script Provider */}
@@ -1695,11 +1795,11 @@ export function SettingsTab({ onBackendChange }: Props) {
             {g("script_provider") === "gemini" && (
               <>
                 {g("api_keys.gemini") ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#00CC66" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: theme.accentGrn }}>
                     <span style={{ fontSize: 14 }}>●</span> Key configured
                   </div>
                 ) : (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#FF4444" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: theme.accentRed }}>
                     <span style={{ fontSize: 14 }}>●</span> Not found
                   </div>
                 )}
@@ -1711,7 +1811,7 @@ export function SettingsTab({ onBackendChange }: Props) {
             {g("script_provider") === "ollama" && (
               <>
                 {ollamaDetail && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: ollamaDetail.toLowerCase().includes("not found") ? "#FF4444" : "#00CC66" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: ollamaDetail.toLowerCase().includes("not found") ? theme.accentRed : theme.accentGrn }}>
                     <span style={{ fontSize: 14 }}>●</span> {ollamaDetail}
                   </div>
                 )}
@@ -1757,7 +1857,16 @@ export function SettingsTab({ onBackendChange }: Props) {
         </label>
         
         {Boolean(g("documentary.logo_enabled")) && (
-          <div style={{ marginTop: 12 }}>
+          <>
+            <button
+              type="button"
+              style={{ ...styles.foldLink, marginTop: 8 }}
+              onClick={() => setShowLogoPresets(!showLogoPresets)}
+            >
+              {showLogoPresets ? "▼" : "▶"} Logo presets (3 slots)
+            </button>
+            {showLogoPresets && (
+          <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 11, color: theme.textSec, marginBottom: 8, fontWeight: 600, letterSpacing: 0.5 }}>LOGO PRESETS</div>
             {([1, 2, 3] as const).map((idx) => {
               const isActive = Number(g("documentary.active_logo_index", 1)) === idx;
@@ -1867,6 +1976,8 @@ export function SettingsTab({ onBackendChange }: Props) {
               );
             })}
           </div>
+            )}
+          </>
         )}
       </Section>
 
@@ -1975,11 +2086,37 @@ const styles: Record<string, React.CSSProperties> = {
   checkRow: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: theme.textPri },
   segBtn: { padding: "6px 12px", background: theme.bgSec, border: `1px solid ${theme.border}`, color: theme.textSec, fontSize: 11 },
   segActive: { borderColor: theme.accentPri, color: theme.accentPri },
-  subPanel: { background: theme.bgSec, border: `1px solid ${theme.border}`, padding: 12, marginTop: 8, marginBottom: 8 },
+  subPanel: {
+    background: theme.bgMain,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 4,
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 8,
+  },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 },
-  foldLink: { background: "transparent", border: "none", color: theme.accentSec, fontSize: 11, marginBottom: 4, padding: 0 },
-  actionBtn: { padding: "6px 12px", background: theme.bgSec, border: `1px solid ${theme.border}`, color: theme.accentPri, fontSize: 11, marginRight: 8, marginTop: 4 },
-  saveBtn: { width: "100%", padding: 14, background: theme.accentPri, color: "#fff", border: "none", fontWeight: 700, marginBottom: 12 },
+  foldLink: {
+    background: "transparent",
+    border: "none",
+    color: theme.accentSec,
+    fontSize: 11,
+    marginBottom: 4,
+    marginTop: 4,
+    padding: "4px 0",
+    textAlign: "left" as const,
+    cursor: "pointer",
+  },
+  actionBtn: {
+    padding: "6px 12px",
+    background: theme.bgSec,
+    border: `1px solid ${theme.border}`,
+    color: theme.accentPri,
+    fontSize: 11,
+    marginRight: 8,
+    marginTop: 4,
+    borderRadius: 4,
+  },
+  saveBtn: { width: "100%", padding: 14, background: theme.accentPri, color: theme.textPri, border: "none", fontWeight: 700, marginBottom: 12, borderRadius: 4 },
   envBar: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: 12, background: theme.bgSec, border: `1px solid ${theme.border}` },
   runBehaviorGrid: {
     display: "grid",
@@ -2011,7 +2148,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 2,
   },
   voiceCard: {
-    background: "rgba(255, 255, 255, 0.02)",
+    background: theme.bgMain,
     border: `1px solid ${theme.border}`,
     borderRadius: 4,
     padding: 12,
@@ -2023,7 +2160,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
-    borderBottom: `1px solid rgba(255, 255, 255, 0.05)`,
+    borderBottom: `1px solid ${theme.border}`,
     paddingBottom: 6,
   },
   voiceCardNumber: {
@@ -2059,11 +2196,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   toggleBtnActive: {
     background: "rgba(0, 204, 102, 0.15)",
-    color: "#00CC66",
-    borderColor: "#00CC66",
+    color: theme.accentGrn,
+    borderColor: theme.accentGrn,
   },
   toggleBtnInactive: {
-    background: "rgba(255, 255, 255, 0.02)",
+    background: theme.bgMain,
     color: theme.textSec,
     borderColor: theme.border,
   },

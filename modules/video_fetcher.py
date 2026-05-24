@@ -317,6 +317,8 @@ def footage_source_label() -> str:
     src = (config.get("documentary.footage_source") or "stock").strip().lower()
     if src == "meta_ai":
         return "Meta AI (browser)"
+    if src == "grok":
+        return "Grok (browser)"
     return "Stock (Pexels + YouTube)"
 
 
@@ -327,13 +329,22 @@ def fetch_clips_for_pipeline(
     progress_callback: _CB = None,
 ) -> list[Path | None]:
     """
-    Route footage download to stock (Pexels/yt-dlp) or Meta AI browser automation.
+    Route footage download to stock (Pexels/yt-dlp) or AI browser automation.
     """
     source = (config.get("documentary.footage_source") or "stock").strip().lower()
     if source == "meta_ai":
         from modules.ai_video.meta_ai_browser import fetch_clips_meta_ai
 
         return fetch_clips_meta_ai(
+            segments,
+            output_dir,
+            max_clip_duration=max_clip_duration,
+            progress_callback=progress_callback,
+        )
+    if source == "grok":
+        from modules.ai_video.grok_browser import fetch_clips_grok
+
+        return fetch_clips_grok(
             segments,
             output_dir,
             max_clip_duration=max_clip_duration,

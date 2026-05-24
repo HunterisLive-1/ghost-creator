@@ -104,7 +104,7 @@ DEFAULT_CONFIG: dict = {
     "documentary.logo_scale": 0.15,
     "documentary.logo_margin": 24,
     "documentary.logo_opacity": 1.0,
-    "documentary.footage_source": "stock",  # stock | meta_ai (grok later)
+    "documentary.footage_source": "stock",  # stock | meta_ai | grok
     "meta_ai": {
         "chrome_profile_path": "",
         "headless": False,
@@ -112,6 +112,14 @@ DEFAULT_CONFIG: dict = {
         "clip_delay_sec": 5,
         "fallback_to_stock": True,
         "base_url": "https://www.meta.ai/",
+    },
+    "grok": {
+        "chrome_profile_path": "",  # empty = same profile as meta_ai
+        "headless": False,
+        "generation_timeout_ms": 600_000,
+        "clip_delay_sec": 5,
+        "fallback_to_stock": True,
+        "base_url": "https://grok.com/imagine",
     },
     "img2video_enabled": False,
     "img2video_backend": "kling_standard",

@@ -337,7 +337,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
         </div>
         <span style={styles.badge}>CINEMATIC MODE</span>
         <span style={styles.footageBadge}>
-          Footage: {footageSource === "meta_ai" ? "Meta AI" : "Stock"}
+          Footage: {footageSource === "meta_ai" ? "Meta AI" : footageSource === "grok" ? "Grok" : "Stock"}
         </span>
       </div>
 

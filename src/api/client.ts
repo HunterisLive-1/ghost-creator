@@ -143,6 +143,8 @@ export const api = {
     request<{ ok: boolean; message: string; profile_path?: string }>("/api/meta-ai/setup-profile", {
       method: "POST",
     }),
+  grokAiTestLogin: () =>
+    request<{ ok: boolean; message: string }>("/api/grok-ai/test-login", { method: "POST" }),
 
   // YouTube Analytics API (OAuth2)
   ytAnalyticsStatus: (profileIndex: number) =>

@@ -191,9 +191,19 @@ def meta_ai_setup_profile() -> dict:
         config.load()
         return {
             "ok": True,
-            "message": f"Meta AI profile saved: {profile}",
+            "message": f"AI browser profile saved (Meta + Grok): {profile}",
             "profile_path": str(profile),
         }
+    except Exception as exc:
+        return {"ok": False, "message": str(exc)}
+
+
+@router.post("/api/grok-ai/test-login")
+async def grok_ai_test_login() -> dict:
+    try:
+        from modules.ai_video.grok_browser import check_grok_login
+
+        return await check_grok_login()
     except Exception as exc:
         return {"ok": False, "message": str(exc)}
 

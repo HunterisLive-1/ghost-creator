@@ -63,6 +63,27 @@ Output: `output/meta_ai_test_clip.mp4` (or debug screenshots `output/meta_ai_deb
 - **Brittle:** Meta UI changes can break automation; update selectors in `modules/ai_video/meta_ai_browser.py`
 - **Use at your own risk:** automating consumer web UIs may violate Meta terms of service
 
-### Grok (planned)
+### Grok (browser automation)
 
-Same router pattern as Meta AI; not implemented in v4.2.x yet.
+Same shared Chrome profile as Meta AI — log in on the **Grok tab** during profile setup.
+
+| Setting | Purpose |
+|---------|---------|
+| `documentary.footage_source` | `grok` |
+| `meta_ai.chrome_profile_path` | Shared persistent Chrome session |
+| `grok.base_url` | Default `https://grok.com/imagine` |
+| `grok.fallback_to_stock` | Use Pexels/YouTube if one AI clip fails |
+
+**CLI test (single clip):**
+
+```bash
+python -m modules.ai_video.grok_browser "cinematic mountain sunset documentary"
+```
+
+Output: `output/grok_test_clip.mp4` (or debug screenshots `output/grok_debug_*.png` on failure).
+
+Requires Grok / X Premium for video generation on grok.com.
+
+### Grok API (not used here)
+
+The codebase also references `grok_image_model` for image API — documentary footage uses browser automation only, not the xAI API.

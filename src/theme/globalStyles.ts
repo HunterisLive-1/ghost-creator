@@ -8,6 +8,7 @@ export const globalStyles = `
     background: ${theme.bgMain};
     color: ${theme.textPri};
     -webkit-font-smoothing: antialiased;
+    color-scheme: dark;
   }
   button { cursor: pointer; font-family: inherit; }
   input, textarea, select {
@@ -21,6 +22,13 @@ export const globalStyles = `
   input:focus, textarea:focus, select:focus {
     outline: none;
     border-color: ${theme.accentPri};
+  }
+  select option, optgroup {
+    background: ${theme.bgSec};
+    color: ${theme.textPri};
+  }
+  input[type="checkbox"] {
+    accent-color: ${theme.accentPri};
   }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: ${theme.bgMain}; }
