@@ -30,7 +30,7 @@ class ErrorAnalyseBody(BaseModel):
 def workshop_chat(body: WorkshopChatBody) -> dict:
     cfg = {
         "api_keys.gemini": config.get("api_keys.gemini", ""),
-        "gemini_model": config.get("gemini_model", "gemini-2.5-flash"),
+        "gemini_model": config.get("gemini_model") or config.get("pipeline.gemini_model") or "gemini-3.1-flash-lite",
     }
     history = [{"role": m.role, "content": m.content} for m in body.history[-30:]]
     reply = chat_with_consultant(history, body.message, cfg)
@@ -46,7 +46,7 @@ def workshop_chat(body: WorkshopChatBody) -> dict:
 def error_analyse(body: ErrorAnalyseBody) -> dict:
     cfg = {
         "api_keys.gemini": config.get("api_keys.gemini", ""),
-        "gemini_model": config.get("gemini_model", "gemini-2.0-flash"),
+        "gemini_model": config.get("gemini_model") or config.get("pipeline.gemini_model") or "gemini-3.1-flash-lite",
     }
     analysis = analyse_error(body.error_message, script_config=cfg)
     return {"analysis": analysis}

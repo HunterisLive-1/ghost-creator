@@ -80,6 +80,14 @@ async def on_startup() -> None:
     loop = asyncio.get_event_loop()
     get_broadcaster().bind_loop(loop)
     bootstrap_ffmpeg()
+    
+    # Eagerly initialize LangGraph checkpointer on main thread to prevent SQLite thread race conditions
+    try:
+        from graph.pipeline import get_pipeline
+        get_pipeline()
+    except Exception as e:
+        log.error(f"Failed to eagerly initialize LangGraph pipeline: {e}", exc_info=True)
+        
     try:
         from core.ffmpeg_bootstrap import configure_pydub_subprocess
         configure_pydub_subprocess()

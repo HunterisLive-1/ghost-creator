@@ -66,3 +66,18 @@ Per run card:
 - **Play Video** — open MP4 in default player
 
 After re-render, the app can jump to **Upload** tab with the new file pre-filled.
+
+---
+
+## Editor tab (React Timeline SDK)
+
+The in-app **Ghost Editor** uses `@keplar-404/react-timeline-editor` with clips served via `GET /api/local-file`.
+
+- **Load** — reads `documentary_editor.json` + `clips_for_edit/e_XX.mp4` from a History run
+- **Edit** — reorder/resize segments, swap clips, subtitle style, background music, transitions/effects
+- **Save** — writes `documentary_editor.json` back to the run folder
+- **Export (FFmpeg)** — native re-render via `/api/history/rerender` (not FFmpeg.wasm)
+
+**Pipeline editor mode** (Settings → Pause for Ghost Editor): after voice-synced clips are built, the pipeline pauses. Use **OPEN EDITOR** on the Documentary tab, save edits, then **CONTINUE PIPELINE** to assemble the final MP4.
+
+Preview is approximate; export always uses the backend FFmpeg assembler (`core/video_effects.py` maps transitions/effects).

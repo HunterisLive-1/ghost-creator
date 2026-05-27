@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
+  EditorReviewData,
   PipelineMessage,
   ScriptReviewData,
   WorkshopPlan,
@@ -24,6 +25,7 @@ interface Props {
   setSystemState: (s: SystemState) => void;
   onPipelineDone: () => void;
   onPipelineStateChange?: (s: PipelineLiveState) => void;
+  onOpenEditor?: (runDir: string) => void;
 }
 
 const LANGUAGES = [
@@ -51,8 +53,10 @@ const levelColors: Record<string, string> = {
   WARNING: theme.accentWarn,
 };
 
-export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineStateChange }: Props) {
+export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineStateChange, onOpenEditor }: Props) {
   const [mode, setMode] = useState<"short" | "long">("short");
+  const [pipelineMode, setPipelineMode] = useState<"shorts" | "documentary" | "custom_script">("shorts");
+  const [customScriptText, setCustomScriptText] = useState("");
   const [duration, setDuration] = useState(60);
   const [topic, setTopic] = useState("");
   const [autoTopic, setAutoTopic] = useState(false);
@@ -71,6 +75,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
   const [analysis, setAnalysis] = useState("");
   const [analysing, setAnalysing] = useState(false);
   const [scriptReview, setScriptReview] = useState<ScriptReviewData | null>(null);
+  const [editorReview, setEditorReview] = useState<EditorReviewData | null>(null);
   const [workshopOpen, setWorkshopOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [aspectRatio, setAspectRatio] = useState("9:16");
@@ -85,6 +90,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
   const [footageSource, setFootageSource] = useState("stock");
   const logEndRef = useRef<HTMLDivElement>(null);
   const reviewPollRef = useRef<number | null>(null);
+  const editorPollRef = useRef<number | null>(null);
   const runningRef = useRef(running);
   const runIdRef = useRef(runId);
   runningRef.current = running;
@@ -118,12 +124,17 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
 
   const handlePipelineMsg = useCallback(
     (msg: PipelineMessage) => {
+      // Use runIdRef.current (always up-to-date) instead of runId state
+      // to avoid stale closure dropping early progress messages
       const rid = msg.run_id;
-      if (rid !== undefined && rid !== runId) return;
+      if (rid !== undefined && runIdRef.current !== 0) {
+        const parsedRid = typeof rid === "string" ? parseInt(rid.replace("run_", ""), 10) : Number(rid);
+        if (!isNaN(parsedRid) && parsedRid !== runIdRef.current) return;
+      }
 
       if (msg.message) appendLog(msg.level || "INFO", msg.message);
 
-      let newProgress = progress;
+      let newProgress = 0;
       if (msg.step >= 1 && msg.step <= 6) {
         setSteps((prev) => {
           const next = [...prev];
@@ -159,6 +170,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
         setRunning(false);
         runningRef.current = false;
         setScriptReview(null);
+        setEditorReview(null);
         setSystemState(msg.level === "ERROR" ? "ERROR" : "READY");
         if (msg.output_path) setOutputPath(msg.output_path);
         if (msg.level === "SUCCESS") {
@@ -168,7 +180,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
         }
       }
     },
-    [runId, appendLog, setSystemState, onPipelineDone, onPipelineStateChange, progress]
+    [appendLog, setSystemState, onPipelineDone, onPipelineStateChange]
   );
 
   usePipelineWebSocket(handlePipelineMsg);
@@ -194,7 +206,34 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     }
   }, []);
 
+  const pollEditorReview = useCallback(async () => {
+    if (!runningRef.current) return;
+    try {
+      const res = await api.pipelineEditorReview();
+      const activeRunId = runIdRef.current;
+      if (
+        res.waiting &&
+        res.data &&
+        (res.run_id == null || res.run_id === activeRunId)
+      ) {
+        setEditorReview(res.data);
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+    if (runningRef.current) {
+      editorPollRef.current = window.setTimeout(pollEditorReview, 500);
+    }
+  }, []);
+
   const startPipeline = async () => {
+    if (pipelineMode === "custom_script" && customScriptText.trim().length < 50) {
+      setErrorMsg("Script kam se kam 50 characters ka hona chahiye");
+      appendLog("ERROR", "Script kam se kam 50 characters ka hona chahiye");
+      return;
+    }
+
     const dur = duration;
     await api.patchConfig({
       "documentary.length_mode": mode,
@@ -228,6 +267,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     setAnalysis("");
     setRetryVisible(false);
     setScriptReview(null);
+    setEditorReview(null);
     setSystemState("PROCESSING");
     onPipelineStateChange?.({
       running: true, step: 1, stepName: DOC_STEPS[0],
@@ -235,8 +275,14 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     });
 
     if (reviewPollRef.current) clearTimeout(reviewPollRef.current);
+    if (editorPollRef.current) clearTimeout(editorPollRef.current);
 
-    const res = await api.pipelineStart({ topic: autoTopic ? null : topic || null, run_id: newRunId });
+    const res = await api.pipelineStart({
+      topic: autoTopic ? null : topic || null,
+      run_id: newRunId,
+      mode: pipelineMode,
+      custom_script: pipelineMode === "custom_script" ? customScriptText : ""
+    });
     if (!res.ok) {
       setRunning(false);
       runningRef.current = false;
@@ -255,6 +301,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     setRunId(startedRunId);
     runIdRef.current = startedRunId;
     reviewPollRef.current = window.setTimeout(pollScriptReview, 500);
+    editorPollRef.current = window.setTimeout(pollEditorReview, 500);
   };
 
   const stopPipeline = async () => {
@@ -262,9 +309,11 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     setRunning(false);
     runningRef.current = false;
     setScriptReview(null);
+    setEditorReview(null);
     setSystemState("READY");
     appendLog("WARNING", "Pipeline stopped by user");
     if (reviewPollRef.current) clearTimeout(reviewPollRef.current);
+    if (editorPollRef.current) clearTimeout(editorPollRef.current);
     onPipelineStateChange?.({
       running: false, step: 0, stepName: "",
       progress: 0, lastMsg: "Pipeline stopped by user", level: "WARNING"
@@ -396,6 +445,32 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
         </div>
       </div>
 
+      {/* PIPELINE MODE SELECTOR */}
+      <div style={{ ...styles.card, display: "flex", alignItems: "center", gap: 16, marginBottom: 12 }}>
+        <span style={{ fontSize: 11, color: purpleTheme.textSec, fontWeight: 700, fontFamily: "monospace" }}>🚀 PIPELINE MODE:</span>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[
+            { id: "shorts", label: "🤖 AI Shorts" },
+            { id: "documentary", label: "🎬 AI Documentary" },
+            { id: "custom_script", label: "✍️ My Script" }
+          ].map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              style={{
+                ...styles.langBtn,
+                ...(pipelineMode === m.id ? styles.langActive : {}),
+                padding: "6px 16px",
+                fontWeight: 700,
+              }}
+              onClick={() => setPipelineMode(m.id as any)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div style={styles.card}>
         <button type="button" style={styles.foldBtn} onClick={() => setWorkshopOpen(!workshopOpen)}>
           <span>▶ [GHOST AI] — Idea Workshop + Chat with your AI director</span>
@@ -423,13 +498,17 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
       </div>
 
       <div style={styles.card}>
-        <label style={styles.label}>🎙 DOCUMENTARY SUBJECT:</label>
+        <label style={styles.label}>
+          {pipelineMode === "custom_script" ? "🎙 VIDEO TOPIC (OPTIONAL, FOR RESEARCH CONTEXT):" : "🎙 DOCUMENTARY SUBJECT:"}
+        </label>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={topic} onChange={(e) => setTopic(e.target.value)} disabled={autoTopic} style={{ flex: 1, background: purpleTheme.bgSec, border: `1px solid ${purpleTheme.border}`, color: purpleTheme.textPri, padding: 8 }} placeholder="Enter topic — or leave blank for auto-trending" />
-          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: purpleTheme.textSec, cursor: "pointer" }}>
-            <input type="checkbox" checked={autoTopic} onChange={(e) => setAutoTopic(e.target.checked)} style={{ accentColor: purpleTheme.accentPri }} />
-            AUTO-SELECT
-          </label>
+          <input value={topic} onChange={(e) => setTopic(e.target.value)} disabled={autoTopic && pipelineMode !== "custom_script"} style={{ flex: 1, background: purpleTheme.bgSec, border: `1px solid ${purpleTheme.border}`, color: purpleTheme.textPri, padding: 8 }} placeholder={pipelineMode === "custom_script" ? "Enter topic/context (optional)" : "Enter topic — or leave blank for auto-trending"} />
+          {pipelineMode !== "custom_script" && (
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: purpleTheme.textSec, cursor: "pointer" }}>
+              <input type="checkbox" checked={autoTopic} onChange={(e) => setAutoTopic(e.target.checked)} style={{ accentColor: purpleTheme.accentPri }} />
+              AUTO-SELECT
+            </label>
+          )}
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, marginBottom: 6 }}>
@@ -473,6 +552,51 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
           </select>
         </div>
       </div>
+
+      {/* MY SCRIPT TEXTAREA CARD */}
+      {pipelineMode === "custom_script" && (
+        <div style={styles.card}>
+          <label style={styles.label}>✍️ MY SCRIPT:</label>
+          <textarea
+            value={customScriptText}
+            onChange={(e) => setCustomScriptText(e.target.value)}
+            placeholder="Apna script yahan likho... Koi bhi language chalega. AI isko polish karke video banana..."
+            rows={12}
+            maxLength={5000}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              background: purpleTheme.bgSec,
+              border: `1px solid ${purpleTheme.border}`,
+              color: purpleTheme.textPri,
+              padding: 8,
+              fontFamily: "inherit",
+              fontSize: 12,
+              resize: "vertical",
+              borderRadius: 4
+            }}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 11, color: purpleTheme.textSec }}>
+            <span>{customScriptText.length} / 5000</span>
+            {customScriptText.trim().length > 0 && customScriptText.trim().length < 50 && (
+              <span style={{ color: "#FF4444" }}>Script must be at least 50 characters</span>
+            )}
+          </div>
+          <div style={{
+            marginTop: 12,
+            padding: 12,
+            background: "rgba(191, 0, 255, 0.05)",
+            border: `1px dashed ${purpleTheme.border}`,
+            borderRadius: 4,
+            fontSize: 11,
+            lineHeight: 1.5,
+            color: purpleTheme.textSec
+          }}>
+            ✍️ <strong>Apne Script Se Video Banao</strong><br />
+            Tumhara likha hua script AI ke through polish hoga — hook strong hoga, TTS-friendly banega — aur phir automatically video ban jayega. Script ka core message bilkul change nahi hoga.
+          </div>
+        </div>
+      )}
 
       {/* AUTO CAPTION COLLAPSIBLE SETTINGS SECTION */}
       <div style={styles.card}>
@@ -592,6 +716,50 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
         </div>
       )}
 
+      {editorReview && (
+        <div style={styles.editorPauseBanner}>
+          <div>
+            <strong style={{ color: theme.accentPri }}>Editor pause</strong>
+            <span style={{ marginLeft: 8, fontSize: 12, color: theme.textSec }}>
+              {editorReview.title} — {editorReview.segment_count} clips ready. Edit in Ghost Editor, save, then continue.
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {onOpenEditor && (
+              <button
+                type="button"
+                style={styles.smallBtn}
+                onClick={() => onOpenEditor(editorReview.run_dir)}
+              >
+                OPEN EDITOR
+              </button>
+            )}
+            <button
+              type="button"
+              style={styles.runBtn}
+              onClick={async () => {
+                await api.pipelineEditorContinue();
+                setEditorReview(null);
+                editorPollRef.current = window.setTimeout(pollEditorReview, 500);
+              }}
+            >
+              CONTINUE PIPELINE
+            </button>
+            <button
+              type="button"
+              style={styles.stopBtn}
+              onClick={async () => {
+                await api.pipelineEditorCancel();
+                setEditorReview(null);
+                stopPipeline();
+              }}
+            >
+              CANCEL
+            </button>
+          </div>
+        </div>
+      )}
+
       {scriptReview && (
         <ScriptReviewModal
           data={scriptReview}
@@ -657,6 +825,18 @@ const styles: Record<string, React.CSSProperties> = {
   runBtn: { padding: "10px 24px", background: "rgba(191,0,255,0.1)", color: purpleTheme.textPri, border: `1px solid ${purpleTheme.accentPri}`, fontWeight: 700, borderRadius: 2, cursor: "pointer", letterSpacing: 0.5 },
   stopBtn: { padding: "10px 24px", background: "rgba(255,68,68,0.1)", color: "#FF4444", border: `1px solid #FF4444`, fontWeight: 700, borderRadius: 2, cursor: "pointer", letterSpacing: 0.5 },
   retryBtn: { padding: "10px 24px", background: "rgba(255,184,0,0.15)", color: "#FFB800", border: `1px solid #FFB800`, fontWeight: 700, borderRadius: 2, cursor: "pointer", letterSpacing: 0.5 },
+  editorPauseBanner: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
+    padding: 12,
+    marginBottom: 12,
+    background: "rgba(0,230,118,0.08)",
+    border: "1px solid rgba(0,230,118,0.4)",
+    borderRadius: 4,
+  },
   terminal: { background: "#040207", border: `1px solid ${purpleTheme.border}`, padding: 10, height: 160, overflow: "auto", marginTop: 8, borderRadius: 4 },
   errorPanel: { background: purpleTheme.bgCard, border: `1px solid #FF4444`, padding: 12, marginTop: 8, borderRadius: 4 },
   analysis: { whiteSpace: "pre-wrap", fontSize: 11, color: purpleTheme.textPri, marginTop: 8, fontFamily: "monospace" },

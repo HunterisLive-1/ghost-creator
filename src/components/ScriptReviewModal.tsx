@@ -5,12 +5,13 @@ import { theme } from "../theme/tokens";
 
 interface Props {
   data: ScriptReviewData;
+  mode?: string;
   onApprove: (data: ScriptReviewData) => void;
   onRegenerate: () => void;
   onCancel: () => void;
 }
 
-export function ScriptReviewModal({ data, onApprove, onRegenerate, onCancel }: Props) {
+export function ScriptReviewModal({ data, mode, onApprove, onRegenerate, onCancel }: Props) {
   const [title, setTitle] = useState(data?.title || "");
   const [voiceover, setVoiceover] = useState(data?.voiceover || "");
   const [prompts, setPrompts] = useState<string[]>(data?.image_prompts ? [...data.image_prompts] : []);
@@ -24,6 +25,19 @@ export function ScriptReviewModal({ data, onApprove, onRegenerate, onCancel }: P
         <p style={{ color: theme.textHint, fontSize: 12, marginBottom: 12 }}>
           Review and edit the script before voice synthesis begins.
         </p>
+        {mode === "custom_script" && (
+          <div style={{
+            marginBottom: 12,
+            padding: 10,
+            background: "rgba(191, 0, 255, 0.05)",
+            border: `1px dashed ${theme.border}`,
+            borderRadius: 4,
+            fontSize: 11,
+            color: theme.textSec,
+          }}>
+            📝 <strong>Yeh tumhara polished script hai.</strong> AI ne sirf delivery improve ki hai, original meaning preserve raha hai.
+          </div>
+        )}
 
         <label style={styles.label}>Title</label>
         <input value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: "100%", marginBottom: 12 }} />

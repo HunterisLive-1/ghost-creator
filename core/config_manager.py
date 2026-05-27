@@ -34,6 +34,7 @@ DEFAULT_CONFIG: dict = {
         "replicate": "",
         "stable_horde": "",
         "pexels": "",
+        "tavily": "",
     },
     "xai_api_key": "",
     "grok_image_model": "grok-2-image-1212",
@@ -81,7 +82,7 @@ DEFAULT_CONFIG: dict = {
     "custom_image_paths": [],
     "script_review_enabled": True,
     "script_provider": "gemini",
-    "gemini_model": "gemini-2.0-flash",
+    "gemini_model": "gemini-3.1-flash-lite",
     "openai_model": "gpt-4o",
     "openai_api_key": "",
     "ollama_url": "http://localhost:11434",
@@ -136,13 +137,20 @@ DEFAULT_CONFIG: dict = {
         "upload_mode": "unlisted",
         "upload_enabled": True,
         "output_folder": "output",
-        "gemini_model": "gemini-2.0-flash",
+        "gemini_model": "gemini-3.1-flash-lite",
         "chrome_profiles": [],
         "active_profile_index": 0,
         # YouTube uploader: max wait for file transfer 0→100% (ms); do not proceed if exceeded.
         "upload_complete_timeout_ms": 900_000,
         # After successful publish, wait before closing Chrome so Studio can finish requests.
         "post_publish_grace_ms": 12_000,
+        "mode": "shorts",
+        "skip_human_review": False,
+        "auto_approve_threshold": 8.0,
+        "checkpoint_db": "ghost_runs.db",
+        "max_parallel_images": 4,
+        "seo_enabled": True,
+        "error_recovery_enabled": True,
     },
 }
 
@@ -155,6 +163,7 @@ ENV_LOCAL_MAP: dict[str, tuple[str, type]] = {
     "FAL_AI_API_KEY":             ("api_keys.fal_ai",                    str),
     "REPLICATE_API_KEY":          ("api_keys.replicate",                 str),
     "STABLE_HORDE_API_KEY":       ("api_keys.stable_horde",              str),
+    "TAVILY_API_KEY":             ("api_keys.tavily",                    str),
     # TTS
     "TTS_BACKEND":                ("tts.backend",                        str),
     "OMNIVOICE_URL":              ("tts.omnivoice_url",                  str),
@@ -190,6 +199,12 @@ ENV_LOCAL_MAP: dict[str, tuple[str, type]] = {
     "UPLOAD_ENABLED":             ("pipeline.upload_enabled",            bool),
     "OUTPUT_FOLDER":              ("pipeline.output_folder",             str),
     "GEMINI_MODEL":               ("pipeline.gemini_model",              str),
+    "SKIP_HUMAN_REVIEW":          ("pipeline.skip_human_review",         bool),
+    "AUTO_APPROVE_THRESHOLD":     ("pipeline.auto_approve_threshold",    float),
+    "CHECKPOINT_DB":              ("pipeline.checkpoint_db",             str),
+    "MAX_PARALLEL_IMAGES":        ("pipeline.max_parallel_images",       int),
+    "SEO_ENABLED":                ("pipeline.seo_enabled",               bool),
+    "ERROR_RECOVERY_ENABLED":     ("pipeline.error_recovery_enabled",    bool),
 }
 
 
@@ -213,6 +228,9 @@ _ENV_LOCAL_TEMPLATE = """\
 # Gemini AI — script generation + image generation (REQUIRED)
 # Get key: https://aistudio.google.com/app/apikey
 GEMINI_API_KEY={GEMINI_API_KEY}
+
+# Tavily Search API Key (optional)
+TAVILY_API_KEY={TAVILY_API_KEY}
 
 # ElevenLabs — premium Hindi/English voice synthesis
 # Get key: https://elevenlabs.io/app/subscription
@@ -295,8 +313,26 @@ UPLOAD_MODE={UPLOAD_MODE}
 OUTPUT_FOLDER={OUTPUT_FOLDER}
 
 # Gemini model for script generation
-# Models: gemini-2.0-flash | gemini-1.5-pro | gemini-2.0-flash-lite
+# Models: gemini-3.1-flash-lite | gemini-3.5-flash | gemini-3-flash | gemini-2.5-flash
 GEMINI_MODEL={GEMINI_MODEL}
+
+# Auto-approve script if critic score is high (True/False)
+SKIP_HUMAN_REVIEW={SKIP_HUMAN_REVIEW}
+
+# Critic score threshold for auto-approve (e.g. 8.0)
+AUTO_APPROVE_THRESHOLD={AUTO_APPROVE_THRESHOLD}
+
+# SQLite checkpointer database name
+CHECKPOINT_DB={CHECKPOINT_DB}
+
+# Maximum parallel images generated
+MAX_PARALLEL_IMAGES={MAX_PARALLEL_IMAGES}
+
+# Run SEO optimizer node (True/False)
+SEO_ENABLED={SEO_ENABLED}
+
+# Run self-healing error recovery node (True/False)
+ERROR_RECOVERY_ENABLED={ERROR_RECOVERY_ENABLED}
 """
 
 

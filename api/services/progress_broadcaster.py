@@ -13,6 +13,7 @@ class ProgressBroadcaster:
 
     def __init__(self) -> None:
         self._clients: set[Any] = set()
+        self._queues: set[Any] = set()
         self._lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -27,8 +28,26 @@ class ProgressBroadcaster:
         with self._lock:
             self._clients.discard(ws)
 
+    def add_queue(self, q: Any) -> None:
+        with self._lock:
+            self._queues.add(q)
+
+    def remove_queue(self, q: Any) -> None:
+        with self._lock:
+            self._queues.discard(q)
+
     def put(self, msg: dict) -> None:
         """Called from PipelineRunner thread — schedule async broadcast."""
+        # 1. Forward to registered queues
+        with self._lock:
+            queues = list(self._queues)
+        for q in queues:
+            try:
+                q.put(msg)
+            except Exception:
+                pass
+
+        # 2. Forward to WebSockets
         with self._lock:
             clients = list(self._clients)
         if not clients or not self._loop:

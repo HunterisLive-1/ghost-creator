@@ -14,6 +14,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@keplar-404/react-timeline-editor": "^1.0.11",
+    "@keplar-404/timeline-engine": "^1.0.11",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
@@ -43,7 +45,9 @@
       {
         "from": "dist-api/GhostCreatorAPI",
         "to": "GhostCreatorAPI",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "icon.ico",
@@ -52,7 +56,12 @@
     ],
     "win": {
       "target": [
-        { "target": "dir", "arch": ["x64"] }
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "icon.ico",
       "executableName": "GhostCreatorAI"

@@ -238,10 +238,14 @@ JSON schema:
   ],
   "metadata": {{
     "title": "<YouTube title per YOUTUBE METADATA rules above — for Hindi: Hinglish Latin script, English SEO + Roman Hindi, max ~100 chars, about '{topic}'>",
-    "description": "<per YOUTUBE METADATA: mostly English SEO text about '{topic}', ~150-300 words, readable>",
+    "description": "<per YOUTUBE METADATA: mostly English SEO text about '{topic}', 2-4 short paragraphs, readable>",
     "tags": ["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]
   }}
 }}
+
+Rules for metadata JSON structure (CRITICAL):
+- "metadata.tags" MUST be a separate JSON array key — NEVER embed the word tags or a tags list inside "description"
+- Close the "description" string with a quote before writing "tags"
 
 Rules for voiceover_text:
 - MUST be specifically about: "{topic}" — do not drift to other subjects
@@ -289,6 +293,113 @@ def _extract_json(raw: str) -> dict:
     return obj  # type: ignore[return-value]
 
 
+def _repair_groq_json_text(raw: str) -> str:
+    """Fix common Groq LLM JSON mistakes (tags embedded inside description)."""
+    return re.sub(
+        r'([^"\\]),\s*(?:\\n|\n)\s*tags"\s*:\s*\[',
+        r'\1.",\n    "tags": [',
+        raw,
+        count=1,
+    )
+
+
+def _extract_failed_generation_from_groq_error(exc: Exception) -> str:
+    """Pull failed_generation text from a Groq BadRequestError."""
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        failed = body.get("error", {}).get("failed_generation")
+        if isinstance(failed, str) and failed.strip():
+            return failed
+    return ""
+
+
+def _parse_groq_script(raw_text: str, num_scenes: int) -> dict:
+    """Parse Groq script JSON with repair fallback."""
+    last_exc: Exception | None = None
+    for candidate in (raw_text, _repair_groq_json_text(raw_text)):
+        try:
+            script = json.loads(candidate)
+            return _validate_script(script, num_scenes)
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            last_exc = exc
+        try:
+            script = _extract_json(_repair_groq_json_text(candidate))
+            return _validate_script(script, num_scenes)
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            last_exc = exc
+    raise ValueError(f"Could not parse Groq script JSON: {last_exc}")
+
+
+def _call_groq_chat(prompt: str, system: str, script_config: dict) -> str:
+    """Call Groq with retry/salvage when server-side JSON validation fails."""
+    from groq import BadRequestError, Groq
+
+    api_key = (script_config.get("groq_api_key") or config.get("groq_api_key", "")).strip()
+    if not api_key:
+        raise ValueError("Groq API key is not set. Please add it in Settings → AI Script Provider.")
+
+    model = script_config.get("groq_model") or config.get("groq_model", "llama-3.3-70b-versatile")
+    client = Groq(api_key=api_key)
+
+    for attempt in range(1, 4):
+        temperature = 0.8 if attempt == 1 else 0.4
+        use_json_mode = attempt < 3
+        log.debug(
+            "Groq API call (attempt %s, model=%r, json_mode=%s) …",
+            attempt,
+            model,
+            use_json_mode,
+        )
+        kwargs: dict = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": 8192,
+        }
+        if use_json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        try:
+            response = client.chat.completions.create(**kwargs)
+            raw_text = response.choices[0].message.content or ""
+            log.debug("Raw Groq response (first 200 chars): %s", raw_text[:200])
+            return raw_text
+        except BadRequestError as exc:
+            failed = _extract_failed_generation_from_groq_error(exc)
+            if failed:
+                repaired = _repair_groq_json_text(failed)
+                try:
+                    json.loads(repaired)
+                    log.warning(
+                        "Groq JSON validation failed (attempt %s) — salvaging failed_generation",
+                        attempt,
+                    )
+                    return repaired
+                except json.JSONDecodeError:
+                    try:
+                        _extract_json(repaired)
+                        log.warning(
+                            "Groq JSON validation failed (attempt %s) — salvaging repaired failed_generation",
+                            attempt,
+                        )
+                        return repaired
+                    except (json.JSONDecodeError, ValueError):
+                        log.warning(
+                            "Salvage of failed_generation did not produce valid JSON on attempt %s",
+                            attempt,
+                        )
+            if attempt == 3 or "json_validate_failed" not in str(exc):
+                raise RuntimeError(f"Groq API error: {exc}") from exc
+        except Exception as exc:
+            if attempt == 3:
+                raise RuntimeError(f"Groq API error: {exc}") from exc
+
+    raise RuntimeError("_call_groq_chat: unexpected exit")
+
+
 def _validate_script(script: dict, num_scenes: int) -> dict:
     """Validate required keys and fill in defaults."""
     required = {"voiceover_text", "image_prompts", "metadata"}
@@ -308,11 +419,13 @@ def _validate_script(script: dict, num_scenes: int) -> dict:
 
 # Ordered fallback chain — tried in sequence when a model returns 404
 _GEMINI_FALLBACK_CHAIN = [
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3-flash",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
 ]
-_GEMINI_FINAL_FALLBACK = "gemini-2.0-flash"   # always-available stable model
+_GEMINI_FINAL_FALLBACK = "gemini-3.1-flash-lite"   # always-available stable model
 
 # All non-1.x Gemini models require v1alpha for generateContent
 _V1BETA_PREFIXES = ("gemini-1.",)   # only 1.x models use v1beta
@@ -559,6 +672,16 @@ def _generate_with_openai(prompt: str, num_scenes: int, script_config: dict) -> 
     return _validate_script(script, num_scenes)
 
 
+def _generate_with_groq(prompt: str, num_scenes: int, script_config: dict) -> dict:
+    """Generate script using Groq API (OpenAI-compatible, ultra-fast inference)."""
+    system = (
+        "You are a YouTube script writer. Always respond with valid JSON only. "
+        "No markdown, no explanation, no code fences. Just the raw JSON object."
+    )
+    raw_text = _call_groq_chat(prompt, system, script_config)
+    return _parse_groq_script(raw_text, num_scenes)
+
+
 def generate_script(
     topic: str,
     lang: str | None = None,
@@ -609,6 +732,8 @@ def generate_script(
                 "Use qwen2.5 or aya-expanse for multilingual output, or switch to Gemini/OpenAI."
             )
         script = _generate_with_ollama(prompt, num_scenes, cfg)
+    elif provider == "groq":
+        script = _generate_with_groq(prompt, num_scenes, cfg)
     else:
         script = _generate_with_gemini(prompt, num_scenes, cfg)
 
@@ -840,6 +965,8 @@ def _generate_documentary_chunked(
             raw = _generate_raw_openai(prompt, cfg)
         elif provider == "ollama":
             raw = _generate_raw_ollama(prompt, cfg)
+        elif provider == "groq":
+            raw = _generate_raw_groq(prompt, cfg)
         else:
             raw = _generate_raw_gemini(prompt, cfg)
 
@@ -917,6 +1044,8 @@ def generate_documentary_script(
         raw = _generate_raw_openai(prompt, cfg)
     elif provider == "ollama":
         raw = _generate_raw_ollama(prompt, cfg)
+    elif provider == "groq":
+        raw = _generate_raw_groq(prompt, cfg)
     else:
         raw = _generate_raw_gemini(prompt, cfg)
 
@@ -1020,6 +1149,15 @@ def _generate_raw_ollama(prompt: str, script_config: dict) -> str:
     )
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
+
+
+def _generate_raw_groq(prompt: str, script_config: dict) -> str:
+    """Call Groq API and return raw response text."""
+    system = (
+        "You are a documentary scriptwriter. Output valid JSON only. "
+        "No markdown, no code fences."
+    )
+    return _call_groq_chat(prompt, system, script_config)
 
 
 

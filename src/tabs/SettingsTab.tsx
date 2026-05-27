@@ -9,7 +9,7 @@ interface Props {
 type ConfigData = Record<string, unknown>;
 
 const TTS_BACKENDS = ["omnivoice", "edge_tts", "elevenlabs"] as const;
-const SCRIPT_PROVIDERS = ["gemini", "ollama"] as const;
+const SCRIPT_PROVIDERS = ["gemini", "groq", "ollama"] as const;
 const UPLOAD_MODES = ["unlisted", "public", "private", "draft"] as const;
 const LANGUAGES = [
   { code: "hi", label: "🇮🇳 Hindi" },
@@ -27,12 +27,18 @@ const EDGE_VOICES = [
   "en-GB-RyanNeural", "ta-IN-ValluvarNeural", "te-IN-MohanNeural",
 ];
 const GEMINI_MODELS = [
+  { id: "gemini-3.1-flash-lite", label: "gemini-3.1-flash-lite  ·  15rpm/500rpd · Free ✅ BEST" },
+  { id: "gemini-3.5-flash", label: "gemini-3.5-flash  ·  5rpm/20rpd · Free ✅ LATEST" },
+  { id: "gemini-3-flash", label: "gemini-3-flash  ·  5rpm/20rpd · Free ✅" },
   { id: "gemini-2.5-flash", label: "gemini-2.5-flash  ·  5rpm/20rpd · Free ✅" },
   { id: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite  ·  10rpm/20rpd · Free ✅" },
-  { id: "gemini-3-flash", label: "gemini-3-flash  ·  5rpm/20rpd · Free ✅" },
-  { id: "gemini-3.1-flash", label: "gemini-3.1-flash  ·  15rpm/500rpd · Free ✅ BEST" },
-  { id: "gemini-2.5-pro", label: "gemini-2.5-pro  ·  Paid 🔒 · Best Quality" },
-  { id: "gemini-3.1-pro", label: "gemini-3.1-pro  ·  Paid 🔒 · Pro Quality" },
+];
+const GROQ_MODELS = [
+  { id: "llama-3.3-70b-versatile", label: "llama-3.3-70b-versatile  ·  30rpm/1K rpd · Free ✅ BEST" },
+  { id: "meta-llama/llama-4-scout-17b-16e-instruct", label: "llama-4-scout-17b  ·  30rpm/1K rpd · Free ✅ FAST" },
+  { id: "qwen/qwen3-32b", label: "qwen3-32b  ·  60rpm/1K rpd · Free ✅ HIGH RPM" },
+  { id: "llama-3.1-8b-instant", label: "llama-3.1-8b-instant  ·  30rpm/14.4K rpd · Free ✅ MOST REQUESTS" },
+  { id: "openai/gpt-oss-120b", label: "gpt-oss-120b  ·  30rpm/1K rpd · Free ✅ SMART" },
 ];
 const LOGO_POSITIONS = [
   { id: "top_left", label: "Top Left" },
@@ -1803,8 +1809,35 @@ export function SettingsTab({ onBackendChange }: Props) {
                     <span style={{ fontSize: 14 }}>●</span> Not found
                   </div>
                 )}
-                <select value={String(g("gemini_model", "gemini-2.5-flash"))} onChange={(e) => set("gemini_model", e.target.value)} style={{ width: "100%" }}>
+                <select value={String(g("gemini_model", "gemini-3.1-flash-lite"))} onChange={(e) => set("gemini_model", e.target.value)} style={{ width: "100%" }}>
                   {GEMINI_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                </select>
+              </>
+            )}
+            {g("script_provider") === "groq" && (
+              <>
+                {g("groq_api_key") ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: theme.accentGrn }}>
+                    <span style={{ fontSize: 14 }}>●</span> Groq key configured · ⚡ Ultra-fast inference
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: theme.accentRed }}>
+                    <span style={{ fontSize: 14 }}>●</span> Groq API key not set
+                  </div>
+                )}
+                <input
+                  type="password"
+                  value={String(g("groq_api_key", ""))}
+                  onChange={(e) => set("groq_api_key", e.target.value)}
+                  placeholder="gsk_…  (get free key at console.groq.com)"
+                  style={{ width: "100%", marginTop: 4 }}
+                />
+                <select
+                  value={String(g("groq_model", "llama-3.3-70b-versatile"))}
+                  onChange={(e) => set("groq_model", e.target.value)}
+                  style={{ width: "100%", marginTop: 4 }}
+                >
+                  {GROQ_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                 </select>
               </>
             )}
@@ -1831,6 +1864,83 @@ export function SettingsTab({ onBackendChange }: Props) {
               <li>Language applies to script + voiceover (Edge TTS + OmniVoice)</li>
               <li>Output folder is relative to project root unless full path given</li>
             </ul>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="AGENTIC PIPELINE">
+        <div style={styles.runBehaviorGrid}>
+          {/* Card 1: Agent Review & Auto-Approve */}
+          <div style={styles.runBehaviorCard}>
+            <div style={styles.cardTitle}>SCRIPT REVIEW & AUTO-APPROVE</div>
+            <label style={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={Boolean(g("pipeline.skip_human_review", false))}
+                onChange={(e) => set("pipeline.skip_human_review", e.target.checked)}
+              />
+              Auto-approve scripts (skip human review)
+            </label>
+            {Boolean(g("pipeline.skip_human_review", false)) && (
+              <div style={{ marginTop: 8 }}>
+                <label style={styles.label}>
+                  Auto-approve Threshold: {Number(g("pipeline.auto_approve_threshold", 8.0)).toFixed(1)}
+                </label>
+                <input
+                  type="range"
+                  min={6.0}
+                  max={10.0}
+                  step={0.1}
+                  value={Number(g("pipeline.auto_approve_threshold", 8.0))}
+                  onChange={(e) => set("pipeline.auto_approve_threshold", parseFloat(e.target.value))}
+                  style={{ width: "100%" }}
+                />
+                <div style={styles.cardHint}>Critic score must exceed this for auto-approval</div>
+              </div>
+            )}
+            <div style={styles.cardHint}>Uses the critic agent to score scripts and auto-approves if criteria are met.</div>
+          </div>
+
+          {/* Card 2: SEO Optimization */}
+          <div style={styles.runBehaviorCard}>
+            <div style={styles.cardTitle}>SEO OPTIMIZATION</div>
+            <label style={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={Boolean(g("pipeline.seo_enabled", true))}
+                onChange={(e) => set("pipeline.seo_enabled", e.target.checked)}
+              />
+              Enable SEO Optimization Agent
+            </label>
+            <div style={styles.cardHint}>Automatically rewrites and optimizes title, description, and tags after script approval.</div>
+          </div>
+
+          {/* Card 3: Error Recovery */}
+          <div style={styles.runBehaviorCard}>
+            <div style={styles.cardTitle}>ERROR RECOVERY</div>
+            <label style={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={Boolean(g("pipeline.error_recovery_enabled", true))}
+                onChange={(e) => set("pipeline.error_recovery_enabled", e.target.checked)}
+              />
+              Enable Error Recovery Agent
+            </label>
+            <div style={styles.cardHint}>Autonomously heals temporary API timeouts or network errors, and falls back if needed.</div>
+          </div>
+
+          {/* Card 4: Tavily Research API Key */}
+          <div style={styles.runBehaviorCard}>
+            <div style={styles.cardTitle}>TAVILY RESEARCH KEY</div>
+            <label style={styles.label}>Tavily Search API Key</label>
+            <input
+              type="password"
+              value={String(g("api_keys.tavily", ""))}
+              onChange={(e) => set("api_keys.tavily", e.target.value)}
+              placeholder="tvly-..."
+              style={{ width: "100%", padding: "6px", background: theme.bgMain, color: theme.textPri, border: `1px solid ${theme.border}`, borderRadius: 4 }}
+            />
+            <div style={styles.cardHint}>Optional. Get a free key at tavily.com for better search and research quality.</div>
           </div>
         </div>
       </Section>

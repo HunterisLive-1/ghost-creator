@@ -49,3 +49,15 @@ yt-dlp>=2024.1.1
 
 # --- Utilities ---
 colorlog>=6.8.2
+
+# --- Agentic (LangGraph) ---
+langgraph
+langchain
+langchain-google-genai
+langchain-community
+langchain-groq
+langgraph-checkpoint-sqlite
+tavily-python
+langchain-core
+aiosqlite
+groq

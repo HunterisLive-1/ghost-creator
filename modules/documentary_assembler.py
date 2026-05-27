@@ -25,6 +25,7 @@ from typing import Callable
 
 from config import get_logger, get_ffmpeg_executable, get_ffprobe_executable
 from core.clip_manager import ClipInfo
+from core.video_effects import any_xfade_transitions, build_xfade_filter_complex, segment_trim_vf
 
 log = get_logger("doc_assembler")
 
@@ -77,6 +78,37 @@ def _concat_demuxer_paths_line(p: Path) -> str:
     """Concat demuxer line: absolute path with forward slashes (FFmpeg-friendly on Windows)."""
     s = Path(p).resolve().as_posix()
     return f"file '{s}'"
+
+
+def _concat_with_xfade(
+    paths: list[Path],
+    durations: list[float],
+    segments: list[dict],
+    concat_out: Path,
+    xfade_dur: float = 0.5,
+) -> None:
+    """Join segments with xfade transitions (when editor presets request cross-dissolve)."""
+    fc, vout = build_xfade_filter_complex(len(paths), durations, segments, xfade_dur)
+    if not fc:
+        concat_txt = concat_out.parent / "concat.txt"
+        concat_txt.write_text(
+            "\n".join(_concat_demuxer_paths_line(p) for p in paths),
+            encoding="utf-8",
+        )
+        _concat_video_segments(concat_txt, concat_out)
+        return
+    args: list[str | Path] = []
+    for p in paths:
+        args.extend(["-i", str(p)])
+    args.extend([
+        "-filter_complex", fc,
+        "-map", vout,
+        "-an",
+        "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+        "-pix_fmt", "yuv420p",
+        str(concat_out),
+    ])
+    _ffmpeg(*args, timeout=7200)
 
 
 def _concat_video_segments(concat_txt: Path, concat_out: Path) -> None:
@@ -710,15 +742,26 @@ def _assemble(
         src = clips[i] if i < len(clips) else None
         src_path = _clip_source_path(src)
         dst = tmp / f"t_{i:02d}.mp4"
+        seg_vf = segment_trim_vf(vf, dur, seg.get("effect"), seg.get("transition"))
 
         _notify(progress_callback, f"  ✂️  Clip {i+1}/{len(segments)}: {dur:.1f}s")
 
         if src_path and src_path.exists() and src_path.stat().st_size > 5000:
             try:
                 if _try_fast_video_trim(src_path, dst, dur):
+                    # Stream-copy trim ignores effects — re-encode when editor effects are set
+                    if seg_vf != vf and dst.is_file():
+                        staged = tmp / f"fx_{i:02d}.mp4"
+                        _ffmpeg(
+                            "-i", str(dst),
+                            "-vf", seg_vf,
+                            "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+                            "-an", str(staged),
+                        )
+                        shutil.move(str(staged), str(dst))
                     last_good = dst
                 else:
-                    _trim_or_loop_clip(src_path, dst, dur, vf)
+                    _trim_or_loop_clip(src_path, dst, dur, seg_vf)
                     last_good = dst
             except Exception as exc:
                 log.warning("Trim failed for clip %s: %s — using filler", i + 1, exc)
@@ -731,13 +774,16 @@ def _assemble(
 
     # ── 4. Concatenate ───────────────────────────────────────────────────
     _notify(progress_callback, "  🔗 Concatenating clips …")
-    concat_txt = tmp / "concat.txt"
-    concat_txt.write_text(
-        "\n".join(_concat_demuxer_paths_line(p) for p in trimmed),
-        encoding="utf-8",
-    )
     concat_out = tmp / "concat.mp4"
-    _concat_video_segments(concat_txt, concat_out)
+    if any_xfade_transitions(segments) and len(trimmed) >= 2:
+        _concat_with_xfade(trimmed, durations, segments, concat_out)
+    else:
+        concat_txt = tmp / "concat.txt"
+        concat_txt.write_text(
+            "\n".join(_concat_demuxer_paths_line(p) for p in trimmed),
+            encoding="utf-8",
+        )
+        _concat_video_segments(concat_txt, concat_out)
 
     # ── 5. Attach voiceover, strip original audio; optional same-factor speedup ─
     _notify(progress_callback, "  🎵 Attaching voiceover …")

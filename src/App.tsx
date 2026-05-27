@@ -148,6 +148,7 @@ export default function App() {
             setSystemState={setSystemState}
             onPipelineDone={onPipelineDone}
             onPipelineStateChange={handlePipelineStateChange}
+            onOpenEditor={openInEditor}
           />
         </div>
 

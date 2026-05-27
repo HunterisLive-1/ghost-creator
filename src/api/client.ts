@@ -40,7 +40,7 @@ export const api = {
   systemInfo: () =>
     request<{ version: string; device_name: string; env_local_path: string }>("/api/system/info"),
 
-  pipelineStart: (body: { topic?: string | null; run_id?: number }) =>
+  pipelineStart: (body: { topic?: string | null; run_id?: number; mode?: string; custom_script?: string }) =>
     request<{ ok: boolean; run_id?: number; error?: string }>("/api/pipeline/start", {
       method: "POST",
       body: JSON.stringify(body),
@@ -58,6 +58,15 @@ export const api = {
     }),
   pipelineScriptCancel: () =>
     request<{ ok: boolean }>("/api/pipeline/script/cancel", { method: "POST" }),
+
+  pipelineEditorReview: () =>
+    request<{ waiting: boolean; data: EditorReviewData | null; run_id?: number | null }>(
+      "/api/pipeline/editor-review"
+    ),
+  pipelineEditorContinue: () =>
+    request<{ ok: boolean }>("/api/pipeline/editor/continue", { method: "POST" }),
+  pipelineEditorCancel: () =>
+    request<{ ok: boolean }>("/api/pipeline/editor/cancel", { method: "POST" }),
 
   workshopChat: (body: { message: string; history: { role: string; content: string }[] }) =>
     request<{ reply: string; plan: WorkshopPlan | null }>("/api/workshop/chat", {
@@ -199,6 +208,12 @@ export interface ScriptReviewData {
   image_prompts: string[];
 }
 
+export interface EditorReviewData {
+  run_dir: string;
+  title: string;
+  segment_count: number;
+}
+
 export interface WorkshopPlan {
   topic?: string;
   format?: string;
@@ -235,7 +250,7 @@ export interface PipelineMessage {
   timestamp: string;
   done?: boolean;
   output_path?: string;
-  run_id?: number;
+  run_id?: string | number;
   retry_available?: boolean;
   event?: string;
   data?: unknown;

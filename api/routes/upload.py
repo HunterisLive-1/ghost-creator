@@ -72,7 +72,7 @@ def upload_ai_fill(body: AiFillBody) -> dict:
         return {"title": "", "description": "", "tags": "", "error": "Gemini API key missing"}
 
     genai.configure(api_key=key)
-    model_name = config.get("gemini_model", "gemini-2.0-flash")
+    model_name = config.get("gemini_model") or config.get("pipeline.gemini_model") or "gemini-3.1-flash-lite"
     model = genai.GenerativeModel(model_name)
 
     stem = Path(body.video_path).stem.replace("_", " ").replace("-", " ")

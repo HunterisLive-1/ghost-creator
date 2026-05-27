@@ -115,7 +115,7 @@ VIDEO_HEIGHT = 1920
 VIDEO_FPS    = 30
 
 # ── Gemini Model ───────────────────────────────────────────────────────────────
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 # ── Language Settings ──────────────────────────────────────────────────────────
 # Voiceover language for the script (e.g. 'hindi', 'english', 'hinglish')
