@@ -66,7 +66,8 @@ export function EditorTab({ runDir, onClearRunDir }: Props) {
             ...raw,
             subtitle_style: raw.subtitle_style ?? DEFAULT_SUBTITLE_STYLE,
           },
-          edit
+          edit,
+          stock
         );
         setEditorData(normalized);
         setEditClips(edit);

@@ -17,6 +17,7 @@ export interface SubtitleStyle {
 }
 
 export interface EditorJson {
+  schema_version?: number;
   title: string;
   voiceover_text: string;
   segments: EditorSegment[];
@@ -26,6 +27,10 @@ export interface EditorJson {
   burn_subtitles?: boolean;
   bg_music?: string;
   bg_music_volume?: number;
+  assets?: EditorAsset[];
+  tracks?: EditorTrack[];
+  items?: EditorTimelineItem[];
+  timeline_settings?: EditorTimelineSettings;
 }
 
 export interface ClipAsset {
@@ -37,15 +42,86 @@ export interface ClipAsset {
 }
 
 export interface SegmentActionData {
-  segmentIndex: number;
-  clipName: string;
-  mediaUrl: string;
+  itemId: string;
+  trackId: string;
+  kind: EditorItemKind;
+  segmentIndex?: number;
+  clipName?: string;
+  mediaUrl?: string;
   transition?: string;
   effect?: string;
-  voiceover: string;
+  voiceover?: string;
+  text?: string;
 }
 
 export const VIDEO_EFFECT_ID = "ghost-video-clip";
+export const AUDIO_EFFECT_ID = "ghost-audio";
+export const OVERLAY_EFFECT_ID = "ghost-overlay";
+export const SUBTITLE_EFFECT_ID = "ghost-subtitle";
+
+export type EditorAssetType = "video" | "audio" | "image";
+export type EditorTrackType = "video" | "overlay" | "audio" | "music" | "subtitle";
+export type EditorItemKind = "video" | "audio" | "music" | "text" | "image" | "logo" | "subtitle";
+
+export interface EditorAsset {
+  id: string;
+  type: EditorAssetType;
+  name: string;
+  path: string;
+  category: string;
+  role?: string;
+  size_mb?: number;
+}
+
+export interface EditorTrack {
+  id: string;
+  type: EditorTrackType;
+  name: string;
+  muted?: boolean;
+  locked?: boolean;
+}
+
+export interface EditorTransform {
+  x: number;
+  y: number;
+  scale: number;
+  opacity: number;
+  rotation: number;
+}
+
+export interface EditorKeyframe {
+  time: number;
+  transform: Partial<EditorTransform>;
+}
+
+export interface EditorTimelineItem {
+  id: string;
+  trackId: string;
+  kind: EditorItemKind;
+  start: number;
+  end: number;
+  assetId?: string;
+  sourceStart?: number;
+  sourceEnd?: number;
+  text?: string;
+  style?: Partial<SubtitleStyle> & { font_size?: number };
+  transform?: EditorTransform;
+  keyframes?: EditorKeyframe[];
+  volume?: number;
+  muted?: boolean;
+  locked?: boolean;
+  transition?: string;
+  effect?: string;
+  voiceover?: string;
+  video_query?: string;
+  segmentIndex?: number;
+}
+
+export interface EditorTimelineSettings {
+  snap: boolean;
+  zoom: number;
+  fps: number;
+}
 
 export const TRANSITION_PRESETS = [
   "Cross Dissolve",
@@ -70,4 +146,12 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   bold: true,
   italic: false,
   font_family: "Nirmala UI",
+};
+
+export const DEFAULT_OVERLAY_TRANSFORM: EditorTransform = {
+  x: 0.5,
+  y: 0.5,
+  scale: 1,
+  opacity: 1,
+  rotation: 0,
 };

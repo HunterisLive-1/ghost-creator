@@ -78,7 +78,3 @@ installer_v2.iss
 Thumbs.db
 desktop.ini
 
-# ── Project specific plans/prompts ───────────────────────────
-CURSOR_PROMPTS.md
-ghost_editor_fix_upgrade_d9967262.plan.md
-react_editor_sdk_replace_a89114d4.plan.md

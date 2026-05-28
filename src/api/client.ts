@@ -137,6 +137,18 @@ export const api = {
       return res.json() as Promise<{ ok: boolean; filename: string; path: string }>;
     });
   },
+  uploadImage: (runDir: string, file: File) => {
+    const formData = new FormData();
+    formData.append("run_dir", runDir);
+    formData.append("file", file);
+    return fetch(`${_baseUrl}/api/history/upload-image`, {
+      method: "POST",
+      body: formData,
+    }).then((res) => {
+      if (!res.ok) throw new Error("Upload image failed");
+      return res.json() as Promise<{ ok: boolean; filename: string; path: string }>;
+    });
+  },
   getStockAssets: () =>
     request<{
       music: { name: string; filename: string; path: string }[];

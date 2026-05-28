@@ -296,6 +296,36 @@ async def upload_clip(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.post("/upload-image")
+async def upload_image(
+    run_dir: str = Form(...),
+    file: UploadFile = File(...)
+) -> dict:
+    from fastapi import HTTPException
+    p = Path(run_dir)
+    if not p.is_dir():
+        raise HTTPException(status_code=404, detail="Run directory not found")
+
+    allowed = {".png", ".jpg", ".jpeg", ".webp"}
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in allowed:
+        raise HTTPException(status_code=400, detail="Only PNG, JPG, JPEG, and WEBP images are supported")
+
+    asset_dir = p / "editor_assets" / "images"
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    out_path = asset_dir / Path(file.filename).name
+    try:
+        content = await file.read()
+        out_path.write_bytes(content)
+        return {
+            "ok": True,
+            "filename": out_path.name,
+            "path": str(out_path.resolve())
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get("/stock-assets")
 def get_stock_assets() -> dict:
     music_dir = Path("assets/stock/music")

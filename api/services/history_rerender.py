@@ -87,6 +87,11 @@ def rerender_run(run_dir: Path, log: Callable[[str], None]) -> Path:
         raise FileNotFoundError("documentary_editor.json not found — cannot re-render.")
 
     run_snapshot = json.loads(snap.read_text(encoding="utf-8"))
+    if int(run_snapshot.get("schema_version") or 1) >= 2 and run_snapshot.get("tracks") and run_snapshot.get("items"):
+        from api.services.editor_v2_renderer import render_editor_v2
+
+        return render_editor_v2(run_dir, run_snapshot, log)
+
     segments = run_snapshot.get("segments") or []
     if not segments:
         raise ValueError("No segments in documentary_editor.json")
