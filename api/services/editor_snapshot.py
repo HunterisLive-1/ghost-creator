@@ -58,7 +58,11 @@ def ensure_editor_json(run_dir: Path) -> Path | None:
 
     meta = _load_json(run_dir / "metadata.json")
     hist = _load_json(run_dir / "history_entry.json")
-    title = meta.get("title") or hist.get("title") or run_dir.name.replace("_", " ")
+    script = _load_json(run_dir / "script.json")
+    title = meta.get("title") or hist.get("title") or script.get("metadata", {}).get("title") or run_dir.name.replace("_", " ")
+
+    vo_text = script.get("voiceover_text", "")
+    script_segments = script.get("segments") or []
 
     vo = run_dir / "voiceover.mp3"
     if not vo.is_file():
@@ -75,19 +79,20 @@ def ensure_editor_json(run_dir: Path) -> Path | None:
     seg_durs = [total_dur * (d / weight_sum) for d in clip_durs]
 
     segments = []
-    for clip, dur in zip(clips, seg_durs):
+    for idx, (clip, dur) in enumerate(zip(clips, seg_durs)):
+        seg_script = script_segments[idx] if idx < len(script_segments) else {}
         segments.append({
-            "voiceover": "",
-            "video_query": clip.stem.replace("_", " "),
+            "voiceover": str(seg_script.get("voiceover", "")),
+            "video_query": seg_script.get("video_query") or clip.stem.replace("_", " "),
             "duration_hint": round(dur, 1),
             "clip_name": clip.name,
-            "transition": "",
-            "effect": "",
+            "transition": seg_script.get("transition", ""),
+            "effect": seg_script.get("effect", ""),
         })
 
     payload = {
         "title": title,
-        "voiceover_text": "",
+        "voiceover_text": vo_text,
         "segments": segments,
         "language": str(config.get("pipeline.language", "hi")),
         "aspect_ratio": str(config.get("aspect_ratio", "9:16")),

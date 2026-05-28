@@ -207,31 +207,46 @@ def save_editor(body: SaveEditorBody) -> dict:
 @router.get("/list-clips")
 def list_clips(run_dir: str) -> dict:
     run_path = Path(run_dir)
-    clips = []
-    
-    # Check clips_for_edit, clips, and root run folder
+    edit_clips = []
+    stock_clips = []
+
     folders_to_check = [
         ("clips_for_edit", run_path / "clips_for_edit"),
         ("clips", run_path / "clips"),
-        ("root", run_path)
     ]
-    
-    seen_names = set()
+
+    seen_edit: set[str] = set()
+    seen_stock: set[str] = set()
     for category, folder in folders_to_check:
-        if folder.is_dir():
-            for f in folder.glob("*.mp4"):
-                # Avoid duplicate names from different folders
-                if f.name in seen_names or "documentary" in f.name:
+        if not folder.is_dir():
+            continue
+        for f in folder.glob("*.mp4"):
+            if "documentary" in f.name:
+                continue
+            if category == "clips_for_edit":
+                if f.name in seen_edit:
                     continue
-                seen_names.add(f.name)
-                clips.append({
+                seen_edit.add(f.name)
+                edit_clips.append({
                     "name": f.name,
                     "path": str(f.resolve()),
                     "category": category,
-                    "size_mb": round(f.stat().st_size / (1024 * 1024), 2)
+                    "role": "edit",
+                    "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
                 })
-                
-    return {"clips": clips}
+            else:
+                if f.name in seen_stock or f.name in seen_edit:
+                    continue
+                seen_stock.add(f.name)
+                stock_clips.append({
+                    "name": f.name,
+                    "path": str(f.resolve()),
+                    "category": category,
+                    "role": "stock",
+                    "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
+                })
+
+    return {"edit_clips": edit_clips, "stock_clips": stock_clips, "clips": edit_clips}
 
 
 @router.post("/upload-audio")

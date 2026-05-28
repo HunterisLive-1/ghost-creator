@@ -36,3 +36,29 @@ def test_ensure_editor_json_creates_snapshot(tmp_path, monkeypatch):
     assert data["title"] == "Test Run"
     assert len(data["segments"]) == 2
     assert data["segments"][0]["clip_name"] == "e_00.mp4"
+
+
+def test_ensure_editor_json_loads_voiceover_from_script(tmp_path, monkeypatch):
+    run_dir = tmp_path / "run_with_script"
+    cfe = run_dir / "clips_for_edit"
+    cfe.mkdir(parents=True)
+    (cfe / "e_00.mp4").write_bytes(b"\x00" * 200)
+
+    script = {
+        "voiceover_text": "Full narration text",
+        "segments": [{"voiceover": "Segment one line", "video_query": "query"}],
+    }
+    (run_dir / "script.json").write_text(
+        __import__("json").dumps(script), encoding="utf-8"
+    )
+
+    from core.clip_manager import get_clip_duration
+
+    monkeypatch.setattr("api.services.editor_snapshot.get_clip_duration", lambda _p: 5.0)
+
+    path = ensure_editor_json(run_dir)
+    import json
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["voiceover_text"] == "Full narration text"
+    assert data["segments"][0]["voiceover"] == "Segment one line"

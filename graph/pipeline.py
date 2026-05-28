@@ -17,6 +17,7 @@ from graph.nodes.human_review_node import human_review_node, route_after_review
 from graph.nodes.image_node import spawn_parallel_tasks, image_worker_node
 from graph.nodes.voiceover_node import voiceover_worker_node
 from graph.nodes.seo_node import seo_node
+from graph.nodes.editor_prep_node import editor_prep_node
 from graph.nodes.assemble_node import assemble_node
 from graph.nodes.upload_node import upload_node
 from graph.nodes.error_recovery_node import error_recovery_node
@@ -49,6 +50,12 @@ def check_critic_error(state):
 def check_seo_error(state):
     failed = state.get("last_failed_node", "")
     if failed == "seo" and config.get("pipeline.error_recovery_enabled", True):
+        return "error_recovery"
+    return "editor_prep"
+
+def check_editor_prep_error(state):
+    failed = state.get("last_failed_node", "")
+    if failed == "editor_prep" and config.get("pipeline.error_recovery_enabled", True):
         return "error_recovery"
     return "assemble"
 
@@ -84,6 +91,8 @@ def route_error_recovery(state):
     elif failed_node == "script_critic":
         return "human_review"
     elif failed_node in ("image_worker", "voiceover_worker", "seo"):
+        return "editor_prep"
+    elif failed_node == "editor_prep":
         return "assemble"
     elif failed_node == "assemble":
         return "upload"
@@ -106,6 +115,7 @@ def build_pipeline(checkpointer=None):
     builder.add_node("image_worker", image_worker_node)
     builder.add_node("voiceover_worker", voiceover_worker_node)
     builder.add_node("seo", seo_node)
+    builder.add_node("editor_prep", editor_prep_node)
     builder.add_node("assemble", assemble_node)
     builder.add_node("upload", upload_node)
     builder.add_node("error_recovery", error_recovery_node)
@@ -171,6 +181,15 @@ def build_pipeline(checkpointer=None):
         check_seo_error,
         {
             "error_recovery": "error_recovery",
+            "editor_prep": "editor_prep"
+        }
+    )
+
+    builder.add_conditional_edges(
+        "editor_prep",
+        check_editor_prep_error,
+        {
+            "error_recovery": "error_recovery",
             "assemble": "assemble"
         }
     )
@@ -203,6 +222,7 @@ def build_pipeline(checkpointer=None):
             "script_critic": "script_critic",
             "human_review": "human_review",
             "parallel_spawn": "parallel_spawn",
+            "editor_prep": "editor_prep",
             "assemble": "assemble",
             "upload": "upload",
             END: END

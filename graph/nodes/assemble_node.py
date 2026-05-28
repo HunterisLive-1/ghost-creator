@@ -188,89 +188,37 @@ def assemble_node(state: GhostCreatorState) -> dict:
         if use_footage_assembly:
             asm_label = "documentary" if mode == "documentary" else "video"
             emit_progress(5, f"🎬 Starting {asm_label} assembly ...", "INFO", run_id)
-            
-            # Since LangGraph runs nodes sequentially, we do the fetching & editing here
-            from modules.video_fetcher import fetch_clips_for_pipeline, footage_source_label
-            from core.clip_manager import generate_srt_from_segments, load_clips
+
+            from graph.nodes.clip_prep import prepare_footage_clips
             from modules.documentary_assembler import (
                 assemble_documentary,
                 wants_burned_subtitles,
                 _audio_duration_sec,
-                _normalized_segment_durations,
-                _resolution,
-                _make_filler,
-                _trim_or_loop_clip,
-                _vf_scale,
             )
-            
+
             if not segments:
                 raise ValueError("No script segments found for video footage assembly.")
-                
-            num_segs = len(segments)
-            target_duration = int(config.get("target_duration", 180))
-            aspect_ratio = config.get("aspect_ratio", "9:16")
-            
-            # Step A: Download clips
-            _footage_label = footage_source_label()
-            _auto_clip_dur = max(30, int(target_duration / max(1, num_segs)) + 20)
-            clips_dir = run_dir / "clips"
-            
-            def _fetch_progress(msg: str) -> None:
-                emit_progress(4, msg, "INFO", run_id)
 
-            emit_progress(4, f"📹 Fetching {num_segs} clips via {_footage_label} ...", "INFO", run_id)
-            clips = fetch_clips_for_pipeline(
-                segments,
-                clips_dir,
-                max_clip_duration=_auto_clip_dur,
-                progress_callback=_fetch_progress
+            aspect_ratio = config.get("aspect_ratio", "9:16")
+            language = state.get("language") or config.get("pipeline.language", "hi")
+
+            prep = prepare_footage_clips(
+                run_dir,
+                script=script,
+                audio_path=audio_path,
+                run_id=run_id,
+                language=language,
+                mode=mode,
+                skip_if_ready=True,
             )
-            
-            # Step B: Voice sync editing
+            if prep is None:
+                raise ValueError("Footage preparation failed.")
+            clip_infos, durations, _edit_paths = prep
             audio_dur = _audio_duration_sec(Path(audio_path))
-            srt_entries = generate_srt_from_segments(segments, audio_dur)
-            durations = _normalized_segment_durations(segments, audio_dur)
-            vf = _vf_scale(aspect_ratio)
-            w, h = _resolution(aspect_ratio)
-            
-            clips_for_edit = run_dir / "clips_for_edit"
-            clips_for_edit.mkdir(exist_ok=True)
-            edit_paths = []
-            last_good = None
-            
-            emit_progress(4, f"🕐 Syncing footage to narration ({audio_dur:.1f}s) ...", "INFO", run_id)
-            for i in range(num_segs):
-                dur = durations[i]
-                dst = clips_for_edit / f"e_{i:02d}.mp4"
-                src = clips[i] if i < len(clips) else None
-                if src and Path(src).exists() and Path(src).stat().st_size > 5000:
-                    try:
-                        _trim_or_loop_clip(Path(src), dst, dur, vf)
-                        last_good = dst
-                    except Exception as exc:
-                        log.warning(f"Trim failed for clip {i+1}: {exc}")
-                        _make_filler(dst, dur, w, h, last_good, clips_for_edit, i)
-                        last_good = dst
-                else:
-                    _make_filler(dst, dur, w, h, last_good, clips_for_edit, i)
-                    last_good = dst
-                edit_paths.append(dst)
-                
-            clip_infos = load_clips(edit_paths, segments, target_durations=durations)
 
             subtitle_style = _subtitle_style_from_config()
             _burn = wants_burned_subtitles(config)
-            _save_documentary_editor_json(
-                run_dir,
-                script=script,
-                segments=segments,
-                durations=durations,
-                aspect_ratio=aspect_ratio,
-                language=state.get("language") or config.get("pipeline.language", "hi"),
-                subtitle_style=subtitle_style,
-                burn_subtitles=_burn,
-            )
-            
+
             # Step C: Assemble
             def _asm_progress(msg: str) -> None:
                 emit_progress(5, msg, "INFO", run_id)

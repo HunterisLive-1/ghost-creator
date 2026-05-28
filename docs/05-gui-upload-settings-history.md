@@ -78,6 +78,13 @@ The in-app **Ghost Editor** uses `@keplar-404/react-timeline-editor` with clips 
 - **Save** — writes `documentary_editor.json` back to the run folder
 - **Export (FFmpeg)** — native re-render via `/api/history/rerender` (not FFmpeg.wasm)
 
+**Manual checklist:**
+1. Open run → preview shows video at 0:00 (not black)
+2. Timeline spans full project duration; playhead scrolls with transport
+3. Swap clip, change duration, Save → JSON on disk matches
+4. Export → MP4 with subtitles + optional transition
+5. Enable "Pause for Ghost Editor" → pipeline stops after clips ready → Continue → final MP4
+
 **Pipeline editor mode** (Settings → Pause for Ghost Editor): after voice-synced clips are built, the pipeline pauses. Use **OPEN EDITOR** on the Documentary tab, save edits, then **CONTINUE PIPELINE** to assemble the final MP4.
 
 Preview is approximate; export always uses the backend FFmpeg assembler (`core/video_effects.py` maps transitions/effects).

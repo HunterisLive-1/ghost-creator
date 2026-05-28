@@ -1,6 +1,6 @@
 /**
- * Phase-1 SDK spike: load one run's clips and render them on the timeline.
- * Used to validate @keplar-404/react-timeline-editor + /api/local-file in Electron.
+ * Dev-only SDK spike — not wired in production UI (see TimelineEditor).
+ * Set VITE_EDITOR_SPIKE=1 to import in a dev harness.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {

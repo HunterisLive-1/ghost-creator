@@ -9,6 +9,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from core.config_manager import config
+from config import get_logger
+
+log = get_logger("misc_routes")
 
 router = APIRouter(tags=["misc"])
 
@@ -218,7 +221,10 @@ def get_local_file(path: str):
     # Normalize path formatting
     clean_path = os.path.abspath(os.path.normpath(clean_path))
     
+    log.info(f"[local-file] Request path: {path} -> Normalized: {clean_path}")
+    
     if os.path.isfile(clean_path):
         return FileResponse(clean_path)
     
+    log.error(f"[local-file] File not found: {clean_path}")
     raise HTTPException(status_code=404, detail=f"File not found: {clean_path}")

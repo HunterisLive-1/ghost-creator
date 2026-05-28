@@ -5,11 +5,20 @@ export function setApiBaseUrl(url: string) {
 }
 
 export function getApiBaseUrl() {
+  if (typeof window !== "undefined" && window.location) {
+    const host = window.location.hostname;
+    if (host === "localhost" && _baseUrl.includes("127.0.0.1")) {
+      return _baseUrl.replace("127.0.0.1", "localhost");
+    }
+    if (host === "127.0.0.1" && _baseUrl.includes("localhost")) {
+      return _baseUrl.replace("localhost", "127.0.0.1");
+    }
+  }
   return _baseUrl;
 }
 
 export function wsUrl(path: string) {
-  return _baseUrl.replace(/^http/, "ws") + path;
+  return getApiBaseUrl().replace(/^http/, "ws") + path;
 }
 
 export function pipelineWsUrl() {
@@ -99,9 +108,11 @@ export const api = {
       body: JSON.stringify({ run_dir: runDir, data }),
     }),
   listClips: (runDir: string) =>
-    request<{ clips: { name: string; path: string; category: string; size_mb: number }[] }>(
-      `/api/history/list-clips?run_dir=${encodeURIComponent(runDir)}`
-    ),
+    request<{
+      edit_clips: { name: string; path: string; category: string; role?: string; size_mb: number }[];
+      stock_clips: { name: string; path: string; category: string; role?: string; size_mb: number }[];
+      clips: { name: string; path: string; category: string; role?: string; size_mb: number }[];
+    }>(`/api/history/list-clips?run_dir=${encodeURIComponent(runDir)}`),
   uploadAudio: (runDir: string, file: File) => {
     const formData = new FormData();
     formData.append("run_dir", runDir);

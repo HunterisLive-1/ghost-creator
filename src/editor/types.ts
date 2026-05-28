@@ -32,6 +32,7 @@ export interface ClipAsset {
   name: string;
   path: string;
   category: string;
+  role?: string;
   size_mb: number;
 }
 

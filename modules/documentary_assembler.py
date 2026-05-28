@@ -306,12 +306,16 @@ def _write_documentary_ass(
     subtitle_style: dict | None = None,
 ) -> int:
     w, h = _resolution(aspect_ratio)
-    fs = 32 if h >= 1600 else 28
+    style = subtitle_style or {}
+    style_fs = style.get("font_size")
+    if isinstance(style_fs, (int, float)) and style_fs > 0:
+        fs = int(style_fs)
+    else:
+        fs = 32 if h >= 1600 else 28
     margin_v = 72 if h >= 1600 else 56
     durs = _normalized_segment_durations(segments, total_duration_sec)
     font = _ass_fontname()
-    
-    style = subtitle_style or {}
+
     # Convert HEX like "#FFFFFF" to ASS format "&H00FFFFFF" (where 00 is alpha opaque)
     color_hex = style.get("color", "#FFFFFF").lstrip("#")
     if len(color_hex) == 6:

@@ -42,6 +42,12 @@ class VideoEffectsTests(unittest.TestCase):
         self.assertFalse(any_xfade_transitions([{"transition": None}]))
         self.assertTrue(any_xfade_transitions([{}, {"transition": "Dissolve"}]))
 
+    def test_xfade_filter_complex_differs_with_transition(self) -> None:
+        none_fc, _ = build_xfade_filter_complex(1, [3.0], [{}])
+        xfade_fc, _ = build_xfade_filter_complex(2, [3.0, 4.0], [{}, {"transition": "Cross Dissolve"}])
+        self.assertEqual(none_fc, "")
+        self.assertIn("xfade", xfade_fc)
+
 
 class EditorAdapterSmokeTests(unittest.TestCase):
     """Manual test checklist companion (see plan Phase 6)."""

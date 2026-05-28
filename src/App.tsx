@@ -53,7 +53,7 @@ export default function App() {
     if (window.electronAPI) {
       window.electronAPI.onApiReady(({ baseUrl }) => init(baseUrl));
     } else {
-      init("http://127.0.0.1:8766");
+      init("");
     }
   }, []);
 

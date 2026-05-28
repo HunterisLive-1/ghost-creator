@@ -4,7 +4,8 @@ import type { ClipAsset, EditorJson, SegmentActionData } from "./types";
 import { VIDEO_EFFECT_ID } from "./types";
 
 export function clipMediaUrl(path: string): string {
-  return `${getApiBaseUrl()}/api/local-file?path=${encodeURIComponent(path)}`;
+  const normalizedPath = path.replace(/\\/g, "/");
+  return `${getApiBaseUrl()}/api/local-file?path=${encodeURIComponent(normalizedPath)}`;
 }
 
 export function defaultClipName(index: number): string {
@@ -16,8 +17,14 @@ export function resolveClipForSegment(
   index: number,
   clips: ClipAsset[]
 ): ClipAsset | undefined {
-  const byName = seg.clip_name ? clips.find((c) => c.name === seg.clip_name) : undefined;
-  return byName ?? clips[index];
+  const editPool = clips.filter(
+    (c) => c.category === "clips_for_edit" || c.category === "edit" || c.role === "edit"
+  );
+  const pool = editPool.length > 0 ? editPool : clips;
+  const byName = seg.clip_name ? pool.find((c) => c.name === seg.clip_name) : undefined;
+  if (byName) return byName;
+  if (index >= 0 && index < pool.length) return pool[index];
+  return pool.find((c) => c.name === seg.clip_name);
 }
 
 export function editorJsonToTimeline(
@@ -69,13 +76,14 @@ export function timelineToEditorJson(timeline: TimelineRow[], base: EditorJson):
     const data = (action.data ?? {}) as Partial<SegmentActionData>;
     const srcIdx = typeof data.segmentIndex === "number" ? data.segmentIndex : orderIdx;
     const prevSeg = base.segments[srcIdx] ?? base.segments[orderIdx] ?? {
-      voiceover: "",
+      voiceover: data.voiceover ?? "",
       video_query: "",
       duration_hint: 5,
     };
     const dur = Math.max(0.5, action.end - action.start);
     return {
       ...prevSeg,
+      voiceover: data.voiceover ?? prevSeg.voiceover ?? "",
       duration_hint: Math.round(dur * 10) / 10,
       clip_name: data.clipName || prevSeg.clip_name || defaultClipName(orderIdx),
       transition: data.transition ?? prevSeg.transition,

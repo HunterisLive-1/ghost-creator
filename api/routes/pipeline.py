@@ -46,6 +46,17 @@ class ScriptApproveBody(BaseModel):
     image_prompts: list[str]
 
 
+def _get_editor_interrupt_payload(graph_state) -> dict | None:
+    """Return editor_review_required payload when graph is paused mid editor_prep."""
+    tasks = getattr(graph_state, "tasks", None) or ()
+    for task in tasks:
+        for intr in getattr(task, "interrupts", None) or ():
+            val = getattr(intr, "value", intr)
+            if isinstance(val, dict) and val.get("event") == "editor_review_required":
+                return val
+    return None
+
+
 def _run_graph_in_background(thread_id: str, input_val: Any = None):
     """Invokes or resumes the LangGraph pipeline in a daemon thread."""
     global _active_run_thread
@@ -66,9 +77,31 @@ def _run_graph_in_background(thread_id: str, input_val: Any = None):
                 # Graph is paused waiting for user input — do NOT emit done
                 paused_at = ", ".join(graph_state.next)
                 log.info(f"Graph paused at interrupt: {paused_at}. Waiting for user resume.")
+                editor_payload = _get_editor_interrupt_payload(graph_state)
+                if editor_payload:
+                    _broadcaster.put({
+                        "step": 4,
+                        "message": "⏸️ Clips ready — open Ghost Editor to review, then continue pipeline.",
+                        "level": "INFO",
+                        "timestamp": datetime.now().isoformat(),
+                        "run_id": thread_id,
+                    })
+                else:
+                    _broadcaster.put({
+                        "step": 2,
+                        "message": f"⏸️ Script ready for review — waiting for your approval...",
+                        "level": "INFO",
+                        "timestamp": datetime.now().isoformat(),
+                        "run_id": thread_id,
+                    })
+                return
+
+            editor_payload = _get_editor_interrupt_payload(graph_state)
+            if editor_payload:
+                log.info("Graph paused at editor review interrupt.")
                 _broadcaster.put({
-                    "step": 2,
-                    "message": f"⏸️ Script ready for review — waiting for your approval...",
+                    "step": 4,
+                    "message": "⏸️ Clips ready — open Ghost Editor to review, then continue pipeline.",
                     "level": "INFO",
                     "timestamp": datetime.now().isoformat(),
                     "run_id": thread_id,
@@ -289,16 +322,53 @@ def script_cancel() -> dict:
 
 @router.get("/editor-review")
 def editor_review_status() -> dict:
+    if not _active_thread_id:
+        return {"waiting": False, "data": None, "run_id": None}
+
+    from graph.pipeline import get_pipeline
+
+    config_dict = {"configurable": {"thread_id": _active_thread_id}}
+    graph = get_pipeline()
+    state = graph.get_state(config_dict)
+
+    payload = _get_editor_interrupt_payload(state)
+    if payload:
+        try:
+            run_id_int = int(_active_thread_id.replace("run_", ""))
+        except ValueError:
+            run_id_int = 1
+        return {
+            "waiting": True,
+            "data": {
+                "run_dir": payload.get("run_dir", state.values.get("run_dir", "")),
+                "title": payload.get("title", ""),
+                "segment_count": payload.get("segment_count", 0),
+            },
+            "run_id": run_id_int,
+        }
+
     return {"waiting": False, "data": None, "run_id": None}
 
 
 @router.post("/editor/continue")
 def editor_continue() -> dict:
+    if not _active_thread_id:
+        return {"ok": False, "error": "No active LangGraph run."}
+
+    from langgraph.types import Command
+
+    _run_graph_in_background(_active_thread_id, Command(resume={"action": "continue"}))
     return {"ok": True}
 
 
 @router.post("/editor/cancel")
 def editor_cancel() -> dict:
+    if not _active_thread_id:
+        return {"ok": False, "error": "No active LangGraph run."}
+
+    from langgraph.types import Command
+
+    _run_graph_in_background(_active_thread_id, Command(resume={"action": "cancelled"}))
     return {"ok": True}
 
 

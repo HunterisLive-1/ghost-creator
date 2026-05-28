@@ -25,7 +25,8 @@ export function EditorTab({ runDir, onClearRunDir }: Props) {
   const [recentRuns, setRecentRuns] = useState<RecentRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [editorData, setEditorData] = useState<EditorJson | null>(null);
-  const [clips, setClips] = useState<ClipAsset[]>([]);
+  const [editClips, setEditClips] = useState<ClipAsset[]>([]);
+  const [stockClips, setStockClips] = useState<ClipAsset[]>([]);
   const [saving, setSaving] = useState(false);
   const [rerendering, setRerendering] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
@@ -58,15 +59,18 @@ export function EditorTab({ runDir, onClearRunDir }: Props) {
       setLoading(true);
       try {
         const [raw, clipRes] = await Promise.all([api.loadEditor(dir), api.listClips(dir)]);
+        const edit = clipRes.edit_clips?.length ? clipRes.edit_clips : clipRes.clips;
+        const stock = clipRes.stock_clips ?? [];
         const normalized = normalizeEditorJson(
           {
             ...raw,
             subtitle_style: raw.subtitle_style ?? DEFAULT_SUBTITLE_STYLE,
           },
-          clipRes.clips
+          edit
         );
         setEditorData(normalized);
-        setClips(clipRes.clips);
+        setEditClips(edit);
+        setStockClips(stock);
         setActiveRunDir(dir);
         setLogs([]);
       } catch (err) {
@@ -143,8 +147,10 @@ export function EditorTab({ runDir, onClearRunDir }: Props) {
   if (activeRunDir && editorData) {
     return (
       <TimelineEditor
+        runDir={activeRunDir}
         editorData={editorData}
-        clips={clips}
+        editClips={editClips}
+        stockClips={stockClips}
         onEditorDataChange={setEditorData}
         onSave={() => void handleSave()}
         onExport={() => void handleExport()}

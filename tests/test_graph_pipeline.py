@@ -65,6 +65,12 @@ def mock_dependencies():
         }
     }
 
+    def mock_trim_side_effect(src, dst, dur, vf):
+        from pathlib import Path
+        dst = Path(dst)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(b"a" * 6000)
+
     with patch("graph.llm_factory.get_script_agent_llm") as mock_agent_llm, \
          patch("langchain_google_genai.ChatGoogleGenerativeAI") as mock_gemini, \
          patch("graph.nodes.research_node.AgentExecutor") as mock_agent_executor, \
@@ -77,7 +83,7 @@ def mock_dependencies():
          patch("modules.documentary_assembler.assemble_documentary", side_effect=mock_asm_doc_side_effect) as mock_asm_doc, \
          patch("modules.documentary_assembler._audio_duration_sec", return_value=10.0) as mock_aud_dur, \
          patch("modules.documentary_assembler._normalized_segment_durations", return_value=[10.0]) as mock_norm_dur, \
-         patch("modules.documentary_assembler._trim_or_loop_clip") as mock_trim, \
+         patch("modules.documentary_assembler._trim_or_loop_clip", side_effect=mock_trim_side_effect) as mock_trim, \
          patch("modules.documentary_assembler._make_filler") as mock_filler, \
          patch("modules.voicer.run_voiceover", return_value="temp_run_dir/audio.mp3") as mock_voice, \
          patch("modules.image_gen._get_backend", return_value=mock_backend) as mock_image_backend, \

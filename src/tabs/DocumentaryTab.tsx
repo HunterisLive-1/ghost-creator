@@ -48,8 +48,9 @@ const VOICES = [
 
 /** Poll script review while pipeline runs (step 2+). */
 const SCRIPT_REVIEW_POLL_MS = 1500;
-/** Editor review API is still a stub — keep disabled to avoid useless HTTP spam. */
-const EDITOR_REVIEW_POLL_ENABLED = false;
+/** Poll editor review while pipeline runs (step 4+). */
+const EDITOR_REVIEW_POLL_MS = 3000;
+const EDITOR_REVIEW_POLL_ENABLED = true;
 
 const levelColors: Record<string, string> = {
   INFO: theme.textSec,
@@ -222,6 +223,12 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
 
   const pollEditorReview = useCallback(async () => {
     if (!EDITOR_REVIEW_POLL_ENABLED || !runningRef.current) return;
+    if (pipelineStepRef.current < 4) {
+      if (runningRef.current) {
+        editorPollRef.current = window.setTimeout(pollEditorReview, EDITOR_REVIEW_POLL_MS);
+      }
+      return;
+    }
     try {
       const res = await api.pipelineEditorReview();
       const activeRunId = runIdRef.current;
@@ -237,7 +244,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
       /* ignore */
     }
     if (runningRef.current) {
-      editorPollRef.current = window.setTimeout(pollEditorReview, 3000);
+      editorPollRef.current = window.setTimeout(pollEditorReview, EDITOR_REVIEW_POLL_MS);
     }
   }, []);
 
@@ -317,7 +324,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     runIdRef.current = startedRunId;
     reviewPollRef.current = window.setTimeout(pollScriptReview, SCRIPT_REVIEW_POLL_MS);
     if (EDITOR_REVIEW_POLL_ENABLED) {
-      editorPollRef.current = window.setTimeout(pollEditorReview, 3000);
+      editorPollRef.current = window.setTimeout(pollEditorReview, EDITOR_REVIEW_POLL_MS);
     }
   };
 
@@ -772,7 +779,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
                 await api.pipelineEditorContinue();
                 setEditorReview(null);
                 if (EDITOR_REVIEW_POLL_ENABLED) {
-                  editorPollRef.current = window.setTimeout(pollEditorReview, 3000);
+                  editorPollRef.current = window.setTimeout(pollEditorReview, EDITOR_REVIEW_POLL_MS);
                 }
               }}
             >
