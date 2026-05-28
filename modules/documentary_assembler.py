@@ -395,12 +395,8 @@ def _ffmpeg_ass_path(ass_p: Path) -> str:
 
 
 def wants_burned_subtitles(config) -> bool:
-    """True when user enabled burn-in and documentary run is long-form (not short pipeline)."""
-    if not bool(config.get("documentary.burn_subtitles", False)):
-        return False
-    if (config.get("documentary.length_mode", "short") or "short") != "long":
-        return False
-    return True
+    """True when user enabled burn-in subtitles in Settings / Documentary tab."""
+    return bool(config.get("documentary.burn_subtitles", False))
 
 
 def _normalize_logo_spec(logo_watermark: dict | None) -> dict | None:

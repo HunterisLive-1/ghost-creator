@@ -48,6 +48,21 @@ def _has_gpu() -> bool:
     return False
 
 
+def resolve_output_base(fallback: Path | None = None) -> Path:
+    """Resolve configured pipeline output folder (same path pipeline + history use)."""
+    from core.config_manager import config as cfg
+
+    fb = fallback or OUTPUT_DIR
+    folder = (cfg.get("pipeline.output_folder", "") or "").strip()
+    if folder:
+        base = Path(folder)
+        if not base.is_absolute():
+            base = fb.parent / folder
+    else:
+        base = fb
+    return base
+
+
 def _make_run_dir(title: str, config, fallback: Path) -> Path:
     """
     Create a per-run subfolder inside the configured output folder.
@@ -67,14 +82,7 @@ def _make_run_dir(title: str, config, fallback: Path) -> Path:
     _stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     folder_name = f"{_safe}_{_stamp}"
 
-    # Resolve configured base output folder
-    _base_str = config.get("pipeline.output_folder", "").strip()
-    if _base_str:
-        base = Path(_base_str)
-        if not base.is_absolute():
-            base = fallback.parent / _base_str
-    else:
-        base = fallback
+    base = resolve_output_base(fallback)
 
     try:
         run_dir = base / folder_name

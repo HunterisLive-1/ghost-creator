@@ -159,7 +159,7 @@ export function EditorTab({ runDir, onClearRunDir }: Props) {
   return (
     <div style={styles.root}>
       <h2 style={styles.title}>Ghost Editor</h2>
-      <p style={styles.subtitle}>Open a documentary run to edit clips on the timeline, then export via FFmpeg.</p>
+      <p style={styles.subtitle}>Open a completed run to edit clips on the timeline, then export via FFmpeg.</p>
       {loading && <p style={styles.hint}>Loading projects…</p>}
       <div style={styles.list}>
         {recentRuns.map((run) => (
@@ -174,7 +174,7 @@ export function EditorTab({ runDir, onClearRunDir }: Props) {
           </button>
         ))}
         {!loading && recentRuns.length === 0 && (
-          <p style={styles.hint}>No re-editable runs yet. Complete a documentary pipeline first.</p>
+          <p style={styles.hint}>No editable runs yet. Finish a pipeline run with stock/video footage (clips_for_edit folder).</p>
         )}
       </div>
     </div>

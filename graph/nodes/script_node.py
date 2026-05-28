@@ -8,7 +8,7 @@ import logging
 from typing import Optional
 from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
-from core.config_manager import config
+from core.config_manager import config, uses_video_footage
 from graph.state import GhostCreatorState
 from modules.scripter import generate_script, generate_documentary_script, VOICEOVER_LANG_META
 
@@ -34,6 +34,51 @@ def get_language_instruction(lang: str) -> str:
     if lang in VOICEOVER_LANG_META:
         return VOICEOVER_LANG_META[lang][1]
     return "Use the correct native writing system for this language."
+
+
+def _shape_documentary_script(raw_doc_script: dict, topic: str) -> dict:
+    """Normalize documentary script output for graph state."""
+    return {
+        "voiceover_text": raw_doc_script["voiceover_text"],
+        "image_prompts": [
+            {"prompt": s["video_query"], "scene_index": i}
+            for i, s in enumerate(raw_doc_script["segments"])
+        ],
+        "segments": raw_doc_script["segments"],
+        "metadata": raw_doc_script["metadata"],
+        "title": raw_doc_script.get("title", topic),
+        "_source": "ai_generated",
+    }
+
+
+def _voiceover_to_segments(voiceover_text: str, image_prompts: list) -> list[dict]:
+    """Split voiceover into segments aligned with scene prompts for video fetch."""
+    prompts: list[str] = []
+    for item in image_prompts:
+        if isinstance(item, str):
+            prompts.append(item)
+        else:
+            prompts.append(str(item.get("prompt", "")))
+
+    n = max(1, len(prompts))
+    words = voiceover_text.split()
+    if not words:
+        chunks = [""] * n
+    else:
+        chunk_size = max(1, len(words) // n)
+        chunks = []
+        for i in range(n):
+            start = i * chunk_size
+            end = len(words) if i == n - 1 else (i + 1) * chunk_size
+            chunks.append(" ".join(words[start:end]))
+
+    return [
+        {
+            "voiceover": chunks[i],
+            "video_query": prompts[i] if i < len(prompts) else (chunks[i][:50] or "documentary b-roll"),
+        }
+        for i in range(n)
+    ]
 
 def script_node(state: GhostCreatorState) -> dict:
     """LangGraph node to write/polish the video script."""
@@ -99,6 +144,11 @@ User's original script:
                     },
                     "_source": "user_custom_polished"
                 }
+                if uses_video_footage():
+                    script_dict["segments"] = _voiceover_to_segments(
+                        result.voiceover_text,
+                        script_dict["image_prompts"],
+                    )
 
         # ── BRANCH B: shorts / documentary (Full AI generation) ─────────
         if mode in ("shorts", "documentary"):
@@ -111,16 +161,21 @@ User's original script:
                 "gemini_model": config.get("gemini_model") or config.get("pipeline.gemini_model") or "gemini-3.1-flash-lite",
                 "openai_model": config.get("openai_model", "gpt-4o"),
                 "openai_api_key": config.get("openai_api_key", ""),
+                "groq_api_key": config.get("groq_api_key", ""),
+                "groq_model": config.get("groq_model", "llama-3.3-70b-versatile"),
                 "api_keys.gemini": config.get("api_keys.gemini", ""),
                 "ollama_url": config.get("ollama_url", "http://localhost:11434"),
                 "ollama_model": config.get("ollama_model", "llama3"),
                 "tts_backend": config.get("tts.backend", "omnivoice"),
+                "voiceover_tone": config.get("documentary.voiceover_tone", ""),
+                "video_style": config.get("documentary.video_style", ""),
             }
 
-            if mode == "documentary":
+            if mode == "documentary" or (mode == "shorts" and uses_video_footage()):
                 n_segs_override = int(config.get("documentary.segments", 0) or 0)
-                log.info(f"Generating documentary script for topic: {topic!r}...")
-                emit_progress(2, f"✍️ Generating documentary script for topic: {topic}...", "INFO", run_id)
+                label = "shorts" if mode == "shorts" else "documentary"
+                log.info(f"Generating {label} script (video footage) for topic: {topic!r}...")
+                emit_progress(2, f"✍️ Generating {label} script for topic: {topic}...", "INFO", run_id)
                 raw_doc_script = generate_documentary_script(
                     topic,
                     lang=language,
@@ -128,19 +183,7 @@ User's original script:
                     script_config=script_cfg,
                     n_segments=n_segs_override
                 )
-                
-                # Shape to fit the expected state schema, while keeping segments
-                script_dict = {
-                    "voiceover_text": raw_doc_script["voiceover_text"],
-                    "image_prompts": [
-                        {"prompt": s["video_query"], "scene_index": i} 
-                        for i, s in enumerate(raw_doc_script["segments"])
-                    ],
-                    "segments": raw_doc_script["segments"],
-                    "metadata": raw_doc_script["metadata"],
-                    "title": raw_doc_script.get("title", topic),
-                    "_source": "ai_generated"
-                }
+                script_dict = _shape_documentary_script(raw_doc_script, topic)
             else:
                 log.info(f"Generating shorts script for topic: {topic!r}...")
                 emit_progress(2, f"✍️ Generating shorts script for topic: {topic}...", "INFO", run_id)

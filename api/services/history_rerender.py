@@ -120,7 +120,9 @@ def rerender_run(run_dir: Path, log: Callable[[str], None]) -> Path:
 
     aspect_ratio = _history_run_aspect_ratio(run_dir)
     _pb = float(config.get("documentary.playback_speed", 1.0))
-    _burn = wants_burned_subtitles(config)
+    _burn = bool(
+        run_snapshot.get("burn_subtitles", wants_burned_subtitles(config))
+    )
 
     logo_watermark = None
     if config.get("documentary.logo_enabled", False):

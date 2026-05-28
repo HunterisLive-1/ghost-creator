@@ -33,6 +33,43 @@ log = get_logger("scripter")
 # Documentary: auto segment count = round(target_sec / DOC_AUTO_SEG_EVERY_S); clamped 3..DOC_SEG_MAX
 DOC_AUTO_SEG_EVERY_S = 12.0
 DOC_SEG_MAX = 100
+# Groq free-tier models often hit ~8k TPM — keep short-video prompts small
+_GROQ_TPM_SAFE_SEGMENTS = {30: 3, 60: 4, 90: 5, 120: 6}
+
+
+def _resolve_documentary_segments(
+    target_duration: int,
+    n_segments: int = 0,
+    provider: str = "gemini",
+) -> int:
+    """Pick segment count and cap it for short videos / Groq token limits."""
+    if n_segments and n_segments > 0:
+        num = max(3, min(DOC_SEG_MAX, n_segments))
+    else:
+        num = max(3, min(DOC_SEG_MAX, round(target_duration / DOC_AUTO_SEG_EVERY_S)))
+
+    if target_duration <= 90:
+        short_cap = max(3, target_duration // 10)
+        if num > short_cap:
+            log.info(
+                "Capping documentary segments from %s to %s for %ss video",
+                num, short_cap, target_duration,
+            )
+            num = short_cap
+
+    if provider == "groq":
+        groq_cap = _GROQ_TPM_SAFE_SEGMENTS.get(
+            target_duration,
+            max(3, target_duration // 15),
+        )
+        if num > groq_cap:
+            log.info(
+                "Groq token limit: capping segments from %s to %s for %ss video",
+                num, groq_cap, target_duration,
+            )
+            num = groq_cap
+
+    return num
 
 # ISO 639-1 code → (Gemini display name, script instruction for voiceover/title)
 VOICEOVER_LANG_META: dict[str, tuple[str, str]] = {
@@ -332,7 +369,7 @@ def _parse_groq_script(raw_text: str, num_scenes: int) -> dict:
 
 def _call_groq_chat(prompt: str, system: str, script_config: dict) -> str:
     """Call Groq with retry/salvage when server-side JSON validation fails."""
-    from groq import BadRequestError, Groq
+    from groq import APIStatusError, BadRequestError, Groq
 
     api_key = (script_config.get("groq_api_key") or config.get("groq_api_key", "")).strip()
     if not api_key:
@@ -340,6 +377,7 @@ def _call_groq_chat(prompt: str, system: str, script_config: dict) -> str:
 
     model = script_config.get("groq_model") or config.get("groq_model", "llama-3.3-70b-versatile")
     client = Groq(api_key=api_key)
+    user_prompt = prompt
 
     for attempt in range(1, 4):
         temperature = 0.8 if attempt == 1 else 0.4
@@ -354,10 +392,10 @@ def _call_groq_chat(prompt: str, system: str, script_config: dict) -> str:
             "model": model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": user_prompt},
             ],
             "temperature": temperature,
-            "max_tokens": 8192,
+            "max_tokens": 4096 if len(user_prompt) < 4000 else 8192,
         }
         if use_json_mode:
             kwargs["response_format"] = {"type": "json_object"}
@@ -392,6 +430,23 @@ def _call_groq_chat(prompt: str, system: str, script_config: dict) -> str:
                             attempt,
                         )
             if attempt == 3 or "json_validate_failed" not in str(exc):
+                raise RuntimeError(f"Groq API error: {exc}") from exc
+        except APIStatusError as exc:
+            err_str = str(exc)
+            too_large = (
+                getattr(exc, "status_code", None) == 413
+                or "Request too large" in err_str
+                or ("rate_limit_exceeded" in err_str and "tokens" in err_str.lower())
+            )
+            if too_large and attempt < 3:
+                user_prompt = user_prompt[: max(1500, int(len(user_prompt) * 0.6))]
+                log.warning(
+                    "Groq request too large (attempt %s) — retrying with shorter prompt (%s chars)",
+                    attempt,
+                    len(user_prompt),
+                )
+                continue
+            if attempt == 3:
                 raise RuntimeError(f"Groq API error: {exc}") from exc
         except Exception as exc:
             if attempt == 3:
@@ -774,6 +829,7 @@ def _build_documentary_prompt(
     chapter_num: int = 0,
     total_chapters: int = 1,
     prev_ending: str = "",
+    compact: bool = False,
 ) -> str:
     """
     Build the Gemini prompt for one documentary chunk.
@@ -788,7 +844,31 @@ def _build_documentary_prompt(
     _sec = target_duration % 60
     duration_label = (f"{_min} min" if not _sec else f"{_min}m {_sec}s")
     target_words = int((target_duration / 60) * 130)
-    per_seg_words = max(80, target_words // max(1, num_segments))
+    if compact or target_duration <= 90:
+        per_seg_words = max(12, target_words // max(1, num_segments))
+    else:
+        per_seg_words = max(80, target_words // max(1, num_segments))
+
+    if compact or target_duration <= 90:
+        tone_line = f"Tone: {tone_hint}." if tone_hint else "Tone: energetic hook-first Short."
+        return f"""Write a {target_duration}s YouTube Short documentary script as JSON only.
+
+Topic: "{topic}"
+Language: {lang_display}. voiceover in {lang_display}; video_query in English.
+Segments: exactly {num_segments}. Total voiceover ~{target_words} words (~{per_seg_words}/segment).
+{tone_line}
+
+Schema:
+{{
+  "title": "<YouTube title>",
+  "voiceover_text": "<all voiceover joined>",
+  "segments": [
+    {{"voiceover": "<narration>", "video_query": "<English search>", "duration_hint": <seconds>}}
+  ],
+  "metadata": {{"title": "<same>", "description": "<short SEO paragraph>", "tags": ["t1","t2","t3","t4","t5"]}}
+}}
+
+Rules: sum of duration_hint = {target_duration}. Spoken prose only. Valid JSON, no markdown."""
 
     # ── Creative brief block ──────────────────────────────────────────────────
     if tone_hint or style_hint:
@@ -1011,16 +1091,11 @@ def generate_documentary_script(
     cfg = script_config or {}
     language = (lang or "hi").lower().strip()
 
-    if n_segments and n_segments > 0:
-        num_segments = max(3, min(DOC_SEG_MAX, n_segments))
-    else:
-        num_segments = max(
-            3, min(DOC_SEG_MAX, round(target_duration / DOC_AUTO_SEG_EVERY_S))
-        )
-
     provider   = cfg.get("script_provider") or config.get("script_provider", "gemini")
     tone_hint  = cfg.get("voiceover_tone", "") or config.get("documentary.voiceover_tone", "")
     style_hint = cfg.get("video_style",    "") or config.get("documentary.video_style",    "")
+
+    num_segments = _resolve_documentary_segments(target_duration, n_segments, provider)
 
     log.info(
         "Documentary script: topic=%r  lang=%r  dur=%ss  segs=%s  provider=%r  tone=%r",
@@ -1035,9 +1110,11 @@ def generate_documentary_script(
         )
 
     # ── Short/medium videos: single call ─────────────────────────────────────
+    use_compact = target_duration <= 90 or provider == "groq"
     prompt = _build_documentary_prompt(
         topic, language, target_duration, num_segments,
         tone_hint=tone_hint, style_hint=style_hint,
+        compact=use_compact,
     )
 
     if provider == "openai":

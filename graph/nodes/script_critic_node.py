@@ -7,8 +7,8 @@ Autonomously evaluates script quality before showing to the user.
 import json
 from typing import Literal
 from pydantic import BaseModel, Field
-from langchain_google_genai import ChatGoogleGenerativeAI
 from core.config_manager import config
+from graph.llm_factory import get_script_agent_llm, script_agent_provider_label
 from graph.state import GhostCreatorState
 from config import get_logger
 
@@ -45,17 +45,9 @@ def script_critic_node(state: GhostCreatorState) -> dict:
         }
 
     try:
-        emit_progress(2, "🧠 AI Critic analyzing script quality...", "INFO", run_id)
-        gemini_key = config.get("api_keys.gemini", "")
-        if not gemini_key:
-            raise ValueError("Missing Gemini API Key in configuration.")
-
-        model_name = config.get("gemini_model") or config.get("pipeline.gemini_model") or "gemini-3.1-flash-lite"
-        llm = ChatGoogleGenerativeAI(
-            model=model_name,
-            google_api_key=gemini_key,
-            temperature=0.2
-        )
+        provider = script_agent_provider_label()
+        emit_progress(2, f"🧠 AI Critic analyzing script ({provider})...", "INFO", run_id)
+        llm = get_script_agent_llm(temperature=0.2)
 
         language = state.get("language", "hi")
         script_source = script.get("_source", "ai_generated")
@@ -77,7 +69,7 @@ Score each dimension from 0-10. Be harsh. A 7 is average.
 Viral shorts need hook_score >= 8, emotion_score >= 7.
 """
 
-        log.info("Critic analyzing script...")
+        log.info("Critic analyzing script via %s …", provider)
         structured_llm = llm.with_structured_output(CriticOutput)
         critic = structured_llm.invoke(critic_prompt)
 
@@ -120,12 +112,13 @@ Viral shorts need hook_score >= 8, emotion_score >= 7.
 
     except Exception as exc:
         log.error(f"Script Critic failed: {exc}", exc_info=True)
-        emit_progress(2, f"⚠️ Script Critic failed: {exc}", "WARNING", run_id)
+        emit_progress(2, f"⚠️ Script Critic skipped ({exc})", "WARNING", run_id)
+        # Non-fatal: script is still usable; user can review manually.
         return {
-            "errors": [f"Critic Node error: {exc}"],
             "script_quality_score": 0.0,
-            "script_quality_feedback": f"Critic failure: {exc}",
+            "script_quality_feedback": f"Critic skipped: {exc}",
             "script_auto_approved": False,
             "review_decision": "pending",
-            "last_failed_node": "script_critic"
+            "last_failed_node": "",
+            "errors": [],
         }

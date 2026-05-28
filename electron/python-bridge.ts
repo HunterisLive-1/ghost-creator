@@ -4,10 +4,12 @@ import path from "path";
 import http from "http";
 
 const DEFAULT_PORT = 8766;
+const DEFAULT_HOST = "127.0.0.1";
 
 export class PythonBridge {
   private proc: ChildProcess | null = null;
-  public baseUrl = `http://127.0.0.1:${DEFAULT_PORT}`;
+  private reusedExisting = false;
+  public baseUrl = `http://${DEFAULT_HOST}:${DEFAULT_PORT}`;
 
   private projectRoot(): string {
     return path.join(__dirname, "..");
@@ -33,34 +35,44 @@ export class PythonBridge {
   }
 
   async start(): Promise<string> {
+    // Reuse dev/manual API instance instead of failing with EADDRINUSE
+    if (await this.waitForHealth(2500)) {
+      console.log("[API] Reusing existing server at", this.baseUrl);
+      this.reusedExisting = true;
+      return this.baseUrl;
+    }
+
     const { cmd, args, cwd } = this.resolvePython();
     const env = {
       ...process.env,
+      GHOST_API_HOST: DEFAULT_HOST,
       GHOST_API_PORT: String(DEFAULT_PORT),
       PYTHONUNBUFFERED: "1",
     };
 
     this.proc = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     this.proc.stdout?.on("data", (d) => console.log("[API]", d.toString()));
-    this.proc.stderr?.on("data", (d) => console.error("[API]", d.toString()));
+    this.proc.stderr?.on("data", (d) => console.log("[API]", d.toString()));
     this.proc.on("exit", (code) => console.warn("[API] exited", code));
 
-    await this.waitForHealth(60000);
+    const ok = await this.waitForHealth(60000);
+    if (!ok) throw new Error("API did not start in time");
     return this.baseUrl;
   }
 
-  private waitForHealth(timeoutMs: number): Promise<void> {
+  private waitForHealth(timeoutMs: number): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const tick = () => {
         const req = http.get(`${this.baseUrl}/health`, (res) => {
-          if (res.statusCode === 200) resolve();
+          res.resume();
+          if (res.statusCode === 200) resolve(true);
           else if (Date.now() < deadline) setTimeout(tick, 300);
-          else reject(new Error("API health check failed"));
+          else resolve(false);
         });
         req.on("error", () => {
           if (Date.now() < deadline) setTimeout(tick, 300);
-          else reject(new Error("API did not start in time"));
+          else resolve(false);
         });
         req.setTimeout(2000, () => req.destroy());
       };
@@ -69,8 +81,17 @@ export class PythonBridge {
   }
 
   stop(): void {
+    if (this.reusedExisting) {
+      this.reusedExisting = false;
+      return;
+    }
     if (this.proc && !this.proc.killed) {
-      this.proc.kill();
+      const pid = this.proc.pid;
+      if (process.platform === "win32" && pid) {
+        spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+      } else {
+        this.proc.kill("SIGTERM");
+      }
       this.proc = null;
     }
   }

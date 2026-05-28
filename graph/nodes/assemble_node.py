@@ -4,17 +4,73 @@ graph/nodes/assemble_node.py — Assembly Node
 Handles video assembly for both documentary mode (YouTube footage) and shorts/custom_script mode (image slideshow).
 """
 
+import json
 import logging
 import subprocess
 import sys
 from pathlib import Path
 from datetime import datetime
 from config import get_logger, get_ffmpeg_executable, OUTPUT_DIR
-from core.config_manager import config
+from core.config_manager import config, uses_video_footage
 from api.routes.pipeline import get_broadcaster
 from graph.state import GhostCreatorState
 
 log = get_logger("assemble_node")
+
+
+def _subtitle_style_from_config() -> dict:
+    style = config.get("subtitle_style") or {}
+    if not isinstance(style, dict):
+        return {}
+    return {
+        "language": style.get("language", "voiceover"),
+        "color": style.get("color", "#FFFFFF"),
+        "bold": style.get("bold", True),
+        "italic": style.get("italic", False),
+        "font_size": style.get("font_size", 28),
+        "bg_color": style.get("bg_color", "#80000000"),
+        "font_family": style.get("font_family", "Nirmala UI"),
+    }
+
+
+def _save_documentary_editor_json(
+    run_dir: Path,
+    *,
+    script: dict,
+    segments: list[dict],
+    durations: list[float],
+    aspect_ratio: str,
+    language: str,
+    subtitle_style: dict,
+    burn_subtitles: bool,
+) -> None:
+    """Persist editor snapshot so Ghost Editor + history re-render can load the run."""
+    editor_segments = []
+    for i, seg in enumerate(segments):
+        editor_segments.append({
+            "voiceover": seg.get("voiceover", ""),
+            "video_query": seg.get("video_query", ""),
+            "english_subtitle_text": seg.get("english_subtitle_text", ""),
+            "duration_hint": round(float(durations[i]), 1) if i < len(durations) else seg.get("duration_hint", 5),
+            "clip_name": f"e_{i:02d}.mp4",
+            "transition": seg.get("transition", ""),
+            "effect": seg.get("effect", ""),
+        })
+
+    meta = script.get("metadata") or {}
+    payload = {
+        "title": meta.get("title") or script.get("title") or "Untitled",
+        "voiceover_text": script.get("voiceover_text", ""),
+        "segments": editor_segments,
+        "language": language,
+        "aspect_ratio": aspect_ratio,
+        "subtitle_style": subtitle_style,
+        "burn_subtitles": burn_subtitles,
+        "bg_music_volume": float(config.get("documentary.bg_music_volume", 0.25) or 0.25),
+    }
+    out = run_dir / "documentary_editor.json"
+    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info("Saved editor project → %s", out)
 
 def emit_progress(step: int, message: str, level: str = "INFO", run_id: str = ""):
     """Helper to emit progress directly to the WebSocket broadcaster."""
@@ -125,9 +181,13 @@ def assemble_node(state: GhostCreatorState) -> dict:
         if not audio_path or not Path(audio_path).exists():
             raise ValueError(f"Audio file is missing or invalid: {audio_path}")
             
-        # 2. DOCUMENTARY MODE
-        if mode == "documentary":
-            emit_progress(5, "🎬 Starting documentary assembly ...", "INFO", run_id)
+        segments = script.get("segments", [])
+        use_footage_assembly = mode == "documentary" or (uses_video_footage() and segments)
+
+        # 2. VIDEO FOOTAGE ASSEMBLY (documentary + shorts/custom with stock/meta_ai/grok)
+        if use_footage_assembly:
+            asm_label = "documentary" if mode == "documentary" else "video"
+            emit_progress(5, f"🎬 Starting {asm_label} assembly ...", "INFO", run_id)
             
             # Since LangGraph runs nodes sequentially, we do the fetching & editing here
             from modules.video_fetcher import fetch_clips_for_pipeline, footage_source_label
@@ -143,9 +203,8 @@ def assemble_node(state: GhostCreatorState) -> dict:
                 _vf_scale,
             )
             
-            segments = script.get("segments", [])
             if not segments:
-                raise ValueError("No script segments found for documentary mode.")
+                raise ValueError("No script segments found for video footage assembly.")
                 
             num_segs = len(segments)
             target_duration = int(config.get("target_duration", 180))
@@ -198,16 +257,31 @@ def assemble_node(state: GhostCreatorState) -> dict:
                 edit_paths.append(dst)
                 
             clip_infos = load_clips(edit_paths, segments, target_durations=durations)
+
+            subtitle_style = _subtitle_style_from_config()
+            _burn = wants_burned_subtitles(config)
+            _save_documentary_editor_json(
+                run_dir,
+                script=script,
+                segments=segments,
+                durations=durations,
+                aspect_ratio=aspect_ratio,
+                language=state.get("language") or config.get("pipeline.language", "hi"),
+                subtitle_style=subtitle_style,
+                burn_subtitles=_burn,
+            )
             
             # Step C: Assemble
             def _asm_progress(msg: str) -> None:
                 emit_progress(5, msg, "INFO", run_id)
                 
             _pb_speed = float(config.get("documentary.playback_speed", 1.0))
-            _burn = wants_burned_subtitles(config)
-            _output_filename = f"documentary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+            prefix = "documentary" if mode == "documentary" else "short"
+            _output_filename = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
             
-            emit_progress(5, "🎬 Assembling documentary with FFmpeg ...", "INFO", run_id)
+            emit_progress(5, "🎬 Assembling video with FFmpeg ...", "INFO", run_id)
+            if _burn:
+                emit_progress(5, "📝 Burning subtitles into video ...", "INFO", run_id)
             video_path_obj = assemble_documentary(
                 clips=clip_infos,
                 audio_path=Path(audio_path),
@@ -218,16 +292,52 @@ def assemble_node(state: GhostCreatorState) -> dict:
                 progress_callback=_asm_progress,
                 playback_speed=_pb_speed,
                 burn_subtitles=_burn,
+                subtitle_style=subtitle_style,
             )
             video_path = str(video_path_obj)
-            emit_progress(5, f"Documentary rendered: {video_path}", "SUCCESS", run_id)
+            emit_progress(5, f"Video rendered: {video_path}", "SUCCESS", run_id)
 
-        # 3. SHORTS OR CUSTOM SCRIPT SLIDESHOW MODE
+            script_meta = script.get("metadata") or {}
+            title = script_meta.get("title") or script.get("title", run_dir.name)
+            ts = datetime.now().isoformat()
+            meta_payload = {
+                "title": title,
+                "description": script_meta.get("description", ""),
+                "tags": script_meta.get("tags", []),
+                "video_path": video_path,
+                "timestamp": ts,
+            }
+            meta_path = run_dir / "metadata.json"
+            meta_path.write_text(
+                json.dumps(meta_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            hist_path = run_dir / "history_entry.json"
+            hist_path.write_text(
+                json.dumps(
+                    {
+                        "title": title,
+                        "topic": state.get("topic", ""),
+                        "video_path": video_path,
+                        "timestamp": ts,
+                        "duration": f"{audio_dur:.1f}s",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+        # 3. AI IMAGES SLIDESHOW MODE
         else:
             emit_progress(5, "🎬 Starting image slideshow assembly ...", "INFO", run_id)
             image_paths = state.get("image_paths", [])
             if not image_paths:
-                raise ValueError("No images generated for slideshow assembly.")
+                raise ValueError(
+                    "No images generated for slideshow assembly. "
+                    "Switch Footage Source to Stock/Meta AI/Grok in Settings, "
+                    "or check Gemini image quota if using AI Images."
+                )
                 
             _output_filename = f"short_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
             target_video_path = str(run_dir / _output_filename)

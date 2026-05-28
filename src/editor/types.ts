@@ -23,6 +23,7 @@ export interface EditorJson {
   language: string;
   aspect_ratio: string;
   subtitle_style?: SubtitleStyle;
+  burn_subtitles?: boolean;
   bg_music?: string;
   bg_music_volume?: number;
 }

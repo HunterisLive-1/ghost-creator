@@ -1418,8 +1418,8 @@ export function SettingsTab({ onBackendChange }: Props) {
 
       <Section title="FOOTAGE SOURCE">
         <p style={styles.hint}>
-          Documentary Step 4 — stock B-roll (Pexels + YouTube) or AI clips via Meta AI / Grok browser (no API key).
-          Uses one shared Chrome profile for both. Personal automation only; site UI changes may require selector updates.
+          Applies to all pipeline modes (AI Shorts, Documentary, My Script). Stock B-roll (Pexels + YouTube),
+          Meta AI / Grok browser clips, or Gemini AI Images slideshow. Uses one shared Chrome profile for Meta AI and Grok.
         </p>
         <Row label="Source">
           <select
@@ -1430,6 +1430,7 @@ export function SettingsTab({ onBackendChange }: Props) {
             <option value="stock">Stock — Pexels + YouTube (yt-dlp)</option>
             <option value="meta_ai">Meta AI — browser automation</option>
             <option value="grok">Grok — browser automation</option>
+            <option value="ai_images">AI Images — Gemini slideshow (no stock footage)</option>
           </select>
         </Row>
 

@@ -41,11 +41,36 @@ def mock_dependencies():
         clip_path.write_bytes(b"a" * 6000)
         return [str(clip_path)]
 
-    with patch("langchain_google_genai.ChatGoogleGenerativeAI") as mock_gemini, \
+    mock_gen_script = MagicMock()
+    mock_gen_doc_script = MagicMock()
+    mock_gen_script.return_value = {
+        "voiceover_text": "Welcome to the future of AI in 2026.",
+        "image_prompts": ["futuristic AI robot", "code on screen"],
+        "metadata": {
+            "title": "AI in 2026",
+            "description": "A video about AI.",
+            "tags": ["AI"]
+        }
+    }
+    mock_gen_doc_script.return_value = {
+        "title": "AI in 2026",
+        "voiceover_text": "Welcome to the future of AI in 2026.",
+        "segments": [
+            {"video_query": "futuristic robot", "voiceover": "Welcome to the future of AI in 2026."}
+        ],
+        "metadata": {
+            "title": "AI in 2026",
+            "description": "A documentary about AI.",
+            "tags": ["AI"]
+        }
+    }
+
+    with patch("graph.llm_factory.get_script_agent_llm") as mock_agent_llm, \
+         patch("langchain_google_genai.ChatGoogleGenerativeAI") as mock_gemini, \
          patch("graph.nodes.research_node.AgentExecutor") as mock_agent_executor, \
          patch("modules.researcher.find_trending_topic", return_value="AI in 2026") as mock_trends, \
-         patch("modules.scripter.generate_script") as mock_gen_script, \
-         patch("modules.scripter.generate_documentary_script") as mock_gen_doc_script, \
+         patch("graph.nodes.script_node.generate_script", mock_gen_script), \
+         patch("graph.nodes.script_node.generate_documentary_script", mock_gen_doc_script), \
          patch("modules.video_fetcher.fetch_clips_for_pipeline", side_effect=mock_fetch_clips_side_effect) as mock_fetch_clips, \
          patch("modules.video_fetcher.footage_source_label", return_value="Stock") as mock_footage_label, \
          patch("core.clip_manager.load_clips") as mock_load_clips, \
@@ -110,31 +135,7 @@ def mock_dependencies():
 
         llm_instance.with_structured_output.side_effect = with_structured_output_mock
         mock_gemini.return_value = llm_instance
-
-        # Mock scripter return value
-        mock_gen_script.return_value = {
-            "voiceover_text": "Welcome to the future of AI in 2026.",
-            "image_prompts": ["futuristic AI robot", "code on screen"],
-            "metadata": {
-                "title": "AI in 2026",
-                "description": "A video about AI.",
-                "tags": ["AI"]
-            }
-        }
-
-        # Mock documentary script return value
-        mock_gen_doc_script.return_value = {
-            "title": "AI in 2026",
-            "voiceover_text": "Welcome to the future of AI in 2026.",
-            "segments": [
-                {"video_query": "futuristic robot", "voiceover": "Welcome to the future of AI in 2026."}
-            ],
-            "metadata": {
-                "title": "AI in 2026",
-                "description": "A documentary about AI.",
-                "tags": ["AI"]
-            }
-        }
+        mock_agent_llm.return_value = llm_instance
 
         # Configure ClipInfo loading
         from core.clip_manager import ClipInfo
@@ -154,14 +155,16 @@ def mock_dependencies():
             "trends": mock_trends,
             "gen_script": mock_gen_script,
             "gen_doc_script": mock_gen_doc_script,
+            "fetch_clips": mock_fetch_clips,
             "voice": mock_voice,
             "image_backend": mock_image_backend,
             "assemble": mock_assemble,
+            "asm_doc": mock_asm_doc,
             "upload": mock_upload
         }
 
 def test_full_pipeline_flow(mock_dependencies, tmp_path):
-    """Verifies that the compiled LangGraph executes completely to END."""
+    """Verifies shorts mode with stock footage uses video clips, not Gemini images."""
     from graph.pipeline import build_pipeline
     from graph.state import default_state
     
@@ -185,6 +188,7 @@ def test_full_pipeline_flow(mock_dependencies, tmp_path):
     # 3. Configure mock config file
     from core.config_manager import config
     config.set("api_keys.gemini", "mock-gemini-key")
+    config.set("documentary.footage_source", "stock")
     config.set("pipeline.upload_enabled", False)  # Skip upload step
     config.set("pipeline.skip_human_review", True)
     config.set("pipeline.auto_approve_threshold", 7.0)
@@ -200,13 +204,61 @@ def test_full_pipeline_flow(mock_dependencies, tmp_path):
     else:
         final_state = state_snapshot.values
 
-    # 5. Asserts
+    # 5. Asserts — stock footage path for shorts
     assert final_state["script"] is not None
     assert final_state["script"]["voiceover_text"] == "Welcome to the future of AI in 2026."
+    assert "segments" in final_state["script"]
     assert final_state["script_quality_score"] == 8.5
     assert final_state["review_decision"] == "approved"
     assert final_state["seo_optimized"] is True
     assert final_state["video_path"].startswith(str(tmp_path))
+    assert len(final_state["image_paths"]) == 0
+    mock_dependencies["gen_doc_script"].assert_called()
+    mock_dependencies["gen_script"].assert_not_called()
+    mock_dependencies["fetch_clips"].assert_called()
+    mock_dependencies["assemble"].assert_not_called()
+    mock_dependencies["asm_doc"].assert_called()
+
+
+def test_shorts_ai_images_slideshow(mock_dependencies, tmp_path):
+    """Verifies AI Images footage source still uses Gemini slideshow path for shorts."""
+    from graph.pipeline import build_pipeline
+    from graph.state import default_state
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    graph = build_pipeline(checkpointer=InMemorySaver())
+
+    initial_state = default_state()
+    initial_state.update({
+        "mode": "shorts",
+        "topic": "AI in 2026",
+        "run_id": "test_003",
+        "run_dir": str(tmp_path),
+        "max_script_attempts": 1,
+        "script_auto_approved": True,
+        "review_decision": "approved",
+    })
+
+    from core.config_manager import config
+    config.set("api_keys.gemini", "mock-gemini-key")
+    config.set("documentary.footage_source", "ai_images")
+    config.set("pipeline.upload_enabled", False)
+    config.set("pipeline.skip_human_review", True)
+    config.set("pipeline.auto_approve_threshold", 7.0)
+
+    config_dict = {"configurable": {"thread_id": "test_run_789"}}
+    graph.invoke(initial_state, config=config_dict)
+    state_snapshot = graph.get_state(config_dict)
+    if "human_review" in state_snapshot.next:
+        final_state = graph.invoke(None, config=config_dict)
+    else:
+        final_state = state_snapshot.values
+
+    assert final_state["video_path"].startswith(str(tmp_path))
+    mock_dependencies["gen_script"].assert_called()
+    mock_dependencies["gen_doc_script"].assert_not_called()
+    mock_dependencies["assemble"].assert_called()
+    mock_dependencies["fetch_clips"].assert_not_called()
 
 
 def test_documentary_pipeline_flow(mock_dependencies, tmp_path):
@@ -234,6 +286,7 @@ def test_documentary_pipeline_flow(mock_dependencies, tmp_path):
     # 3. Configure mock config file
     from core.config_manager import config
     config.set("api_keys.gemini", "mock-gemini-key")
+    config.set("documentary.footage_source", "stock")
     config.set("pipeline.upload_enabled", False)  # Skip upload step
     config.set("pipeline.skip_human_review", True)
     config.set("pipeline.auto_approve_threshold", 7.0)

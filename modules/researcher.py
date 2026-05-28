@@ -2,12 +2,14 @@
 modules/researcher.py — Trending Topic Finder
 =============================================
 Priority order:
-  1. Google Trends via pytrends (real-time top queries)
-  2. RSS feeds fallback (TechCrunch, The Verge, Ars Technica)
+  1. Tavily web search (when api_keys.tavily is configured)
+  2. Google Trends via pytrends (real-time top queries)
+  3. RSS feeds fallback (TechCrunch, The Verge, Ars Technica)
 
 Returns a single string — the best trending AI/Tech topic to create a Short about.
 """
 
+import os
 import random
 import time
 import feedparser
@@ -15,6 +17,7 @@ import requests
 from pytrends.request import TrendReq
 
 from config import get_logger, DEFAULT_TOPICS
+from core.config_manager import config
 
 log = get_logger("researcher")
 
@@ -39,6 +42,49 @@ def _is_ai_tech(text: str) -> bool:
     """Return True if text contains at least one AI/tech keyword."""
     lower = text.lower()
     return any(kw in lower for kw in AI_KEYWORDS)
+
+
+def get_tavily_api_key() -> str:
+    """Resolve Tavily key from nested config, flat key, or env."""
+    return (
+        (config.get("api_keys.tavily", "") or "")
+        or (config.get("tavily_api_key", "") or "")
+        or os.environ.get("TAVILY_API_KEY", "")
+    ).strip()
+
+
+def _fetch_from_tavily(query: str = "latest trending AI technology news today") -> str | None:
+    """Fetch a trending AI/Tech headline via Tavily web search."""
+    tavily_key = get_tavily_api_key()
+    if not tavily_key:
+        log.debug("Tavily API key not configured — skipping web search")
+        return None
+
+    try:
+        from tavily import TavilyClient
+
+        log.info("Tavily search: %r …", query)
+        client = TavilyClient(api_key=tavily_key)
+        result = client.search(
+            query=query,
+            search_depth="basic",
+            max_results=5,
+            topic="news",
+        )
+        for hit in result.get("results", []):
+            title = (hit.get("title") or "").strip()
+            if title and _is_ai_tech(title):
+                log.info("Tavily → chosen topic: %r", title)
+                return title
+        answer = (result.get("answer") or "").strip()
+        if answer and _is_ai_tech(answer):
+            headline = answer.split(".")[0].strip()[:160]
+            if headline:
+                log.info("Tavily answer → chosen topic: %r", headline)
+                return headline
+    except Exception as exc:
+        log.warning("Tavily search failed: %s", exc)
+    return None
 
 
 def _fetch_from_pytrends() -> str | None:
@@ -98,9 +144,11 @@ def _fetch_from_rss() -> str | None:
 def find_trending_topic() -> str:
     """
     Public entry point — returns a trending AI/Tech topic string.
-    Tries pytrends first, falls back to RSS, then uses a safe default.
+    Tries Tavily (if configured), then pytrends, RSS, then a safe default.
     """
-    topic = _fetch_from_pytrends()
+    topic = _fetch_from_tavily()
+    if not topic:
+        topic = _fetch_from_pytrends()
     if not topic:
         topic = _fetch_from_rss()
     if not topic:

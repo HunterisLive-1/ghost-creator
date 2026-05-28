@@ -58,6 +58,7 @@ langchain-community
 langchain-groq
 langgraph-checkpoint-sqlite
 tavily-python
+langchain-tavily
 langchain-core
 aiosqlite
 groq

@@ -6,14 +6,13 @@ Wraps modules/researcher.py with a LangChain Agent to discover trending topics.
 
 import json
 import logging
-from typing import Dict, Any
 from langchain_core.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
 from core.config_manager import config
+from graph.llm_factory import get_script_agent_llm, script_agent_provider_label
 from graph.state import GhostCreatorState
-from modules.researcher import find_trending_topic, RSS_FEEDS, _is_ai_tech
+from modules.researcher import find_trending_topic, get_tavily_api_key, RSS_FEEDS, _is_ai_tech
 
 log = logging.getLogger("research_node")
 
@@ -65,27 +64,39 @@ def research_node(state: GhostCreatorState) -> dict:
         }
 
     try:
-        # Get Gemini key
-        gemini_key = config.get("api_keys.gemini", "")
-        if not gemini_key:
-            return emergency_fallback("Missing Gemini API Key in configuration.")
+        provider = script_agent_provider_label()
+        llm = get_script_agent_llm(temperature=0.7)
+        log.info("Research agent using provider: %s", provider)
 
         # Build tools list
         tools = []
-        
+        tool_names: list[str] = []
+
         # 1. Tavily tool (if key available)
-        tavily_key = config.get("api_keys.tavily", "")
+        tavily_key = get_tavily_api_key()
         if tavily_key:
             try:
                 import os
                 os.environ["TAVILY_API_KEY"] = tavily_key
                 from langchain_tavily import TavilySearch
                 tavily_tool = TavilySearch(
-                    max_results=5
+                    max_results=5,
+                    name="tavily_search",
+                    description=(
+                        "Search the live web for trending AI/tech news. "
+                        "Use this FIRST before other tools."
+                    ),
                 )
                 tools.append(tavily_tool)
+                tool_names.append("tavily_search")
+                log.info("Tavily search enabled for research agent")
             except Exception as e:
                 log.warning(f"Could not initialize Tavily Search Tool: {e}")
+        else:
+            log.warning(
+                "Tavily API key not set — add it in Settings → API Keys to enable web search. "
+                "Research will use Google Trends / RSS only."
+            )
 
         # 2. Pytrends Search tool
         def run_pytrends(*args, **kwargs) -> str:
@@ -97,9 +108,10 @@ def research_node(state: GhostCreatorState) -> dict:
         pytrends_tool = Tool(
             name="pytrends_search",
             func=run_pytrends,
-            description="Check Google Trends for real-time trending search queries about AI and Tech."
+            description="Fallback: check Google Trends for trending AI/tech search queries."
         )
         tools.append(pytrends_tool)
+        tool_names.append("pytrends_search")
 
         # 3. RSS headlines tool
         def run_rss(*args, **kwargs) -> str:
@@ -123,17 +135,12 @@ def research_node(state: GhostCreatorState) -> dict:
         rss_tool = Tool(
             name="rss_headlines",
             func=run_rss,
-            description="Check RSS feeds of TechCrunch, Wired, The Verge, VentureBeat, etc. for top AI/tech headlines."
+            description="Fallback: read TechCrunch, Wired, The Verge RSS feeds for AI/tech headlines."
         )
         tools.append(rss_tool)
+        tool_names.append("rss_headlines")
 
-        # Initialize LLM
-        model_name = config.get("gemini_model") or config.get("pipeline.gemini_model") or "gemini-3.1-flash-lite"
-        llm = ChatGoogleGenerativeAI(
-            model=model_name,
-            google_api_key=gemini_key,
-            temperature=0.7
-        )
+        log.info("Research tools available: %s", ", ".join(tool_names) or "none")
 
         # System prompt setup
         topic_str = topic_hint if topic_hint.strip() else "latest trending AI news"
@@ -141,9 +148,9 @@ def research_node(state: GhostCreatorState) -> dict:
             "You are a YouTube content research agent for Ghost Creator AI.\n"
             "Your goal: find the MOST viral, emotionally triggering AI/tech topic right now.\n\n"
             "Research strategy:\n"
-            f"1. Search for the topic \"{topic_str}\" if provided, otherwise find trending AI news.\n"
-            "2. Check pytrends for real-time search spikes.\n"
-            "3. Cross-reference with RSS headlines.\n"
+            f"1. FIRST call tavily_search (if available) for live web results about \"{topic_str}\".\n"
+            "2. If Tavily is unavailable, use pytrends_search for search spikes.\n"
+            "3. Cross-check with rss_headlines.\n"
             f"4. Consider past performance: {past_performance_hint}\n\n"
             "Output a JSON with:\n"
             "{{\n"

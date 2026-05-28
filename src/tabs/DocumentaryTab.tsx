@@ -46,6 +46,11 @@ const VOICES = [
   { id: "edge_tts", label: "Edge TTS" },
 ];
 
+/** Poll script review while pipeline runs (step 2+). */
+const SCRIPT_REVIEW_POLL_MS = 1500;
+/** Editor review API is still a stub — keep disabled to avoid useless HTTP spam. */
+const EDITOR_REVIEW_POLL_ENABLED = false;
+
 const levelColors: Record<string, string> = {
   INFO: theme.textSec,
   SUCCESS: theme.accentGrn,
@@ -63,7 +68,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
   const [language, setLanguage] = useState("hi");
   const [voiceBackend, setVoiceBackend] = useState("omnivoice");
   const [segments, setSegments] = useState("0");
-  const [burnSubs, setBurnSubs] = useState(false);
+  const [burnSubs, setBurnSubs] = useState(true);
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState(0);
   const [steps, setSteps] = useState<StepState[]>(Array(6).fill("idle"));
@@ -91,6 +96,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
   const logEndRef = useRef<HTMLDivElement>(null);
   const reviewPollRef = useRef<number | null>(null);
   const editorPollRef = useRef<number | null>(null);
+  const pipelineStepRef = useRef(0);
   const runningRef = useRef(running);
   const runIdRef = useRef(runId);
   runningRef.current = running;
@@ -136,6 +142,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
 
       let newProgress = 0;
       if (msg.step >= 1 && msg.step <= 6) {
+        pipelineStepRef.current = msg.step;
         setSteps((prev) => {
           const next = [...prev];
           for (let i = 0; i < msg.step - 1; i++) next[i] = "done";
@@ -187,6 +194,13 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
 
   const pollScriptReview = useCallback(async () => {
     if (!runningRef.current) return;
+    // Research phase (step 1) — no need to hit script-review yet
+    if (pipelineStepRef.current < 2) {
+      if (runningRef.current) {
+        reviewPollRef.current = window.setTimeout(pollScriptReview, SCRIPT_REVIEW_POLL_MS);
+      }
+      return;
+    }
     try {
       const res = await api.pipelineScriptReview();
       const activeRunId = runIdRef.current;
@@ -202,12 +216,12 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
       /* ignore */
     }
     if (runningRef.current) {
-      reviewPollRef.current = window.setTimeout(pollScriptReview, 500);
+      reviewPollRef.current = window.setTimeout(pollScriptReview, SCRIPT_REVIEW_POLL_MS);
     }
   }, []);
 
   const pollEditorReview = useCallback(async () => {
-    if (!runningRef.current) return;
+    if (!EDITOR_REVIEW_POLL_ENABLED || !runningRef.current) return;
     try {
       const res = await api.pipelineEditorReview();
       const activeRunId = runIdRef.current;
@@ -223,7 +237,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
       /* ignore */
     }
     if (runningRef.current) {
-      editorPollRef.current = window.setTimeout(pollEditorReview, 500);
+      editorPollRef.current = window.setTimeout(pollEditorReview, 3000);
     }
   }, []);
 
@@ -259,6 +273,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     setRunId(newRunId);
     setRunning(true);
     runningRef.current = true;
+    pipelineStepRef.current = 0;
     setSteps(Array(6).fill("idle") as StepState[]);
     setProgress(0);
     setLogs([]);
@@ -300,8 +315,10 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     const startedRunId = res.run_id ?? newRunId;
     setRunId(startedRunId);
     runIdRef.current = startedRunId;
-    reviewPollRef.current = window.setTimeout(pollScriptReview, 500);
-    editorPollRef.current = window.setTimeout(pollEditorReview, 500);
+    reviewPollRef.current = window.setTimeout(pollScriptReview, SCRIPT_REVIEW_POLL_MS);
+    if (EDITOR_REVIEW_POLL_ENABLED) {
+      editorPollRef.current = window.setTimeout(pollEditorReview, 3000);
+    }
   };
 
   const stopPipeline = async () => {
@@ -375,18 +392,27 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     return parts.join(" ");
   };
 
+  const footageLabel =
+    footageSource === "meta_ai"
+      ? "Meta AI"
+      : footageSource === "grok"
+        ? "Grok"
+        : footageSource === "ai_images"
+          ? "AI Images"
+          : "Stock";
+
   return (
     <div style={styles.root}>
       <div style={styles.header}>
         <div style={{ display: "flex", flexDirection: "column" }}>
           <span style={styles.headerTitle}>🎬 DOCUMENTARY ENGINE</span>
           <span style={styles.headerSubtitle}>
-            OmniVoice narration · YouTube footage · FFmpeg assembly · No AI Images
+            OmniVoice narration · {footageLabel} visuals · FFmpeg assembly
           </span>
         </div>
         <span style={styles.badge}>CINEMATIC MODE</span>
         <span style={styles.footageBadge}>
-          Footage: {footageSource === "meta_ai" ? "Meta AI" : footageSource === "grok" ? "Grok" : "Stock"}
+          Footage: {footageLabel}
         </span>
       </div>
 
@@ -450,9 +476,9 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
         <span style={{ fontSize: 11, color: purpleTheme.textSec, fontWeight: 700, fontFamily: "monospace" }}>🚀 PIPELINE MODE:</span>
         <div style={{ display: "flex", gap: 8 }}>
           {[
-            { id: "shorts", label: "🤖 AI Shorts" },
-            { id: "documentary", label: "🎬 AI Documentary" },
-            { id: "custom_script", label: "✍️ My Script" }
+            { id: "shorts", label: "🤖 AI Shorts", hint: footageSource === "ai_images" ? "Gemini images" : `${footageLabel} video` },
+            { id: "documentary", label: "🎬 AI Documentary", hint: `${footageLabel} video` },
+            { id: "custom_script", label: "✍️ My Script", hint: footageSource === "ai_images" ? "Gemini images" : `${footageLabel} video` }
           ].map((m) => (
             <button
               key={m.id}
@@ -462,10 +488,15 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
                 ...(pipelineMode === m.id ? styles.langActive : {}),
                 padding: "6px 16px",
                 fontWeight: 700,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                gap: 2,
               }}
-              onClick={() => setPipelineMode(m.id as any)}
+              onClick={() => setPipelineMode(m.id as "shorts" | "documentary" | "custom_script")}
             >
-              {m.label}
+              <span>{m.label}</span>
+              <span style={{ fontSize: 9, fontWeight: 500, color: purpleTheme.textHint }}>{m.hint}</span>
             </button>
           ))}
         </div>
@@ -740,7 +771,9 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
               onClick={async () => {
                 await api.pipelineEditorContinue();
                 setEditorReview(null);
-                editorPollRef.current = window.setTimeout(pollEditorReview, 500);
+                if (EDITOR_REVIEW_POLL_ENABLED) {
+                  editorPollRef.current = window.setTimeout(pollEditorReview, 3000);
+                }
               }}
             >
               CONTINUE PIPELINE
@@ -766,7 +799,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
           onApprove={async (data) => {
             await api.pipelineScriptApprove(data);
             setScriptReview(null);
-            reviewPollRef.current = window.setTimeout(pollScriptReview, 500);
+            reviewPollRef.current = window.setTimeout(pollScriptReview, SCRIPT_REVIEW_POLL_MS);
           }}
           onRegenerate={async () => {
             await api.pipelineScriptCancel();

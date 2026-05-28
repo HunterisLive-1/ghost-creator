@@ -9,7 +9,7 @@ import asyncio
 import time
 from pathlib import Path
 from langgraph.types import Send
-from core.config_manager import config
+from core.config_manager import config, uses_ai_images, uses_video_footage
 from graph.state import GhostCreatorState
 
 log = logging.getLogger("image_node")
@@ -25,8 +25,11 @@ def spawn_parallel_tasks(state: GhostCreatorState) -> list:
     run_id = state.get("run_id", "")
     mode = state.get("mode", "shorts")
     
-    # 1. Spawn image generation workers only if mode is not documentary
-    if mode != "documentary":
+    from graph.nodes.research_node import emit_progress
+
+    # 1. Spawn image generation workers only when using AI Images (Gemini slideshow)
+    image_worker_count = 0
+    if mode != "documentary" and uses_ai_images():
         for i, prompt_item in enumerate(image_prompts):
             prompt_str = prompt_item if isinstance(prompt_item, str) else prompt_item.get("prompt", "")
             sends.append(Send("image_worker", {
@@ -36,6 +39,9 @@ def spawn_parallel_tasks(state: GhostCreatorState) -> list:
                 "run_id": run_id,
                 "mode": mode,
             }))
+            image_worker_count += 1
+    elif uses_video_footage() and mode != "documentary":
+        emit_progress(4, "📹 Using video footage — skipping AI image generation", "INFO", run_id)
         
     # 2. Spawn voiceover generation worker (runs in parallel)
     sends.append(Send("voiceover_worker", {
@@ -45,7 +51,7 @@ def spawn_parallel_tasks(state: GhostCreatorState) -> list:
         "run_id": run_id,
     }))
     
-    log.info(f"Fanned out: Spawned {len(sends) - 1 if mode != 'documentary' else 0} image workers and 1 voiceover worker.")
+    log.info(f"Fanned out: Spawned {image_worker_count} image workers and 1 voiceover worker.")
     return sends
 
 
@@ -61,8 +67,8 @@ def image_worker_node(worker_state: dict) -> dict:
     
     from graph.nodes.research_node import emit_progress
     
-    if mode == "documentary":
-        log.info(f"Bypassing image worker {scene_index} in documentary mode.")
+    if mode == "documentary" or not uses_ai_images():
+        log.info(f"Bypassing image worker {scene_index} — using video footage.")
         return {"image_paths": []}
         
     if not image_prompt:

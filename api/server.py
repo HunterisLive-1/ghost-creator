@@ -6,8 +6,10 @@ Spawned by Electron on startup; serves REST + WebSocket to React UI.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # Ensure project root on sys.path
@@ -38,7 +40,7 @@ ensure_dependencies()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import APP_VERSION
+from config import APP_VERSION, get_logger
 from api.routes import config as config_routes
 from api.routes import docs as docs_routes
 from api.routes import history as history_routes
@@ -50,7 +52,36 @@ from api.routes import workshop as workshop_routes
 from api.routes.pipeline import get_broadcaster
 from api.routes.system import bootstrap_ffmpeg
 
-app = FastAPI(title="Ghost Creator API", version=APP_VERSION)
+log = get_logger("server")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    loop = asyncio.get_event_loop()
+    get_broadcaster().bind_loop(loop)
+    bootstrap_ffmpeg()
+
+    try:
+        from graph.pipeline import get_pipeline
+        get_pipeline()
+    except Exception as e:
+        log.error(f"Failed to eagerly initialize LangGraph pipeline: {e}", exc_info=True)
+
+    try:
+        from core.ffmpeg_bootstrap import configure_pydub_subprocess
+        configure_pydub_subprocess()
+    except Exception:
+        pass
+    try:
+        from core.stock_manager import ensure_stock_assets
+        ensure_stock_assets()
+    except Exception:
+        pass
+
+    yield
+
+
+app = FastAPI(title="Ghost Creator API", version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -75,38 +106,74 @@ def health() -> dict:
     return {"ok": True, "version": APP_VERSION}
 
 
-@app.on_event("startup")
-async def on_startup() -> None:
-    loop = asyncio.get_event_loop()
-    get_broadcaster().bind_loop(loop)
-    bootstrap_ffmpeg()
-    
-    # Eagerly initialize LangGraph checkpointer on main thread to prevent SQLite thread race conditions
+def _health_ok(host: str, port: int, timeout: float = 2.0) -> bool:
+    """Return True if Ghost Creator API is already responding on host:port."""
+    import urllib.error
+    import urllib.request
+
+    url = f"http://{host}:{port}/health"
     try:
-        from graph.pipeline import get_pipeline
-        get_pipeline()
-    except Exception as e:
-        log.error(f"Failed to eagerly initialize LangGraph pipeline: {e}", exc_info=True)
-        
-    try:
-        from core.ffmpeg_bootstrap import configure_pydub_subprocess
-        configure_pydub_subprocess()
-    except Exception:
-        pass
-    try:
-        from core.stock_manager import ensure_stock_assets
-        ensure_stock_assets()
-    except Exception:
-        pass
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    """Return True if something is already bound to host:port."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+            return False
+        except OSError:
+            return True
+
+
+class _QuietAccessLogFilter(logging.Filter):
+    """Hide high-frequency poll and preflight lines from uvicorn access logs."""
+
+    _SKIP_PATHS = (
+        "/api/pipeline/script-review",
+        "/api/pipeline/editor-review",
+        "/api/history",
+        "/health",
+        "/api/config",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "OPTIONS " in msg:
+            return False
+        return not any(path in msg for path in self._SKIP_PATHS)
 
 
 def main() -> None:
     import uvicorn
 
+    logging.getLogger("uvicorn.access").addFilter(_QuietAccessLogFilter())
+
+    host = os.environ.get("GHOST_API_HOST", "127.0.0.1")
     port = int(os.environ.get("GHOST_API_PORT", "8766"))
+
+    if _health_ok(host, port):
+        print(f"[Ghost Creator API] Already running at http://{host}:{port}/health - not starting a second server.")
+        return
+
+    if _port_in_use(host, port):
+        print(
+            f"[Ghost Creator API] ERROR: Port {port} is already in use on {host}, "
+            "but /health did not respond.\n"
+            "  • Close the other app using this port, or\n"
+            "  • Kill the stale process:  netstat -ano | findstr :8766  then  taskkill /PID <pid> /F\n"
+            "  • Or use a different port:  set GHOST_API_PORT=8767"
+        )
+        sys.exit(1)
+
     uvicorn.run(
         "api.server:app",
-        host="127.0.0.1",
+        host=host,
         port=port,
         log_level="info",
         reload=False,

@@ -11,7 +11,9 @@ from pydantic import BaseModel
 
 from api.services.job_manager import job_manager
 from core.config_manager import config
+from core.pipeline_runner import resolve_output_base
 from api.services.history_rerender import rerender_run
+from api.services.editor_snapshot import ensure_editor_json, run_is_editable
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -20,18 +22,63 @@ class RerenderBody(BaseModel):
     run_dir: str
 
 
-def _resolve_output_base() -> Path:
-    folder = config.get("pipeline.output_folder", "output").strip()
-    base = Path(folder)
-    if not base.is_absolute():
-        base = config.path.parent / folder
-    return base
+def _load_json(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _find_latest_video(run_dir: Path) -> str:
+    mp4s = sorted(run_dir.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return str(mp4s[0]) if mp4s else ""
+
+
+def _infer_run_metadata(run_dir: Path) -> dict | None:
+    """Build metadata for older runs that finished before metadata.json was written."""
+    video_path = _find_latest_video(run_dir)
+    if not video_path and not (run_dir / "voiceover.mp3").is_file():
+        return None
+
+    editor = _load_json(run_dir / "documentary_editor.json")
+    title = editor.get("title") or run_dir.name.replace("_", " ")
+    description = ""
+    tags: list[str] | str = []
+    if editor.get("segments"):
+        description = " ".join(
+            str(seg.get("voiceover", ""))[:120]
+            for seg in editor["segments"][:2]
+            if isinstance(seg, dict)
+        ).strip()
+
+    return {
+        "title": title,
+        "description": description,
+        "tags": tags,
+        "video_path": video_path,
+        "timestamp": datetime.fromtimestamp(run_dir.stat().st_mtime).isoformat(),
+    }
+
+
+def _ensure_metadata_json(run_dir: Path, meta: dict) -> dict:
+    """Persist inferred metadata so future scans are cheap."""
+    meta_path = run_dir / "metadata.json"
+    if meta_path.is_file():
+        return meta
+    try:
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+    return meta
 
 
 @router.get("")
 def list_history() -> dict:
     config.load()
-    base = _resolve_output_base()
+    base = resolve_output_base()
     entries = []
     if not base.is_dir():
         return {"entries": []}
@@ -43,33 +90,24 @@ def list_history() -> dict:
     )[:10]
 
     for run_dir in run_dirs:
-        meta_path = run_dir / "metadata.json"
-        if not meta_path.is_file():
-            continue
-        meta: dict = {}
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
+        meta = _load_json(run_dir / "metadata.json")
+        if not meta:
+            inferred = _infer_run_metadata(run_dir)
+            if not inferred:
+                continue
+            meta = _ensure_metadata_json(run_dir, inferred)
 
-        hist_file = run_dir / "history_entry.json"
-        hist: dict = {}
-        if hist_file.is_file():
-            try:
-                hist = json.loads(hist_file.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        video_path = meta.get("video_path", "")
-        if not video_path:
-            for mp4 in run_dir.glob("*.mp4"):
-                video_path = str(mp4)
-                break
+        hist = _load_json(run_dir / "history_entry.json")
+        video_path = meta.get("video_path", "") or _find_latest_video(run_dir)
 
         ts = hist.get("timestamp") or meta.get("timestamp", "")
         if not ts:
             ts = datetime.fromtimestamp(run_dir.stat().st_mtime).isoformat()
 
         editor_json = run_dir / "documentary_editor.json"
+        editable = run_is_editable(run_dir)
+        if editable and not editor_json.is_file():
+            ensure_editor_json(run_dir)
 
         entries.append({
             "run_dir": str(run_dir),
@@ -80,7 +118,7 @@ def list_history() -> dict:
             "tags": meta.get("tags", ""),
             "video_path": video_path or hist.get("video_path", ""),
             "duration": hist.get("duration", ""),
-            "can_rerender": editor_json.is_file(),
+            "can_rerender": editable,
         })
 
     return {"entries": entries}
@@ -116,9 +154,14 @@ class SaveEditorBody(BaseModel):
 @router.get("/load-editor")
 def load_editor(run_dir: str) -> dict:
     from fastapi import HTTPException
-    p = Path(run_dir) / "documentary_editor.json"
-    if not p.is_file():
-        raise HTTPException(status_code=404, detail="documentary_editor.json not found in run directory")
+
+    run_path = Path(run_dir)
+    p = ensure_editor_json(run_path)
+    if not p or not p.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="No editable clips found — complete a video pipeline run first.",
+        )
     try:
         with open(p, "r", encoding="utf-8") as f:
             return json.load(f)

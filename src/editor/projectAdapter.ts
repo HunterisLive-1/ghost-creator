@@ -96,6 +96,7 @@ export function normalizeEditorJson(raw: EditorJson, clips: ClipAsset[]): Editor
     ...raw,
     segments,
     subtitle_style: raw.subtitle_style,
+    burn_subtitles: raw.burn_subtitles,
     bg_music_volume: raw.bg_music_volume ?? 0.25,
   };
 }

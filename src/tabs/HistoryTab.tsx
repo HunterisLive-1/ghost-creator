@@ -65,7 +65,7 @@ export function HistoryTab({ refreshKey, onOpenUpload, onOpenEditor }: Props) {
         {entries.length === 0 && (
           <div style={styles.empty}>
             [ NO RUNS RECORDED ]<br /><br />
-            Complete a documentary run in the 🎬 DOCUMENTARY tab and it will appear here.
+            Complete a pipeline run in the 🎬 DOCUMENTARY tab (video saved to your output folder) and it will appear here.
           </div>
         )}
         {entries.map((e) => (

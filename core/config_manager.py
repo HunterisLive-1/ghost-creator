@@ -97,7 +97,7 @@ DEFAULT_CONFIG: dict = {
     "documentary.long_duration": 600,
     "documentary.segments": 0,          # 0 = auto (~1 per 12s, max 100); else fixed clip count
     "documentary.playback_speed": 1.0,  # final doc: 1.0 = normal speed (video + voice in sync)
-    "documentary.burn_subtitles": False,  # long-form only: hardcoded white bold subs at bottom
+    "documentary.burn_subtitles": True,  # burn ASS captions on final video when enabled
     # Logo watermark (PNG/JPG), applied after subs/music on final export. Path stored in user data dir.
     "documentary.logo_enabled": False,
     "documentary.logo_path": "",
@@ -105,7 +105,7 @@ DEFAULT_CONFIG: dict = {
     "documentary.logo_scale": 0.15,
     "documentary.logo_margin": 24,
     "documentary.logo_opacity": 1.0,
-    "documentary.footage_source": "stock",  # stock | meta_ai | grok
+    "documentary.footage_source": "stock",  # stock | meta_ai | grok | ai_images
     "meta_ai": {
         "chrome_profile_path": "",
         "headless": False,
@@ -657,7 +657,7 @@ class ConfigManager:
             changed = True
 
         footage = self.get("documentary.footage_source", DEFAULT_CONFIG["documentary.footage_source"])
-        if footage not in ("stock", "meta_ai"):
+        if footage not in ("stock", "meta_ai", "grok", "ai_images"):
             self.set("documentary.footage_source", DEFAULT_CONFIG["documentary.footage_source"])
             changed = True
 
@@ -677,3 +677,26 @@ class ConfigManager:
 
 # ── Singleton instance (import this everywhere) ──────────────────────────────
 config = ConfigManager()
+
+
+def uses_video_footage(cfg: ConfigManager | None = None) -> bool:
+    """True when pipeline should fetch Pexels/Grok/Meta AI clips instead of Gemini images."""
+    cm = cfg or config
+    src = _get_footage_source(cm)
+    return src in ("stock", "meta_ai", "grok")
+
+
+def uses_ai_images(cfg: ConfigManager | None = None) -> bool:
+    """True when pipeline should generate Gemini/Imagen slideshow images."""
+    return not uses_video_footage(cfg)
+
+
+def _get_footage_source(cm: ConfigManager | None = None) -> str:
+    """Read footage source from nested or flat config keys."""
+    cm = cm or config
+    val = cm.get("documentary.footage_source")
+    if val is None:
+        flat = cm.data.get("documentary.footage_source")
+        if isinstance(flat, str):
+            val = flat
+    return (val or "stock").strip().lower()
