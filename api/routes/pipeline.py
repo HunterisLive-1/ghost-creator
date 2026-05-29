@@ -30,6 +30,7 @@ def get_broadcaster() -> ProgressBroadcaster:
 # Global states for LangGraph pipeline mode
 USE_LANGGRAPH = os.environ.get("GHOST_USE_LANGGRAPH", "1") == "1"
 _active_thread_id: str | None = None
+_active_run_id: int = 0          # integer run_id sent back to the UI
 _active_run_thread: threading.Thread | None = None
 
 
@@ -60,6 +61,10 @@ def _get_editor_interrupt_payload(graph_state) -> dict | None:
 def _run_graph_in_background(thread_id: str, input_val: Any = None):
     """Invokes or resumes the LangGraph pipeline in a daemon thread."""
     global _active_run_thread
+
+    # Capture the integer run_id at scheduling time so the closure always
+    # sends the correct value even if _active_run_id changes later.
+    run_id_int = _active_run_id
     
     def target():
         try:
@@ -84,15 +89,15 @@ def _run_graph_in_background(thread_id: str, input_val: Any = None):
                         "message": "⏸️ Clips ready — open Ghost Editor to review, then continue pipeline.",
                         "level": "INFO",
                         "timestamp": datetime.now().isoformat(),
-                        "run_id": thread_id,
+                        "run_id": run_id_int,
                     })
                 else:
                     _broadcaster.put({
                         "step": 2,
-                        "message": f"⏸️ Script ready for review — waiting for your approval...",
+                        "message": "⏸️ Script ready for review — waiting for your approval...",
                         "level": "INFO",
                         "timestamp": datetime.now().isoformat(),
-                        "run_id": thread_id,
+                        "run_id": run_id_int,
                     })
                 return
 
@@ -104,7 +109,7 @@ def _run_graph_in_background(thread_id: str, input_val: Any = None):
                     "message": "⏸️ Clips ready — open Ghost Editor to review, then continue pipeline.",
                     "level": "INFO",
                     "timestamp": datetime.now().isoformat(),
-                    "run_id": thread_id,
+                    "run_id": run_id_int,
                 })
                 return
             
@@ -115,7 +120,7 @@ def _run_graph_in_background(thread_id: str, input_val: Any = None):
                 "message": f"✅ Pipeline complete! {('Video saved: ' + video_path) if video_path else 'Done.'}",
                 "level": "SUCCESS",
                 "timestamp": datetime.now().isoformat(),
-                "run_id": thread_id,
+                "run_id": run_id_int,
                 "done": True,
                 "output_path": video_path,
             })
@@ -126,7 +131,7 @@ def _run_graph_in_background(thread_id: str, input_val: Any = None):
                 "message": f"❌ [Graph Run Error] {e}",
                 "level": "ERROR",
                 "timestamp": datetime.now().isoformat(),
-                "run_id": thread_id,
+                "run_id": run_id_int,
                 "done": True,
             })
             
@@ -137,12 +142,15 @@ def _run_graph_in_background(thread_id: str, input_val: Any = None):
 
 @router.post("/start")
 def pipeline_start(body: StartBody) -> dict:
-    global _active_thread_id
+    global _active_thread_id, _active_run_id
     
     from graph.state import default_state
     
     # Stop existing run if any
     _active_thread_id = None
+    
+    # Clear progress buffer for new run
+    _broadcaster.clear_buffer()
     
     run_id_val = body.run_id if body.run_id is not None else next_run_id()
     # Use UUID suffix to guarantee a fresh checkpoint every run.
@@ -150,6 +158,7 @@ def pipeline_start(body: StartBody) -> dict:
     # the old checkpoint and inherit accumulated `errors` from previous failed runs.
     thread_id = f"run_{run_id_val}_{uuid.uuid4().hex[:8]}"
     _active_thread_id = thread_id
+    _active_run_id = run_id_val      # store integer so WS messages carry the right id
     
     # Build base directory for the run
     from core.pipeline_runner import _make_run_dir, OUTPUT_DIR
@@ -231,16 +240,10 @@ def script_review_status() -> dict:
                 for p in script_val.get("image_prompts", [])
             ]
         }
-        # Extract run ID as int if possible for the UI
-        try:
-            run_id_int = int(_active_thread_id.replace("run_", ""))
-        except ValueError:
-            run_id_int = 1
-            
         return {
             "waiting": True,
             "data": data,
-            "run_id": run_id_int
+            "run_id": _active_run_id,
         }
         
     return {"waiting": False, "data": None, "run_id": None}
@@ -333,10 +336,6 @@ def editor_review_status() -> dict:
 
     payload = _get_editor_interrupt_payload(state)
     if payload:
-        try:
-            run_id_int = int(_active_thread_id.replace("run_", ""))
-        except ValueError:
-            run_id_int = 1
         return {
             "waiting": True,
             "data": {
@@ -344,7 +343,7 @@ def editor_review_status() -> dict:
                 "title": payload.get("title", ""),
                 "segment_count": payload.get("segment_count", 0),
             },
-            "run_id": run_id_int,
+            "run_id": _active_run_id,
         }
 
     return {"waiting": False, "data": None, "run_id": None}
@@ -372,10 +371,21 @@ def editor_cancel() -> dict:
     return {"ok": True}
 
 
+@router.get("/progress")
+def pipeline_progress(after: int = 0) -> dict:
+    """HTTP endpoint to poll for pipeline progress events when WebSocket fails."""
+    msgs, latest = _broadcaster.get_messages_since(after)
+    return {
+        "messages": msgs,
+        "latest_seq": latest
+    }
+
+
 @router.websocket("/ws")
 async def pipeline_ws(websocket: WebSocket):
     await websocket.accept()
     _broadcaster.add_client(websocket)
+    log.info("WebSocket client connected. Total clients: %d", len(_broadcaster._clients))
     try:
         while True:
             await websocket.receive_text()
@@ -383,3 +393,5 @@ async def pipeline_ws(websocket: WebSocket):
         pass
     finally:
         _broadcaster.remove_client(websocket)
+        log.info("WebSocket client disconnected. Total clients: %d", len(_broadcaster._clients))
+

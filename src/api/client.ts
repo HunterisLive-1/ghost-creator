@@ -18,7 +18,11 @@ export function getApiBaseUrl() {
 }
 
 export function wsUrl(path: string) {
-  return getApiBaseUrl().replace(/^http/, "ws") + path;
+  // Always use _baseUrl directly for WebSocket — do NOT use getApiBaseUrl() which
+  // translates 127.0.0.1 → localhost. On Windows, localhost can resolve to IPv6 (::1)
+  // while uvicorn only binds on IPv4 127.0.0.1, causing the WS to silently fail.
+  const base = _baseUrl || `http://${window.location.hostname}:8766`;
+  return base.replace(/^http/, "ws") + path;
 }
 
 export function pipelineWsUrl() {
@@ -26,7 +30,7 @@ export function pipelineWsUrl() {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${_baseUrl}${path}`, {
+  const res = await fetch(`${getApiBaseUrl()}${path}`, {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     ...init,
   });
@@ -67,6 +71,8 @@ export const api = {
     }),
   pipelineScriptCancel: () =>
     request<{ ok: boolean }>("/api/pipeline/script/cancel", { method: "POST" }),
+  pipelineProgress: (after: number) =>
+    request<{ messages: PipelineMessage[]; latest_seq: number }>(`/api/pipeline/progress?after=${after}`),
 
   pipelineEditorReview: () =>
     request<{ waiting: boolean; data: EditorReviewData | null; run_id?: number | null }>(
@@ -277,6 +283,7 @@ export interface PipelineMessage {
   retry_available?: boolean;
   event?: string;
   data?: unknown;
+  _seq?: number;
 }
 
 export interface JobLogMessage {

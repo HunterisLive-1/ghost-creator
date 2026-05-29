@@ -72,7 +72,7 @@ ghost_editor/
 .vscode/
 .idea/
 *.code-workspace
-installer_v2.iss 
+installer_v4.iss 
 # ── OS ───────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

@@ -134,9 +134,24 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
       // Use runIdRef.current (always up-to-date) instead of runId state
       // to avoid stale closure dropping early progress messages
       const rid = msg.run_id;
+      console.log("[Pipeline] MSG received: step=", msg.step, "run_id=", rid, "runIdRef=", runIdRef.current, "level=", msg.level, "msg=", msg.message?.slice(0, 50));
       if (rid !== undefined && runIdRef.current !== 0) {
-        const parsedRid = typeof rid === "string" ? parseInt(rid.replace("run_", ""), 10) : Number(rid);
-        if (!isNaN(parsedRid) && parsedRid !== runIdRef.current) return;
+        // rid can be:
+        //   - an integer (from pipeline.py _run_graph_in_background after our fix)
+        //   - a string like "run_1_abc12345" (from graph nodes via state["run_id"])
+        // We accept the message if the integer part of rid matches our runId.
+        let parsedRid: number;
+        if (typeof rid === "string") {
+          // Extract the first numeric segment after "run_"
+          const m = rid.match(/^run_(\d+)/);
+          parsedRid = m ? parseInt(m[1], 10) : NaN;
+        } else {
+          parsedRid = Number(rid);
+        }
+        if (!isNaN(parsedRid) && parsedRid !== runIdRef.current) {
+          console.log("[Pipeline] FILTERED OUT: parsedRid=", parsedRid, "!== runIdRef=", runIdRef.current);
+          return;
+        }
       }
 
       if (msg.message) appendLog(msg.level || "INFO", msg.message);
@@ -195,13 +210,6 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
 
   const pollScriptReview = useCallback(async () => {
     if (!runningRef.current) return;
-    // Research phase (step 1) — no need to hit script-review yet
-    if (pipelineStepRef.current < 2) {
-      if (runningRef.current) {
-        reviewPollRef.current = window.setTimeout(pollScriptReview, SCRIPT_REVIEW_POLL_MS);
-      }
-      return;
-    }
     try {
       const res = await api.pipelineScriptReview();
       const activeRunId = runIdRef.current;
@@ -280,7 +288,7 @@ export function DocumentaryTab({ setSystemState, onPipelineDone, onPipelineState
     setRunId(newRunId);
     setRunning(true);
     runningRef.current = true;
-    pipelineStepRef.current = 0;
+    pipelineStepRef.current = 1; // Start at step 1 — don't wait for WS to gate review poll
     setSteps(Array(6).fill("idle") as StepState[]);
     setProgress(0);
     setLogs([]);

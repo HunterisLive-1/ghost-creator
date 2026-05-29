@@ -57,7 +57,7 @@ log = get_logger("server")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     get_broadcaster().bind_loop(loop)
     bootstrap_ffmpeg()
 
