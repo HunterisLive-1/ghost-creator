@@ -1,5 +1,6 @@
 <div align="center">
 
+
 # Ghost Creator AI v4.3.0
 
 ### Stateful Agentic Documentary Pipeline — Electron + React GUI
