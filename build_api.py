@@ -1,4 +1,10 @@
-# -*- mode: python ; coding: utf-8 -*-
+import os
+import sys
+import subprocess
+from pathlib import Path
+
+# Spec file contents containing all dependencies, exclusions, and assets configuration
+SPEC_CONTENT = """# -*- mode: python ; coding: utf-8 -*-
 # GhostCreatorAPI.spec — PyInstaller spec for Ghost Creator AI API sidecar
 # Generated for Python 3.10 / PyInstaller 6.x
 
@@ -183,3 +189,31 @@ coll = COLLECT(
     upx_exclude=[],
     name='GhostCreatorAPI',
 )
+"""
+
+def main():
+    root = Path(__file__).resolve().parent
+    spec_path = root / "GhostCreatorAPI.spec"
+    
+    if not spec_path.exists():
+        print("[Build System] GhostCreatorAPI.spec missing. Recreating file automatically...")
+        spec_path.write_text(SPEC_CONTENT.strip(), encoding="utf-8")
+        print("[Build System] GhostCreatorAPI.spec restored successfully!")
+        
+    print("[Build System] Running PyInstaller build ...")
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--clean",
+        "--distpath", str(root / "dist-api"),
+        "--workpath", str(root / "build-api"),
+        str(spec_path)
+    ]
+    try:
+        subprocess.check_call(cmd, cwd=str(root))
+        print("[Build System] API Build succeeded!")
+    except subprocess.CalledProcessError as e:
+        print(f"[Build System] PyInstaller failed with exit code: {e.returncode}")
+        sys.exit(e.returncode)
+
+if __name__ == "__main__":
+    main()

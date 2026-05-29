@@ -563,6 +563,7 @@ export function SettingsTab({ onBackendChange }: Props) {
   const [autoSync, setAutoSync] = useState(true);
   const [nextSyncIn, setNextSyncIn] = useState(60);
   const [selectedMetric, setSelectedMetric] = useState<"views" | "subs" | "earnings">("views");
+  const [newProfileName, setNewProfileName] = useState("");
 
   // Check connection status for all profiles on load
   useEffect(() => {
@@ -1952,14 +1953,34 @@ export function SettingsTab({ onBackendChange }: Props) {
           {profiles.map((p, i) => <option key={i} value={i}>{p.name || p.profile_name || `Profile ${i + 1}`}</option>)}
           {profiles.length === 0 && <option value={0}>No profiles — setup one below</option>}
         </select>
-        <button type="button" style={styles.actionBtn} onClick={async () => {
-          const name = prompt("Profile name:");
-          if (name) {
-            const res = await api.chromeProfileSetup(name);
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <input
+            type="text"
+            placeholder="New profile name (e.g. MyChannel)"
+            value={newProfileName}
+            onChange={(e) => setNewProfileName(e.target.value)}
+            style={{
+              flex: 1,
+              padding: "6px",
+              background: "rgba(255, 255, 255, 0.05)",
+              color: "#fff",
+              border: `1px solid ${theme.border}`,
+              borderRadius: 4,
+              fontSize: "12px",
+              fontFamily: "monospace"
+            }}
+          />
+          <button type="button" style={{ ...styles.actionBtn, marginTop: 0 }} onClick={async () => {
+            if (!newProfileName.trim()) {
+              alert("Please enter a profile name first.");
+              return;
+            }
+            const res = await api.chromeProfileSetup(newProfileName.trim());
             alert(res.message);
+            setNewProfileName("");
             load();
-          }
-        }}>+ SETUP NEW PROFILE</button>
+          }}>+ SETUP PROFILE</button>
+        </div>
 
         <p style={{ ...styles.sectionTitle, marginTop: 16 }}>LOGO WATERMARK</p>
         <label style={styles.checkRow}>

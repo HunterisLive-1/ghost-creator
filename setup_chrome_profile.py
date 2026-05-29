@@ -41,7 +41,8 @@ async def _run_with_name(name: str):
     sanitized = "".join([c for c in name if c.isalnum() or c in (' ', '_', '-')]).strip().replace(' ', '_')
     if not sanitized:
         sanitized = "Default_Profile"
-    PROFILE_DIR = Path(rf"C:\ChromeProfiles\GhostCreator_{sanitized}")
+    from config import get_user_data_dir
+    PROFILE_DIR = get_user_data_dir() / "ChromeProfiles" / f"GhostCreator_{sanitized}"
     await _run()
 
 async def _run():

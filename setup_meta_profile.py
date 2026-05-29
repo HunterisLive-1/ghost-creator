@@ -22,7 +22,8 @@ except ImportError:
 from core.config_manager import config
 
 
-DEFAULT_PROFILE = Path(r"C:\ChromeProfiles\GhostCreator_MetaAI")
+from config import get_user_data_dir
+DEFAULT_PROFILE = get_user_data_dir() / "ChromeProfiles" / "GhostCreator_MetaAI"
 
 
 async def run_setup(profile_dir: Path | None = None) -> Path:

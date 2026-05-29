@@ -246,7 +246,8 @@ def get_pipeline():
     with _pipeline_lock:
         if _graph is None:
             db_path_str = config.get("pipeline.checkpoint_db", "ghost_runs.db")
-            db_path = Path(db_path_str).resolve()
+            from config import get_writable_path
+            db_path = get_writable_path(db_path_str)
             db_path.parent.mkdir(parents=True, exist_ok=True)
             
             log.info(f"Using SQLite checkpoint database at: {db_path}")

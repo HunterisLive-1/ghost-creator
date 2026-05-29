@@ -18,7 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from config import get_base_dir, get_ffmpeg_executable, get_logger
+from config import get_base_dir, get_ffmpeg_executable, get_logger, TEMP_DIR
 from core.config_manager import config
 from modules.tts_lang_support import assert_tts_backend_supports_language
 from modules.tts_number_normalize import expand_numbers_in_text
@@ -121,7 +121,7 @@ def run_voiceover(
     if language is None:
         language = config.get("pipeline.language", "hi")
     if output_path is None:
-        output_path = get_base_dir() / "temp" / "voiceover.mp3"
+        output_path = TEMP_DIR / "voiceover.mp3"
 
     output_path = Path(output_path).resolve()
     os.makedirs(str(output_path.parent), exist_ok=True)
@@ -335,7 +335,7 @@ def _apply_voice_post_process(audio_path: Path) -> Path:
 
 def generate_voiceover(text: str, output_filename: str = "voiceover.mp3") -> Path:
     """Legacy wrapper — calls run_voiceover with default settings."""
-    output_path = get_base_dir() / "temp" / output_filename
+    output_path = TEMP_DIR / output_filename
     return run_voiceover(text, output_path=output_path)
 
 

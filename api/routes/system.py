@@ -69,9 +69,11 @@ def bootstrap_ffmpeg() -> None:
         return
     try:
         from core.ffmpeg_bootstrap import configure_pydub_subprocess, ffmpeg_binaries_present, prepare_ffmpeg_runtime
+        import threading
 
         configure_pydub_subprocess()
         if not ffmpeg_binaries_present():
-            prepare_ffmpeg_runtime()
+            # Run download in background thread so FastAPI startup is instantaneous
+            threading.Thread(target=prepare_ffmpeg_runtime, daemon=True).start()
     except Exception:
         pass

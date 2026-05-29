@@ -1,11 +1,11 @@
 import urllib.request
 import threading
 from pathlib import Path
-from config import get_logger
+from config import get_logger, get_writable_path
 
 log = get_logger("stock_manager")
 
-STOCK_ASSETS_DIR = Path("assets/stock")
+STOCK_ASSETS_DIR = get_writable_path("assets/stock")
 MUSIC_DIR = STOCK_ASSETS_DIR / "music"
 SFX_DIR = STOCK_ASSETS_DIR / "sfx"
 

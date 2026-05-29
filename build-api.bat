@@ -38,11 +38,7 @@ echo.
 echo Building GhostCreatorAPI (onedir) via spec file ...
 echo.
 
-python -m PyInstaller ^
-  --clean ^
-  --distpath dist-api ^
-  --workpath build-api ^
-  GhostCreatorAPI.spec
+python build_api.py
 
 if %ERRORLEVEL% neq 0 (
     echo.

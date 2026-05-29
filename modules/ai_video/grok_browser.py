@@ -105,7 +105,8 @@ def _profile_path() -> Path:
     raw = (config.get("grok.chrome_profile_path") or config.get("meta_ai.chrome_profile_path") or "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
-    return Path(r"C:\ChromeProfiles\GhostCreator_MetaAI")
+    from config import get_user_data_dir
+    return get_user_data_dir() / "ChromeProfiles" / "GhostCreator_MetaAI"
 
 
 def _headless() -> bool:

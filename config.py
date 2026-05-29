@@ -17,11 +17,34 @@ APP_VERSION = "4.3.0"
 load_dotenv()
 
 
+def get_user_data_dir() -> Path:
+    """Return the user's local application data directory for Ghost Creator AI."""
+    if sys.platform == "win32":
+        root = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    else:
+        root = Path.home() / ".config"
+    return root / "GhostCreatorAI"
+
+
+def get_writable_path(rel_path: str | Path) -> Path:
+    """
+    Resolve a relative path to a writable directory.
+    When running as a frozen executable (e.g. in Program Files), this resolves
+    to the user's Local AppData folder (%LOCALAPPDATA%/GhostCreatorAI).
+    When running in development, this resolves relative to the project root.
+    """
+    rel = Path(rel_path)
+    if rel.is_absolute():
+        return rel
+    if getattr(sys, "frozen", False):
+        return get_user_data_dir() / rel
+    return BASE_DIR / rel
+
+
 def get_base_dir() -> Path:
     """
     Install / project root: folder containing the EXE when running a PyInstaller
-    bundle; otherwise the directory containing this file. Use for writable paths
-    (e.g. voiceover output) — never use sys._MEIPASS or __file__ alone for those.
+    bundle; otherwise the directory containing this file.
     """
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -29,11 +52,18 @@ def get_base_dir() -> Path:
 
 
 # ── Directory Layout ───────────────────────────────────────────────────────────
-BASE_DIR    = Path(__file__).resolve().parent
-OUTPUT_DIR  = BASE_DIR / "output"
-TEMP_DIR    = BASE_DIR / "temp"
-OUTPUT_DIR.mkdir(exist_ok=True)
-TEMP_DIR.mkdir(exist_ok=True)
+BASE_DIR = Path(__file__).resolve().parent
+
+if getattr(sys, "frozen", False):
+    USER_DIR = get_user_data_dir()
+    OUTPUT_DIR = USER_DIR / "output"
+    TEMP_DIR = USER_DIR / "temp"
+else:
+    OUTPUT_DIR = BASE_DIR / "output"
+    TEMP_DIR = BASE_DIR / "temp"
+
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _bundle_root() -> Path:

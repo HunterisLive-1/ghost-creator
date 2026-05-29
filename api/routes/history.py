@@ -328,8 +328,9 @@ async def upload_image(
 
 @router.get("/stock-assets")
 def get_stock_assets() -> dict:
-    music_dir = Path("assets/stock/music")
-    sfx_dir = Path("assets/stock/sfx")
+    from config import get_writable_path
+    music_dir = get_writable_path("assets/stock/music")
+    sfx_dir = get_writable_path("assets/stock/sfx")
     
     music = []
     if music_dir.is_dir():

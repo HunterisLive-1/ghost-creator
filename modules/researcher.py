@@ -14,7 +14,6 @@ import random
 import time
 import feedparser
 import requests
-from pytrends.request import TrendReq
 
 from config import get_logger, DEFAULT_TOPICS
 from core.config_manager import config
@@ -90,6 +89,7 @@ def _fetch_from_tavily(query: str = "latest trending AI technology news today") 
 def _fetch_from_pytrends() -> str | None:
     """Fetch the top trending AI/Tech search query from Google Trends."""
     try:
+        from pytrends.request import TrendReq
         log.debug("Querying Google Trends …")
         pytrends = TrendReq(hl="en-US", tz=330)
 

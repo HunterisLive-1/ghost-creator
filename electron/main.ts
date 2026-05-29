@@ -41,9 +41,18 @@ function createWindow(apiBaseUrl: string) {
 }
 
 async function bootstrap() {
-  pythonBridge = new PythonBridge();
-  const apiBaseUrl = await pythonBridge.start();
-  createWindow(apiBaseUrl);
+  try {
+    pythonBridge = new PythonBridge();
+    const apiBaseUrl = await pythonBridge.start();
+    createWindow(apiBaseUrl);
+  } catch (error: any) {
+    console.error("[Bootstrap Error]", error);
+    dialog.showErrorBox(
+      "Ghost Creator AI Startup Error",
+      `Failed to start the local Python API service.\n\nError: ${error?.message || error}\n\nPlease check if port 8766 is already in use, or check your firewall/antivirus settings.`
+    );
+    app.quit();
+  }
 }
 
 app.whenReady().then(bootstrap);
