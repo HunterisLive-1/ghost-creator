@@ -11,7 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Release version — keep in sync with `installer_v4.iss` (MyAppVersion) and GUI/README branding.
-APP_VERSION = "4.2.2"
+APP_VERSION = "4.3.0"
 
 # ── Load .env ──────────────────────────────────────────────────────────────────
 load_dotenv()

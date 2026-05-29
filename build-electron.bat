@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 echo.
 echo  ============================================================
-echo    GHOST CREATOR AI v4.2.2 - Full Electron Build
+echo    GHOST CREATOR AI v4.3.0 - Full Electron Build
 echo  ============================================================
 echo.
 

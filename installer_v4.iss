@@ -1,5 +1,5 @@
 #define MyAppName "Ghost Creator AI"
-#define MyAppVersion "4.2.2"
+#define MyAppVersion "4.3.0"
 #define MyAppPublisher "HunterIsLive"
 #define MyAppURL "https://github.com/HunterisLive-1/ghost-creator"
 #define MyAppSupportURL "https://github.com/HunterisLive-1/ghost-creator/issues"

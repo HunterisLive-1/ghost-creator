@@ -1,8 +1,8 @@
 <div align="center">
 
-# Ghost Creator AI v4.2.2
+# Ghost Creator AI v4.3.0
 
-### Automated Documentary Pipeline — Electron + React GUI
+### Stateful Agentic Documentary Pipeline — Electron + React GUI
 ### by [HunterIsLive](https://github.com/HunterisLive-1)
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://python.org)
@@ -13,7 +13,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows)](https://microsoft.com)
 
-> **Research → Script → Voice → Stock footage → FFmpeg assembly → YouTube upload.**
+> **Research → Script → Critic → Review → Voice → Footage → Assembly → Upload.**
+> Stateful LangGraph orchestration with self-healing, SQLite checkpoint database, and progress fallback.
 > Free, open source (MIT). Hindi and 8+ regional languages supported. No license key required.
 
 </div>
@@ -23,7 +24,10 @@
 ## Table of Contents
 
 - [What It Does](#what-it-does)
-- [Architecture](#architecture)
+- [Agentic Architecture (LangGraph)](#agentic-architecture-langgraph)
+- [Resuming & SQLite Checkpoints](#resuming--sqlite-checkpoints)
+- [Error Recovery & Self-Healing](#error-recovery--self-healing)
+- [HTTP Progress Polling Fallback](#http-progress-polling-fallback)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Launching the App](#launching-the-app)
@@ -41,447 +45,208 @@
 
 ## What It Does
 
-Ghost Creator AI automates **documentary-style videos** from a topic (or auto-discovered trending subject) through a six-step pipeline:
+Ghost Creator AI automates **documentary-style short and long videos** from a simple topic through a stateful agentic pipeline:
 
-| Step | Module | What happens |
-|------|--------|--------------|
-| 1. Research | `researcher.py` | Finds trending topic (or uses your subject) |
-| 2. Script | `scripter.py` | Writes narration + per-segment footage queries (Gemini or Ollama) |
-| 3. Voice | `voicer.py` | Synthesizes full voiceover via OmniVoice, Edge TTS, or ElevenLabs |
-| 4. Footage | `video_fetcher.py` | Downloads HD clips from Pexels (preferred) or YouTube via yt-dlp |
-| 5. Assembly | `documentary_assembler.py` | FFmpeg merges clips + audio; optional burned-in subtitles (long form) |
-| 6. Upload | `uploader.py` | Optional YouTube Studio upload via Playwright + Chrome profile |
+| Step | Node | What happens |
+|------|------|--------------|
+| **1. Research** | `research_node` | Discovers trending news/feed topics, or queries Tavily to gather facts |
+| **2. Script** | `script_node` | Drafts a natural TTS script, B-Roll prompts, title, and metadata |
+| **3. Critic** | `script_critic_node` | Analyzes script hook, retention, and tone. Flags `needs_work` if score < threshold |
+| **4. Review** | `human_review_node` | Pauses for human editing and approval (optional) |
+| **5. Voice** | `voiceover_worker_node` | Synthesizes voiceover narration using OmniVoice (local), Edge, or ElevenLabs |
+| **6. Image/Footage** | `image_worker_node` / `clip_prep` | Fetches stock footage from Pexels, falls back to yt-dlp, or generates AI images |
+| **7. Assembly** | `assemble_node` | Concat clips and muxes with voiceover and background music via FFmpeg |
+| **8. Upload** | `upload_node` | Logs into YouTube Studio via Playwright using a saved Chrome profile |
 
 ```mermaid
-flowchart LR
-    Research[Research topic] --> Script[Gemini or Ollama script]
-    Script --> Review[Optional script review]
-    Review --> Voice[TTS voiceover]
-    Voice --> Footage[Pexels or yt-dlp clips]
-    Footage --> Assembly[FFmpeg assemble]
-    Assembly --> Upload[Optional YouTube upload]
+flowchart TD
+    START --> Research[Research Node]
+    Research --> check1{Research Error?}
+    check1 -->|Yes| Recovery1[Error Recovery]
+    check1 -->|No| Script[Script Node]
+    
+    Script --> check2{Script Error?}
+    check2 -->|Yes| Recovery2[Error Recovery]
+    check2 -->|No| Critic[Script Critic Node]
+    
+    Critic --> check3{Critic Error / Reject?}
+    check3 -->|Yes| Recovery3[Error Recovery]
+    check3 -->|No| Review[Human Review Node]
+    
+    Review --> Voice[Voiceover Worker]
+    Voice --> Footage[Image/Footage Worker]
+    Footage --> SEO[SEO Metadata Node]
+    SEO --> Assemble[Assemble Node]
+    Assemble --> Upload[Upload Node]
+    Upload --> END
 ```
 
-**Modes**
-
-- **SHORT** — 30–60 seconds, vertical 9:16 (default)
-- **LONG** — 3 minutes up to 2 hours, horizontal 16:9, optional subtitle burn-in
-
-Each completed run is saved under `output/<title>_<timestamp>/` with metadata, clips, and the final MP4.
+**Modes:**
+* **SHORT** — 30–60 seconds, vertical 9:16 (default).
+* **LONG** — 3 minutes up to 2 hours, horizontal 16:9, with automated subtitle burn-in.
 
 ---
 
-## Architecture
+## Agentic Architecture (LangGraph)
 
-The desktop app has three layers:
+The backend has transitioned from a sequential script model to a **stateful graph network** powered by **LangGraph**. The app now operates with a clear boundary between the Electron front-end shell and the background Python service:
 
-```mermaid
-flowchart TB
-    subgraph electron [Electron App]
-        Main[electron/main.ts]
-        React[React UI src/]
-    end
-    subgraph python [Python Backend port 8766]
-        API[FastAPI api/server.py]
-        Runner[pipeline_runner.py]
-        Mod[modules/*]
-    end
-    Main -->|"spawn on startup"| API
-    React -->|"REST + WebSocket"| API
-    API --> Runner
-    Runner --> Mod
-```
+* **Stateful Graph state**: Every node accepts and yields a shared dictionary state containing the script draft, generated audio paths, downloaded clips, compile paths, and error lists.
+* **Intelligent Routing**: Conditional edges route execution dynamically. If a node fails, it redirects to the `error_recovery_node` instead of immediately crashing.
+* **Separation of Concerns**: Nodes operate asynchronously and report progress to a central event broadcaster.
 
-- **Electron** — window, native file dialogs, spawns and monitors the Python API process
-- **React (Vite)** — Documentary, Upload, Settings, History tabs
-- **FastAPI** — local REST + WebSocket on `127.0.0.1:8766`; wraps existing Python pipeline code
-- **CLI (`main.py`)** — same pipeline without GUI (script review disabled for unattended runs)
+---
+
+## Resuming & SQLite Checkpoints
+
+By compiling our graph with an **SQLite Checkpointer** (`SqliteSaver`), all runs are tracked statefully in the database:
+* **Database Path**: `ghost_runs.db` (created automatically in the project folder).
+* **Checkpoint Resuming**: The graph saves state snapshots before and after every node. If a run is interrupted (e.g. system crash, manual shutdown, or human review pause), it resumes precisely from the last successful node using its `thread_id` (e.g. `run_{run_id}_{uuid}`).
+* **Persistent States**: Re-triggering retries or editing in the review modal updates the state directly on the SQLite checkpointer and continues.
+
+---
+
+## Error Recovery & Self-Healing
+
+The pipeline is equipped with agentic error recovery features to maintain uptime:
+* **Script Critic**: Runs scripts through an LLM evaluation checklist (Hook, Emotional Hook, Pacing, Retention). If the critic yields a score below the auto-approve threshold, it routes back to regenerate the script with feedback.
+* **Self-Healing Node**: If a network request, API limit, or generation fails, the graph routes to `error_recovery_node`. It inspects `last_failed_node` and its error trace to make a decision:
+  1. **Retry**: Attempt the same node again (up to max attempts).
+  2. **Fallback**: Swap providers (e.g., fall back to Stock footage if AI image generation fails).
+  3. **Skip**: Skip non-critical nodes (e.g. bypass SEO optimization or YouTube upload if they fail).
+
+---
+
+## HTTP Progress Polling Fallback
+
+To bypass Windows-specific WebSocket connectivity issues (where `localhost` resolves to IPv6 `::1` while uvicorn binds to IPv4 `127.0.0.1`), the app implements a robust dual-channel pipeline updater:
+* **Monotonic Sequence Buffer**: The backend's `ProgressBroadcaster` maintains a thread-safe sliding history of events with sequence IDs (`_seq`).
+* **Active Polling Fallback**: The React hook `usePipelineWebSocket` monitors the WebSocket connection. If it disconnects or fails to establish, the hook seamlessly falls back to polling `/api/pipeline/progress?after=N`.
+* **State Deduplication**: The sequence numbers ensure messages are never duplicated, regardless of which network interface delivers them.
 
 ---
 
 ## Prerequisites
 
 ### Required
-
-| Tool | Version | Why |
-|------|---------|-----|
-| **Python** | 3.10 – 3.12 | Pipeline + FastAPI backend |
-| **Node.js** | 18+ | Electron + React GUI |
-| **Git** | Any | Clone the repository |
-| **Google Chrome** | Latest | YouTube upload automation (not Chromium) |
-| **FFmpeg** | Any recent | Video assembly (PATH, or auto-download on first packaged run) |
-| **Gemini API key** | Free tier | Script generation (required) |
-
-Get a Gemini key: [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
-
-### Optional
-
-| Item | When needed |
-|------|-------------|
-| **Pexels API key** | Faster HD stock footage ([pexels.com/api](https://www.pexels.com/api/)) |
-| **ElevenLabs API key** | If using ElevenLabs TTS |
-| **OmniVoice server** | If using OmniVoice voice clone (external `.bat` / WebUI) |
-| **Reference WAV** | `my_voice_reference.wav` in project root for OmniVoice clone mode |
-| **Ollama** | Local script generation instead of Gemini |
-| **NVIDIA GPU** | Speeds OmniVoice / long renders (not required for Edge TTS + cloud footage) |
-
-**Python install tip (Windows):** check **Add Python to PATH** during setup.
-
-**FFmpeg verify:**
-
-```powershell
-ffmpeg -version
-```
-
-If missing, install via `winget install ffmpeg` or run `powershell -ExecutionPolicy Bypass -File ensure_ffmpeg.ps1`.
+* **Python 3.10 – 3.12** (Windows installer will run within a packaged environment).
+* **Node.js 18+** (for dev/build setup).
+* **Google Chrome** (required for automated YouTube upload).
+* **FFmpeg** (Cached in `%LOCALAPPDATA%/GhostCreatorAI/ffmpeg/` automatically on packaged launch).
+* **Gemini API key** (Get free key: [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)).
 
 ---
 
 ## Installation
 
-### Step 1 — Clone
-
-```powershell
-git clone https://github.com/HunterisLive-1/ghost-creator.git
-cd ghost-creator
-```
-
-### Step 2 — Run setup.bat
-
-Double-click **`setup.bat`** (Run as Administrator recommended for Windows Long Paths).
-
-It automatically:
-
-| Step | Action |
-|------|--------|
-| 1 | Enables Windows Long Path support |
-| 2 | Detects Python (3.12 → 3.11 → 3.10) |
-| 3 | Creates `venv\` virtual environment |
-| 4 | Installs Python dependencies from `requirements.txt` |
-| 5 | Optional Chatterbox TTS server setup (legacy — skip unless you use it elsewhere) |
-| 6 | Installs Playwright Chromium (YouTube upload) |
-| 7 | Installs FastAPI + Electron/npm dependencies |
-| 8 | Optional paid TTS / image backend packages |
-| 9 | Creates `config.json` (migrates legacy `.env` if found) |
-
-First run may take 10–20 minutes depending on network speed.
-
-### Step 3 — First-time configuration
-
-1. Launch the app (see [Launching the App](#launching-the-app))
-2. Open **Settings** tab
-3. Enter your **Gemini API key**
-4. Choose **TTS backend** (default: OmniVoice — requires external server, or switch to **Edge TTS** for zero setup)
-5. Click **[ SAVE CONFIG ]**
-
-Alternatively edit `config.json` in the project root, or use **OPEN IN EDITOR** for `.env.local`.
-
-### Step 4 — OmniVoice (optional, default TTS)
-
-If using OmniVoice voice cloning:
-
-1. Set up the OmniVoice WebUI/server separately (external repo)
-2. In Settings → OmniVoice: set server `.bat` path and reference audio WAV
-3. Place `my_voice_reference.wav` in the project root (10–30 seconds of your voice)
-
-**Quick start without OmniVoice:** Settings → TTS backend → **Edge TTS** (free, no key).
-
-### Step 5 — YouTube upload (optional)
-
-One-time Chrome profile setup for automated uploads:
-
-```powershell
-venv\Scripts\activate.bat
-python setup_chrome_profile.py
-```
-
-Then in Settings → Chrome profiles → **+ SETUP NEW PROFILE** and sign into YouTube once.
+### Dev Setup
+1. **Clone the repository**:
+   ```powershell
+   git clone https://github.com/HunterisLive-1/ghost-creator.git
+   cd ghost-creator
+   ```
+2. **Run the installer script**:
+   Double click `setup.bat` (Run as Administrator recommended for Long Path support). It will configure the virtual environment, install requirements, and set up npm modules.
 
 ---
 
 ## Launching the App
 
-Activate the virtual environment first:
-
-```powershell
-venv\Scripts\activate.bat
-```
-
-| Mode | Command | Notes |
-|------|---------|-------|
-| **GUI (recommended)** | `npm run electron:dev` | Starts Vite + Electron; Python API auto-spawns |
-| **API only (debug)** | `python -m api.server` | Listens on `http://127.0.0.1:8766/health` |
-| **CLI documentary** | `python main.py` | Unattended run; no script review modal |
-| **CLI with topic** | `python main.py --topic "AI in India"` | Fixed subject |
-| **CLI + force upload** | `python main.py --topic "..." --upload` | Upload even if disabled in config |
-| **CLI upload only** | `python main.py --from-video --video-file output/run/film.mp4` | Skip generation |
-
-Electron waits for `GET /health` before showing the main window. If the GUI hangs on "Initializing…", check that port **8766** is free and the venv Python is available.
-
-When the app is running, open **Settings → Open Documentation** or visit `http://127.0.0.1:8766/guide` for the full user guide. API reference (Swagger) is at `http://127.0.0.1:8766/docs`.
+1. **Activate Virtual Environment**:
+   ```powershell
+   call venv\Scripts\activate.bat
+   ```
+2. **Launch Developer GUI**:
+   ```powershell
+   npm run electron:dev
+   ```
+3. **Launch CLI Mode (Unattended)**:
+   ```powershell
+   python main.py --topic "OpenAI reasoning models" --upload
+   ```
 
 ---
 
 ## GUI User Guide
 
-The app opens directly to the main interface (no activation or license key).
+### 1. Documentary Tab
+The command center for generating videos. Choose your mode (Short vs Long), input a topic, choose language, audio engine, and hit **ROLL FILM**.
 
-### Documentary tab
+* **Review Modal**: Appears when the script is generated. You can modify narration lines, adjust video clip queries, and click **Approve** to resume the graph.
+* **Cinema Terminal**: Displays real-time updates from nodes via WS/HTTP polling.
 
-Primary workflow for creating a new video.
+### 2. Upload Tab
+Provides direct, stand-alone video upload capabilities. Fill in metadata (or let Gemini **AI Fill** it based on file name) and launch.
 
-**Mode**
+### 3. Settings Tab
+Allows configuration of keys, model choices (Gemini vs local Ollama), watermark overlays, and active YouTube profiles.
 
-- **SHORT** — 30–60 s, vertical 9:16
-- **LONG** — 3 min – 2 hr, forces 16:9 aspect ratio
-
-**Subject**
-
-- Enter a topic manually, or enable **AUTO-SELECT** to let the pipeline pick a trending subject
-
-**Duration slider**
-
-- Adjust target length; saved per mode (short vs long)
-
-**Language**
-
-- Hindi, Hinglish, English, Marathi, Bengali, Gujarati, Tamil, Telugu, Odia
-
-**Voice engine**
-
-- **OmniVoice** — local voice clone (default)
-- **ElevenLabs** — cloud premium voice
-- **Edge TTS** — free Microsoft neural voices (easiest setup)
-
-**Footage**
-
-- **Clips:** Auto (based on duration) or fixed count (3–100)
-- **Burn subtitles:** long-form only — hardcoded white bold subs at bottom
-
-**Idea Workshop**
-
-- Collapsible Gemini chat to brainstorm documentary ideas
-- **SEND** — chat with the consultant
-- **CREATE NOW** — start pipeline from the last generated plan or topic field
-
-**Controls**
-
-- **ROLL FILM** — start the pipeline
-- **CUT** — stop after current step
-- **RETRY STEP** — retry the failed step (appears on error)
-
-**Progress**
-
-- Six hex steps: Research → Script → Voice → Footage → Assembly → Upload
-- **Cinema Terminal** — live log with INFO / SUCCESS / ERROR / WARNING tags
-
-**Script Review (modal)**
-
-When **Pause for script review** is enabled in Settings, the pipeline pauses after scripting:
-
-- Edit title, full voiceover text, and per-segment footage search queries
-- **Approve & Continue** — resume pipeline
-- **Regenerate** — cancel and restart from script step
-- **Cancel** — abort run
-
-**AI Error Analyst**
-
-On pipeline error, click **EXPLAIN & FIX** to get a Gemini-powered explanation from the log.
-
-**Output**
-
-- Finished MP4 path shown on success
-- **OPEN OUTPUT FOLDER** — opens the run directory in Explorer
-
----
-
-### Upload tab
-
-Upload any local MP4 to YouTube without running the full pipeline.
-
-1. **BROWSE** — select video file
-2. Fill **title**, **description**, **tags**, **visibility** (Public / Unlisted / Private / Draft)
-3. **AI FILL (Gemini)** — generate metadata from filename
-4. **START UPLOAD** — streams log output in the panel
-
-Requires a configured Chrome profile (Settings) and signed-in YouTube account.
-
----
-
-### Settings tab
-
-All persistent configuration. Click **[ SAVE CONFIG ]** after changes.
-
-**API Keys**
-
-- **Gemini** — required for scripting and AI features
-- **ElevenLabs** — optional (More API keys section)
-- **Pexels** — optional, improves footage download speed/quality
-
-**Audio (TTS)**
-
-- Backend selector: OmniVoice / Edge TTS / ElevenLabs
-- OmniVoice sub-panel: clone vs design mode, server path, reference audio, model ID, voice design knobs
-- Edge / ElevenLabs sub-panel: voice name or ID, stability sliders
-
-**Run Behavior**
-
-- **Pause for script review** — enable Script Review modal
-- **Narration language** — default pipeline language
-- **Output folder** — relative or absolute path for finished runs
-- **YouTube upload** — enable/disable + visibility mode (unlisted / public / draft)
-- **AI script provider** — Gemini (cloud) or Ollama (local LLM)
-- **Gemini model** or **Ollama URL + model**
-
-**Core Parameters**
-
-- **Chrome profiles** — manage YouTube upload sessions
-- **Logo watermark** — PNG/JPG overlay on final export (position, scale, opacity)
-
-**About**
-
-- App version and device name (informational)
-
-**Footer**
-
-- Path to `.env.local` — **OPEN IN EDITOR** for direct key editing
-
----
-
-### History tab
-
-Shows the **10 most recent** completed runs from the output folder.
-
-Per run card:
-
-- Title, timestamp, topic, description snippet, duration
-- **Open Folder** — show run directory
-- **Re-render (FFmpeg)** — re-assemble from saved `documentary_editor.json` + clips (if available)
-- **Play Video** — open MP4 in default player
-
-After re-render, the app can jump to **Upload** tab with the new file pre-filled.
+### 4. History Tab
+Displays the last 10 runs. Allows re-opening folders or using **Re-render** to rebuild projects from the stored `documentary_editor.json`.
 
 ---
 
 ## Configuration Reference
 
-Settings are stored in **`config.json`**.
+Settings are stored in `config.json` (development) or `%LOCALAPPDATA%\GhostCreatorAI\config.json` (installed app).
 
-| Environment | Config location |
-|-------------|-----------------|
-| Development (`python` / `npm run electron:dev`) | Project root `config.json` |
-| Installed app | `%LOCALAPPDATA%\GhostCreatorAI\config.json` |
-
-Secrets can also be set in **`.env.local`** (synced on Save).
-
-### Key settings
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `api_keys.gemini` | `""` | Gemini API key (required) |
-| `api_keys.pexels` | `""` | Pexels API key (optional footage) |
-| `api_keys.elevenlabs` | `""` | ElevenLabs key |
-| `tts.backend` | `omnivoice` | `omnivoice` \| `edge_tts` \| `elevenlabs` |
-| `tts.reference_audio` | `my_voice_reference.wav` | OmniVoice clone reference |
-| `tts.omnivoice_server_path` | `""` | Path to OmniVoice start script |
-| `script_provider` | `gemini` | `gemini` \| `ollama` |
-| `gemini_model` | `gemini-2.0-flash` | Script generation model |
-| `script_review_enabled` | `true` | Pause for script review in GUI |
-| `pipeline.language` | `hi` | Narration language code |
-| `pipeline.output_folder` | `output` | Finished videos directory |
-| `pipeline.upload_enabled` | `true` | Auto-upload after assembly |
-| `pipeline.upload_mode` | `unlisted` | `unlisted` \| `public` \| `draft` |
-| `documentary.length_mode` | `short` | `short` \| `long` |
-| `documentary.short_duration` | `60` | Short mode seconds |
-| `documentary.long_duration` | `600` | Long mode seconds |
-| `documentary.burn_subtitles` | `false` | Long-form hard subs |
-| `documentary.logo_enabled` | `false` | Watermark on export |
-| `aspect_ratio` | `9:16` | Overridden to `16:9` for long mode |
+| Config Key | Default | Description |
+|------------|---------|-------------|
+| `api_keys.gemini` | `""` | Google Gemini key |
+| `api_keys.pexels` | `""` | Pexels API key (stock footage) |
+| `tts.backend` | `"omnivoice"` | `omnivoice` \| `edge_tts` \| `elevenlabs` |
+| `script_provider` | `"gemini"` | `gemini` \| `ollama` |
+| `pipeline.language` | `"hi"` | Language code for voice and script |
+| `pipeline.error_recovery_enabled` | `true` | Enables LangGraph self-healing routing |
+| `documentary.playback_speed` | `1.0` | Target assembly speed (adjust in editor) |
 
 ---
 
 ## TTS Backends
 
-Configured in Settings → Audio. Only three backends are supported:
-
-| Backend | Cost | Quality | Setup |
-|---------|------|---------|-------|
-| **OmniVoice** (default) | Free (local server) | Best voice clone | External OmniVoice install + reference WAV |
-| **Edge TTS** | Free | Good neural voices | None — works immediately |
-| **ElevenLabs** | Paid | Premium cloud | API key + Voice ID in Settings |
-
-OmniVoice weights and PyTorch are **not included** in the packaged app or `GhostCreatorAPI.exe`. Install OmniVoice separately (example: `D:\omnivoice\OmniVoice`), then set **Settings → OmniVoice Server Path** to that install's `run.bat`.
-
-Language support varies by backend; the pipeline validates compatibility before synthesis.
+1. **OmniVoice (Default)**: Premium local voice cloning. Set path to `run.bat` in settings, and place a reference clip as `my_voice_reference.wav` in the project root.
+2. **Edge TTS**: Easiest zero-configuration backend. High-quality Microsoft neural voices.
+3. **ElevenLabs**: Premium cloud generation. Requires API key in settings.
 
 ---
 
 ## Footage Sources
 
-Documentary mode downloads **real stock/video clips**, not AI-generated images.
-
-Priority ([`modules/video_fetcher.py`](modules/video_fetcher.py)):
-
-1. **Pexels API** — fast direct HD downloads (requires `api_keys.pexels`)
-2. **yt-dlp fallback** — YouTube B-roll; downloads first ~90 s per query via `--download-sections`
-
-Each script segment includes a **video search query** (editable in Script Review). Clips are trimmed and synced to narration length during assembly.
+Video footage mode pulls real video files:
+* **Pexels API**: Direct high-quality stock downloads (free key recommended).
+* **yt-dlp**: Automated B-Roll search on YouTube. Trims clip intervals to fit narration sections.
+* **Gemini Imagen**: (Fallback) Generates image slides if video mode is disabled.
 
 ---
 
 ## CLI Reference
 
-Headless entry point: [`main.py`](main.py)
-
+Run `main.py` directly for automated, headless execution:
 ```powershell
-# Auto-topic documentary
-python main.py
-
-# Fixed topic
-python main.py --topic "Future of AI in India"
-
-# Force YouTube upload after generation
-python main.py --topic "Space exploration" --upload
-
-# Upload existing MP4 only
-python main.py --from-video
-python main.py --from-video --video-file "output\my_run\documentary.mp4"
-
-# Show version
-python main.py --version
+python main.py --topic "Geopolitics" --upload
+python main.py --from-video --video-file "C:\videos\film.mp4"
 ```
-
-**Notes**
-
-- CLI runs **disable script review** automatically (no modal)
-- Upload uses metadata from the run folder or `output/last_metadata.json`
-- Respects `pipeline.upload_enabled` unless `--upload` flag is passed
 
 ---
 
 ## Building a Release
 
-For developers packaging a Windows installer:
+If you want to package the app into a standalone installer:
 
-```powershell
-# 1. Build Python API sidecar
-build-api.bat
-# Output: dist-api\GhostCreatorAPI.exe
+1. **Compile API binary**:
+   ```powershell
+   build-api.bat
+   ```
+   Uses `GhostCreatorAPI.spec` to package Python, LangGraph, and libraries into a windowless sidecar inside `dist-api/GhostCreatorAPI/`.
 
-# 2. Build Electron app + NSIS bundle
-build-electron.bat
-# Output: release\ (electron-builder)
+2. **Package Electron project**:
+   ```powershell
+   build-electron.bat
+   ```
+   Bundles Vite frontend and packages the app using `electron-builder` to the `release/` directory.
 
-# 3. Optional: Inno Setup installer
-# Open installer_v4.iss in Inno Setup Compiler
-# Bundles release\win-unpacked + GhostCreatorAPI.exe
-```
-
-**FFmpeg on installed builds:** not bundled in the installer (keeps size small). On first run, FFmpeg is downloaded to:
-
-`%LOCALAPPDATA%\GhostCreatorAI\ffmpeg`
-
-See [`core/ffmpeg_bootstrap.py`](core/ffmpeg_bootstrap.py).
+3. **Inno Setup Installer**:
+   Open `installer_v4.iss` in the Inno Setup Compiler. Compiles the full installer EXE including the Electron binaries and Python API sidecar.
 
 ---
 
@@ -490,129 +255,42 @@ See [`core/ffmpeg_bootstrap.py`](core/ffmpeg_bootstrap.py).
 ```
 ghost-creator/
 ├── electron/                 # Electron main process + Python bridge
-│   ├── main.ts
-│   ├── preload.ts
-│   └── python-bridge.ts
 ├── src/                      # React UI (Vite)
-│   ├── App.tsx
-│   ├── tabs/                 # Documentary, Upload, Settings, History
-│   ├── components/           # ScriptReviewModal, HexProgress, etc.
-│   └── api/client.ts         # REST + WebSocket client
-├── api/                      # FastAPI local backend
-│   ├── server.py             # uvicorn entry (port 8766)
-│   └── routes/               # config, pipeline, upload, history, workshop
-├── core/
-│   ├── config_manager.py     # config.json read/write
-│   ├── pipeline_runner.py    # 6-step documentary orchestrator
-│   └── ffmpeg_bootstrap.py   # First-run FFmpeg download
-├── modules/
-│   ├── researcher.py         # Trending topic finder
-│   ├── scripter.py           # Script + metadata generation
-│   ├── voicer.py             # TTS dispatcher
-│   ├── video_fetcher.py      # Pexels + yt-dlp footage
-│   ├── documentary_assembler.py  # FFmpeg final assembly
-│   └── uploader.py             # YouTube Playwright upload
-├── backends/
-│   ├── tts/                  # omnivoice, edge_tts, elevenlabs
-│   └── image/                # gemini_imagen (thumbnails/auxiliary)
+├── api/                      # FastAPI REST + WS controllers
+├── graph/                    # Stateful LangGraph definition
+│   ├── nodes/                # Node handlers (research, voice, assemble)
+│   ├── pipeline.py           # Graph compiler with SQLiteSaver
+│   └── state.py              # State schema
+├── core/                     # Configuration and FFmpeg bootstrap
+├── modules/                  # Lower-level modules (research, assembler)
+├── backends/                 # TTS and Image generation plugins
 ├── main.py                   # CLI entry point
-├── setup.bat                 # One-click dev setup
-├── build-api.bat             # PyInstaller API build
-├── build-electron.bat        # Full Electron release build
-├── installer_v4.iss          # Inno Setup installer script
-├── package.json              # Node/Electron scripts
-├── requirements.txt          # Python dependencies
-├── config.json               # User settings (auto-created, gitignored)
-└── LICENSE                   # MIT
+├── build-api.bat             # Compiles Python API with PyInstaller
+├── build-electron.bat        # Compiles Electron/React dist files
+└── installer_v4.iss          # Inno Setup installation compiler script
 ```
 
 ---
 
 ## Troubleshooting
 
-### GUI stuck on "Initializing Neural Interface…"
+### App Stuck at "Initializing Neural Interface..."
+1. Check if another process is holding port **8766**.
+2. Run `python -m api.server` manually and check for any missing libraries.
 
-```powershell
-venv\Scripts\activate.bat
-pip install -r requirements.txt
-npm install
-python -m api.server
-# Visit http://127.0.0.1:8766/health — should return {"ok": true, ...}
-npm run electron:dev
-```
-
-Ensure nothing else is using port **8766**.
-
-### FFmpeg not found
-
-```powershell
-winget install ffmpeg
-ffmpeg -version
-```
-
-Or for dev only:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File ensure_ffmpeg.ps1
-```
-
-### OmniVoice / voice step fails
-
-- Confirm OmniVoice server is running
-- Check **Settings → OmniVoice server path** points to the correct `.bat`
-- Verify `my_voice_reference.wav` exists, or switch to **Edge TTS** for a quick test
-
-### Footage download slow or failing
-
-- Add a **Pexels API key** in Settings (free)
-- yt-dlp fallback requires internet; some queries may fail if no matching YouTube clip exists
-- Retry with **RETRY STEP** on the Documentary tab
-
-### YouTube upload fails
-
-- Use real **Google Chrome** (not Edge Chromium-only builds for Playwright)
-- Run `python setup_chrome_profile.py` and complete sign-in once
-- Check the correct Chrome profile is selected in Settings
-- Ensure upload is enabled: Settings → YouTube upload
-
-### `config.json` missing
-
-```powershell
-venv\Scripts\activate.bat
-python -c "from core.config_manager import config; config.save()"
-```
-
-Or re-run `setup.bat`.
-
-### Gemini / script errors
-
-- Verify `api_keys.gemini` in Settings
-- Check API quota at [aistudio.google.com](https://aistudio.google.com)
-- For local scripts, ensure Ollama is running and reachable at the URL in Settings
-
-### `No module named 'X'`
-
-```powershell
-venv\Scripts\activate.bat
-pip install -r requirements.txt
-```
+### FFmpeg Errors
+Run `ensure_ffmpeg.ps1` in PowerShell to download and register FFmpeg to your path, or let the app download it automatically on launch.
 
 ---
 
 ## License
 
-**MIT License** — free and open source. No activation or license key required.
-
-See [LICENSE](LICENSE) for the full text.
+MIT License. Free to use, modify, and distribute. Stay Ghost. Stay Consistent.
 
 ---
 
 <div align="center">
 
 **Made with care by [HunterIsLive](https://github.com/HunterisLive-1)**
-
-*Ghost Creator AI — Automate your documentaries. Stay Ghost. Stay Consistent.*
-
-**[GitHub Repository](https://github.com/HunterisLive-1/ghost-creator)**
 
 </div>

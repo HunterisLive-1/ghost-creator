@@ -33,7 +33,7 @@ FFMPEG_ZIP_URL = (
     "ffmpeg-master-latest-win64-gpl.zip"
 )
 
-_USER_AGENT = "GhostCreatorAI-FFmpegBootstrap/4.2.2"
+_USER_AGENT = "GhostCreatorAI-FFmpegBootstrap/4.3.0"
 
 
 def runtime_ffmpeg_dir() -> Path:

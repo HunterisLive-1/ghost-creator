@@ -27,7 +27,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState<TabId>("documentary");
   const [systemState, setSystemState] = useState<SystemState>("READY");
-  const [version, setVersion] = useState("4.2.2");
+  const [version, setVersion] = useState("4.3.0");
   const [ttsBackend, setTtsBackend] = useState("OMNIVOICE");
   const [uploadPrefill, setUploadPrefill] = useState<{ path: string; title?: string } | null>(null);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);

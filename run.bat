@@ -1,11 +1,11 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Ghost Creator AI v4.2.2 — Launch
+title Ghost Creator AI v4.3.0 — Launch
 
 echo.
 echo  ============================================================
-echo    GHOST CREATOR AI v4.2.2 — Launch
+echo    GHOST CREATOR AI v4.3.0 — Launch
 echo  ============================================================
 echo.
 

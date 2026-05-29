@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 echo.
 echo  ============================================================
-echo    GHOST CREATOR AI v4.2.2 - Build Python API (onedir)
+echo    GHOST CREATOR AI v4.3.0 - Build Python API (onedir)
 echo  ============================================================
 echo.
 

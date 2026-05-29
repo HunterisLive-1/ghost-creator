@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 chcp 65001 >nul
-title Ghost Creator AI v4.2.2 — Setup
+title Ghost Creator AI v4.3.0 — Setup
 cd /d "%~dp0"
 
 echo.
